@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.0.1
-// @description  各種IRの曲ページ、STELLAVERSEの投票ページの譜面情報を拡充する。ノーツ分布とBPM推移のグラフも描写する。beatorajaのDB格納データが元ネタ。
+// @version      1.0.2
+// @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
 // @match        https://stellabms.xyz/*
@@ -10,12 +10,10 @@
 // @match        https://mocha-repository.info/song.php*
 // @grant        GM_addStyle
 // @grant        GM_getResourceText
-// @connect      neeted.github.io
+// @connect      bms.howan.jp
 // @resource     googlefont https://fonts.googleapis.com/css2?family=Inconsolata&family=Noto+Sans+JP&display=swap
-// @require      https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js
-// @require      https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js
-// @updateURL    https://neeted.github.io/bmsdata/tampermonkey/bms_info_extender.user.js
-// @downloadURL  https://neeted.github.io/bmsdata/tampermonkey/bms_info_extender.user.js
+// @updateURL    https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
+// @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at document-start
 // ==/UserScript==
 
@@ -654,11 +652,11 @@
     // 取得できているハッシュによって問い合わせ先を変える
     let url = "";
     if (targetmd5) {
-      url = `https://neeted.github.io/bmsdata/md5/${targetmd5}.csv.gz`;
+      url = `https://bms.howan.jp/${targetmd5}`;
     } else if (targetsha256) {
-      url = `https://neeted.github.io/bmsdata/sha256/${targetsha256}.csv.gz`;
+      url = `https://bms.howan.jp/${targetsha256}`;
     } else {
-      url = `https://neeted.github.io/bmsdata/bmsid/${targetbmsid}.csv.gz`;
+      url = `https://bms.howan.jp/${targetbmsid}`;
     }
 
     // 取得データのスキーマは以下となっている
@@ -667,24 +665,26 @@
     const data = await (async () => {
       try {
         const response = await fetch(url);
-        const buffer = await response.arrayBuffer();
-        const decompressed = fflate.decompressSync(new Uint8Array(buffer));
-        const text = new TextDecoder("utf-8").decode(decompressed);
+        if (!response.ok) {
+          throw new Error(`HTTP error: ${response.status}`);
+        }
+        const text = await response.text();
+        const values = text.split('\x1f'); // 区切り文字（Unit Separator）で分割、「,」を使わないことでパースコストを削減
 
-        const parsed = Papa.parse(text, {
-          header: false,
-          skipEmptyLines: true,
-        });
+        if (values.length !== columns.length) {
+          throw new Error(`列数が一致しません（columns=${columns.length}, values=${values.length}）`);
+        }
 
-        const data = parsed.data.map(row => {
-          const obj = {};
-          columns.forEach((col, i) => obj[col] = row[i]);
-          return obj;
-        });
-        return data[0];
+        // columnsに対応する連想配列（オブジェクト）を作成
+        const record = {};
+        for (let i = 0; i < columns.length; i++) {
+          record[columns[i]] = values[i];
+        }
+
+        return record;
+
       } catch (error) {
-        console.error(error.message);
-        // 取得中にエラーが発生した場合はfalseを返す
+        console.error("Fetch or parse error:", error);
         return false;
       }
     })();
@@ -748,7 +748,7 @@
           tokens[baseIndex] ?? 0, // 通常ノーツ
           tokens[baseIndex + 1] ?? 0, // LN
           tokens[baseIndex + 2] ?? 0, // 地雷
-          tokens[baseIndex] + tokens[baseIndex + 1] ?? 0  // 通常ノーツ+LN
+          tokens[baseIndex] + tokens[baseIndex + 1] ?? 0 // 通常ノーツ+LN
         ]);
       }
       if (mode === 7 || mode === 14) {

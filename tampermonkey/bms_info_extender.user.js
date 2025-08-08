@@ -116,7 +116,7 @@
     console.info("STELLAVERSEの処理に入りました");
     let alreadyUpdatedUrl;
 
-    // 初回ページ読み込み完了時に施行
+    // 初回ページ読み込み完了時に試行
     // バックグラウンドでタブを開きつつそのタブをアクティブにしたタイミングによってはMutationObserverが反応せず、Visibilitychangeイベントも発火しない場合があったので必須
     if (document.readyState === "complete") {
       console.info("🔥 loadイベントは発火済でした");
@@ -313,7 +313,7 @@
     console.info("MinIRの処理に入りました");
     let alreadyUpdatedUrl;
 
-    // 初回ページ読み込み完了時に施行
+    // 初回ページ読み込み完了時に試行
     // バックグラウンドでタブを開きつつそのタブをアクティブにしたタイミングによってはMutationObserverが反応せず、Visibilitychangeイベントも発火しない場合があったので必須
     if (document.readyState === "complete") {
       console.info("loadイベントは発火済でした");

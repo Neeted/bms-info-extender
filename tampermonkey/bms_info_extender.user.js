@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.0.2
+// @version      1.0.3
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -189,6 +189,7 @@
       window.addEventListener("locationchange", () => {
         if (location.href !== lastUrl) {
           lastUrl = location.href;
+          alreadyUpdatedUrl = null; // URLが変化しているのでページの書き換えフラグも削除
           console.log("🔄 URLが変化しました:", lastUrl);
           if(location.href.startsWith("https://stellabms.xyz/thread/")) {
             startObserving();
@@ -385,6 +386,7 @@
       window.addEventListener("locationchange", () => {
         if (location.href !== lastUrl) {
           lastUrl = location.href;
+          alreadyUpdatedUrl = null; // URLが変化しているのでページの書き換えフラグも削除
           console.log("🔄 URLが変化しました:", lastUrl);
           if(location.href.startsWith("https://www.gaftalk.com/minir/#/viewer/song/")) {
             startObserving();

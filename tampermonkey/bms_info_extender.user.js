@@ -285,8 +285,14 @@
       if (targetmd5) {
         html_target_element = tableContainer;
         html_target_dest = "beforeend";
+        // ダークモード判定
+        const isDarkMode = document.documentElement.style.getPropertyValue("color-scheme").includes("dark");
         // テンプレートを挿入
-        insertBmsDataTemplate(html_target_element, html_target_dest, "#fafafa", "#09090b", "#fafafa", "#18191d");
+        if (isDarkMode) {
+          insertBmsDataTemplate(html_target_element, html_target_dest, "#fafafa", "#09090b", "#fafafa", "#18191d");
+        } else {
+          insertBmsDataTemplate(html_target_element, html_target_dest, "#09090b", "#ffffff", "#09090b", "#e9eaed");
+        }
         // 外部から取得したデータでテンプレートを置換
         if (await insertBmsData()) {
           console.info("✅ 外部データの取得とページの書き換えが成功しました");

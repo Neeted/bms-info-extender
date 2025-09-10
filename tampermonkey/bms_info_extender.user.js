@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.0.4
+// @version      1.0.5
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -16,6 +16,8 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at document-start
 // ==/UserScript==
+
+// 1.0.5 誤字修正
 
 // @run-at document-startでとにかく最速でスクリプトを起動して、ページが書き換え処理可能な状態かどうかはサイトごとに固有の判定を行う
 
@@ -580,7 +582,7 @@
             <tr>
               <td class="bd-header-cell">LINK</td>
               <td colspan="3">
-                <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STTELLAVERSE</a>
+                <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
               </td>
             </tr>
             <tr>

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.0.5
+// @version      1.1.0
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -17,6 +17,7 @@
 // @run-at document-start
 // ==/UserScript==
 
+// 1.1.0 外部データ取得失敗時のフォールバック処理を追加(LR2IR、MochaでMD5や譜面ビューアへのリンクを表示)
 // 1.0.5 誤字修正
 
 // @run-at document-startでとにかく最速でスクリプトを起動して、ページが書き換え処理可能な状態かどうかはサイトごとに固有の判定を行う
@@ -103,6 +104,22 @@
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
         } else {
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
+          // 外部データが取得できなかった場合のフォールバック処理
+          const tbody = document.querySelector("#box > table:nth-child(10) > tbody")
+          if (tbody) {
+            // IR登録済み曲の場合
+            const md5Row = document.createElement("tr");
+            md5Row.innerHTML = `<th>MD5</th><td colspan="7">${targetmd5}</td>`;
+            const viewerRow = document.createElement("tr");
+            viewerRow.innerHTML = `<th>VIEWER</th><td colspan="7"><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td>`;
+            tbody.appendChild(md5Row);
+            tbody.appendChild(viewerRow);
+          } else {
+            // IR未登録の場合
+            const table_element = document.createElement("table");
+            table_element.innerHTML = `<tr><th>MD5</th><td>${targetmd5}</td></tr><tr><th>VIEWER</th><td><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td></tr>`;
+            document.getElementById("search").after(table_element);
+          }
         }
       } else {
         console.info("❌ LR2IRのページ書き換えはスキップされました。MD5/BMSIDかターゲット要素が取得できませんでした");
@@ -497,7 +514,42 @@
           }
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
         } else {
+          // 外部データの取得が出来なかった場合にはMocha内のLR2IRリンクからmd5を取得しハッシュと譜面ビューアへのリンクを表示する
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
+          // LR2IRリンク要素取得
+          const lr2irLink = document.querySelector("#main > table.songinfo > tbody > tr:nth-child(11) > td.songinfo_content > a:nth-child(3)");
+          if (lr2irLink) {
+            // hrefからmd5抽出
+            const href = lr2irLink.getAttribute("href");
+            const md5Match = href.match(/bmsmd5=([0-9a-fA-F]{32})/);
+            const md5 = md5Match[1];
+
+            // tbodyを取得し、末尾にsha256とmd5行を挿入
+            const tbody = document.querySelector("#main > table.songinfo > tbody");
+            const sha256Row = document.createElement("tr");
+            sha256Row.setAttribute("height", "20");
+            sha256Row.className = "ranking_header";
+            sha256Row.innerHTML = `<td class="songinfo_header">Sha256</td><td class="songinfo_content">${targetsha256}</td>`;
+
+            const md5Row = document.createElement("tr");
+            md5Row.setAttribute("height", "20");
+            md5Row.className = "ranking_header";
+            md5Row.innerHTML = `<td class="songinfo_header">Md5</td><td class="songinfo_content">${md5}</td>`;
+
+            tbody.appendChild(sha256Row);
+            tbody.appendChild(md5Row);
+
+            // 譜面ビューアへのリンクを追加
+            const targetTd = document.querySelector("#main > table.songinfo > tbody > tr:nth-child(11) > td.songinfo_content");
+            const viewerLink = document.createElement("a");
+            viewerLink.href = `https://bms-score-viewer.pages.dev/view?md5=${md5}`;
+            viewerLink.target = "_blank";
+            viewerLink.textContent = "Viewer";
+            targetTd.appendChild(document.createTextNode("　"));
+            targetTd.appendChild(viewerLink);
+          } else {
+            console.error("❌ LR2IRリンクが見つかりませんでした");
+          }
         }
       } else {
         console.info("❌ Mochaのページ書き換えはスキップされました。sha256かターゲット要素が取得できませんでした");

@@ -1,0 +1,19 @@
+# BMS Info Extender 設定ファイルのサンプル
+# このファイルを data/config.ini にコピーして、各自の環境に合わせてパスを設定してください
+
+[database]
+# LR2のsong.dbのパス
+main_db = D:\LR2beta3\LR2files\Database\song.db
+
+# beatorajaのsongdata.dbのパス
+songdata_db = D:\beatoraja\songdata.db
+
+# beatorajaのsonginfo.dbのパス
+songinfo_db = D:\beatoraja\songinfo.db
+
+[cloudflare_r2]
+# Cloudflare R2の設定
+endpoint_url = https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com
+access_key = YOUR_ACCESS_KEY
+secret_key = YOUR_SECRET_KEY
+bucket_name = YOUR_BUCKET_NAME

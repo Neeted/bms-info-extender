@@ -1,0 +1,11 @@
+# BMS Info Extender - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+polars[rtcompat]
+pyarrow
+pandas
+brotli
+tqdm
+requests
+selenium
+boto3

@@ -25,12 +25,6 @@
 (function () {
   'use strict';
   console.info("BMS Info Extenderが起動しました");
-  // 外部問い合わせとページ書き換えに必須のデータ、これが未定義のままなら書き換え処理には進まない
-  let html_target_element;
-  let html_target_dest;
-  let targetmd5;
-  let targetsha256;
-  let targetbmsid;
 
   // 使用するフォントを準備
   const fontCSS = GM_getResourceText("googlefont");
@@ -51,6 +45,139 @@
   }
 
   return;
+
+  function installLocationChangeHookOnce() {
+    const hookFlag = "__bmsInfoExtenderLocationHookInstalled";
+    if (window[hookFlag]) {
+      return;
+    }
+    window[hookFlag] = true;
+
+    const dispatchLocationChange = () => {
+      window.dispatchEvent(new Event("locationchange"));
+    };
+
+    const pushState = history.pushState;
+    history.pushState = function (...args) {
+      const result = pushState.apply(this, args);
+      dispatchLocationChange();
+      return result;
+    };
+
+    const replaceState = history.replaceState;
+    history.replaceState = function (...args) {
+      const result = replaceState.apply(this, args);
+      dispatchLocationChange();
+      return result;
+    };
+
+    window.addEventListener("popstate", dispatchLocationChange);
+  }
+
+  function watchSpaPage({ siteName, matchUrl, updatePage, isSettled }) {
+    let lastUrl = location.href;
+    let completedUrl = null;
+    let observer = null;
+    let isUpdating = false;
+
+    function markUpdated() {
+      completedUrl = location.href;
+    }
+
+    function shouldStopObserving() {
+      return completedUrl === location.href || !matchUrl(location.href) || Boolean(isSettled?.());
+    }
+
+    async function runUpdate() {
+      if (isUpdating || completedUrl === location.href || !matchUrl(location.href) || isSettled?.()) {
+        if (shouldStopObserving()) {
+          stopObserving();
+        }
+        return;
+      }
+
+      isUpdating = true;
+      try {
+        await updatePage({ markUpdated });
+      } finally {
+        isUpdating = false;
+        if (shouldStopObserving()) {
+          stopObserving();
+        }
+      }
+    }
+
+    function startObserving() {
+      if (observer || !matchUrl(location.href) || !document.body) {
+        return;
+      }
+
+      console.log(`👁️ ${siteName}: MutationObserverによる監視を開始します`);
+
+      observer = new MutationObserver(async () => {
+        console.info("MutationObserverがDOMの変化を検知しました");
+        if (!document.hidden) {
+          await runUpdate();
+        }
+        if (shouldStopObserving()) {
+          stopObserving();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    function stopObserving() {
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+        console.log(`🛑 ${siteName}: MutationObserverによる監視を停止します`);
+      }
+    }
+
+    installLocationChangeHookOnce();
+
+    if (document.readyState === "complete") {
+      console.info("🔥 loadイベントは発火済でした");
+      startObserving();
+      void runUpdate();
+    } else {
+      window.addEventListener('load', () => {
+        console.info("🔥 loadイベントが発火しました");
+        startObserving();
+        void runUpdate();
+      });
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      console.info("🔥 Visibilitychangeイベントが発火しました");
+      if (document.hidden) {
+        return;
+      }
+      startObserving();
+      void runUpdate();
+    });
+
+    window.addEventListener("locationchange", () => {
+      if (location.href === lastUrl) {
+        return;
+      }
+
+      lastUrl = location.href;
+      completedUrl = null;
+      console.log("🔄 URLが変化しました:", lastUrl);
+
+      if (matchUrl(location.href)) {
+        startObserving();
+        if (!document.hidden) {
+          void runUpdate();
+        }
+      } else {
+        stopObserving();
+      }
+    });
+
+    startObserving();
+  }
 
   // ====================================================================================================
   // LR2IR
@@ -77,6 +204,8 @@
       }
       console.info("LR2IR曲ページの書き換え処理に入りました");
 
+      let targetbmsid = null;
+
       // 曲ページ「更新履歴」リンクのGETパラメータからbmsidを取得
       const a = document.getElementsByTagName("a"); // HTMLCollection
       for (let i = 0; i < a.length; i++) {
@@ -85,22 +214,27 @@
         }
       }
       // 現在のウィンドウのGETパラメータを取得
-      targetmd5 = new URL(window.location.href).searchParams.get('bmsmd5');
+      const targetmd5 = new URL(window.location.href).searchParams.get('bmsmd5');
 
       // ターゲット要素特定
       // アーティスト名用<h2>がある場合は登録曲なので曲名の下を挿入先にする
-      html_target_element = document.querySelector("#box > h2")
-      html_target_dest = "afterend";
+      let htmlTargetElement = document.querySelector("#box > h2");
+      let htmlTargetDest = "afterend";
       // <h2>がない場合は検索窓の下を挿入先にする
-      if (!html_target_element) {
-        html_target_element = document.getElementById("search");
+      if (!htmlTargetElement) {
+        htmlTargetElement = document.getElementById("search");
       }
       // MD5かBMSIDが取得済み、かつ、ターゲット要素が特定済み、の場合にはbmsdataの挿入に進む
-      if ((targetmd5 || targetbmsid) && html_target_element && html_target_dest) {
+      if ((targetmd5 || targetbmsid) && htmlTargetElement && htmlTargetDest) {
+        const pageContext = {
+          identifiers: { md5: targetmd5, sha256: null, bmsid: targetbmsid },
+          insertion: { element: htmlTargetElement, position: htmlTargetDest },
+          theme: { dctx: "#333", dcbk: "#fff", hdtx: "#eef", hdbk: "#669" }
+        };
         // テンプレートを挿入
-        insertBmsDataTemplate(html_target_element, html_target_dest);
+        const container = insertBmsDataTemplate(pageContext);
         // 外部から取得したデータでテンプレートを置換
-        if (await insertBmsData()) {
+        if (await insertBmsData(pageContext, container)) {
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
         } else {
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
@@ -133,97 +267,17 @@
   // ====================================================================================================
   async function stellaverse() {
     console.info("STELLAVERSEの処理に入りました");
-    let alreadyUpdatedUrl;
-
-    // 初回ページ読み込み完了時に試行
-    // バックグラウンドでタブを開きつつそのタブをアクティブにしたタイミングによってはMutationObserverが反応せず、Visibilitychangeイベントも発火しない場合があったので必須
-    if (document.readyState === "complete") {
-      console.info("🔥 loadイベントは発火済でした");
-      await updatePage();
-    } else {
-      window.addEventListener('load', async () => {
-        console.info("🔥 loadイベントが発火しました");
-        await updatePage();
-      });
-    }
-
-    // タブがアクティブになったときに試行
-    document.addEventListener("visibilitychange", async () => {
-      console.info("🔥 Visibilitychangeイベントが発火しました");
-      await updatePage();
+    watchSpaPage({
+      siteName: "STELLAVERSE",
+      matchUrl: (url) => url.startsWith("https://stellabms.xyz/thread/"),
+      updatePage
     });
-
-    // DOM変化時に試行、処理が終わったらURLが変化するまで監視を止める
-    let lastUrl = location.href;
-    let observer = null;
-
-    function startObserving() {
-      if (observer) return;
-
-      console.log("👁️ MutationObserverによる監視を開始します");
-
-      observer = new MutationObserver(async () => {
-        console.info("MutationObserverがDOMの変化を検知しました");
-        // ページ変化時に、変更済みのURLではない場合は、変更済みURLを消す
-        if (location.href != alreadyUpdatedUrl) {
-          alreadyUpdatedUrl = null;
-        }
-        // バックグラウンドタブなど非表示の場合は、最速での書き換えにこだわらず、load発火時(読み込み完了)やvisibilitychange発火時(アクティブ化)に任せる
-        if (!document.hidden) {
-          await updatePage();
-        }
-        // すでに書き換え済みかスレッドページではない場合監視を止める
-        if (alreadyUpdatedUrl || !location.href.startsWith("https://stellabms.xyz/thread/")) {
-          stopObserving();
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-    }
-
-    function stopObserving() {
-      if (observer) {
-        observer.disconnect();
-        observer = null;
-        console.log("🛑 MutationObserverによる監視を停止します");
-      }
-    }
-
-    function observeUrlChanges() {
-      const pushState = history.pushState;
-      history.pushState = function (...args) {
-        pushState.apply(this, args);
-        window.dispatchEvent(new Event("locationchange"));
-      };
-
-      const replaceState = history.replaceState;
-      history.replaceState = function (...args) {
-        replaceState.apply(this, args);
-        window.dispatchEvent(new Event("locationchange"));
-      };
-
-      window.addEventListener("popstate", () => {
-        window.dispatchEvent(new Event("locationchange"));
-      });
-
-      window.addEventListener("locationchange", () => {
-        if (location.href !== lastUrl) {
-          lastUrl = location.href;
-          alreadyUpdatedUrl = null; // URLが変化しているのでページの書き換えフラグも削除
-          console.log("🔄 URLが変化しました:", lastUrl);
-          if(location.href.startsWith("https://stellabms.xyz/thread/")) {
-            startObserving();
-          }
-        }
-      });
-    }
-    observeUrlChanges(); // 初期起動
-    startObserving();
 
     // ==================================================================================================
     // スレッドページの書き換え処理
-    async function updatePage() {
-      // 現在URLが処理済みURL or スレッドページではない、場合return
-      if (location.href == alreadyUpdatedUrl || !location.href.startsWith("https://stellabms.xyz/thread/")) {
+    async function updatePage({ markUpdated }) {
+      // スレッドページではない場合return
+      if (!location.href.startsWith("https://stellabms.xyz/thread/")) {
         return;
       }
       console.info("スレッドページの書き換え処理に入りました");
@@ -250,7 +304,7 @@
       elapsedTimeElement.textContent = elapsedText;
 
       targetElem.insertAdjacentElement('afterend', elapsedTimeElement);
-      alreadyUpdatedUrl = location.href; // 経過時間表示処理完了時点でフラグを立てる
+      markUpdated(); // 経過時間表示処理完了時点でフラグを立てる
 
       // テーブルの1行目(レベル、key)を削除(多分なくても良い情報？)
       tableContainer.querySelector('[data-slot="table-row"]').remove();
@@ -286,6 +340,7 @@
 
       // MD5抽出、Bokutachiリンク抽出
       let bokutachi;
+      let targetmd5 = null;
       const anchors = tableContainer.querySelectorAll('a');
       for (const a of anchors) {
         if (a.textContent.trim() === 'LR2IR') {
@@ -302,22 +357,23 @@
       }
       // MD5が取得できている場合には、bmsdataの挿入に進む
       if (targetmd5) {
-        html_target_element = tableContainer;
-        html_target_dest = "beforeend";
         // ダークモード判定
         const isDarkMode = document.documentElement.style.getPropertyValue("color-scheme").includes("dark");
+        const pageContext = {
+          identifiers: { md5: targetmd5, sha256: null, bmsid: null },
+          insertion: { element: tableContainer, position: "beforeend" },
+          theme: isDarkMode
+            ? { dctx: "#fafafa", dcbk: "#09090b", hdtx: "#fafafa", hdbk: "#18191d" }
+            : { dctx: "#09090b", dcbk: "#ffffff", hdtx: "#09090b", hdbk: "#e9eaed" }
+        };
         // テンプレートを挿入
-        if (isDarkMode) {
-          insertBmsDataTemplate(html_target_element, html_target_dest, "#fafafa", "#09090b", "#fafafa", "#18191d");
-        } else {
-          insertBmsDataTemplate(html_target_element, html_target_dest, "#09090b", "#ffffff", "#09090b", "#e9eaed");
-        }
+        const container = insertBmsDataTemplate(pageContext);
         // 外部から取得したデータでテンプレートを置換
-        if (await insertBmsData()) {
+        if (await insertBmsData(pageContext, container)) {
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
           // 最後まで置換がうまく行った場合、更にBPM・ノーツ数の行と、IRリンク・譜面ビューアーの行を削除する。他はTOTAL値未定義が分かる場合があるなど必ずしも重複していない情報なので残す。
-          document.getElementById("bd-bokutachi").setAttribute("href", `${bokutachi}`);
-          document.getElementById("bd-bokutachi").setAttribute("style", "display: inline;");
+          container.querySelector("#bd-bokutachi").setAttribute("href", `${bokutachi}`);
+          container.querySelector("#bd-bokutachi").setAttribute("style", "display: inline;");
           const tableRows = tableContainer.querySelectorAll('[data-slot="table-row"]');
           tableRows[4].remove();
           tableRows[0].remove();
@@ -336,118 +392,45 @@
   // ====================================================================================================
   async function minir() {
     console.info("MinIRの処理に入りました");
-    let alreadyUpdatedUrl;
-
-    // 初回ページ読み込み完了時に試行
-    // バックグラウンドでタブを開きつつそのタブをアクティブにしたタイミングによってはMutationObserverが反応せず、Visibilitychangeイベントも発火しない場合があったので必須
-    if (document.readyState === "complete") {
-      console.info("loadイベントは発火済でした");
-      await updatePage();
-    } else {
-      window.addEventListener('load', async () => {
-        console.info("🔥 loadイベントが発火しました");
-        await updatePage();
-      });
-    }
-
-    // タブがアクティブになったときに試行
-    document.addEventListener("visibilitychange", async () => {
-      console.info("🔥 Visibilitychangeイベントが発火しました");
-      await updatePage();
+    watchSpaPage({
+      siteName: "MinIR",
+      matchUrl: (url) => url.startsWith("https://www.gaftalk.com/minir/#/viewer/song/"),
+      updatePage,
+      isSettled: () => Boolean(document.getElementById("bmsdata-container"))
     });
-
-    // DOM変化時に試行、処理が終わったらURLが変化するまで監視を止める
-    let lastUrl = location.href;
-    let observer = null;
-
-    function startObserving() {
-      if (observer) return;
-
-      console.log("👁️ MutationObserverによる監視を開始します");
-
-      observer = new MutationObserver(async () => {
-        console.info("MutationObserverがDOMの変化を検知しました");
-        // ページ変化時に、変更済みのURLではない場合は、変更済みURLを消す
-        if (location.href != alreadyUpdatedUrl) {
-          alreadyUpdatedUrl = null;
-        }
-        // バックグラウンドタブなど非表示の場合は、最速での書き換えにこだわらず、load発火時(読み込み完了)やvisibilitychange発火時(アクティブ化)に任せる
-        if (!document.hidden) {
-          await updatePage();
-        }
-        // すでに書き換え済みか、曲ページではないか、bmsdataが挿入済みの場合監視を止める
-        if (alreadyUpdatedUrl || !location.href.startsWith("https://www.gaftalk.com/minir/#/viewer/song/") || document.getElementById("bmsdata-container")) {
-          stopObserving();
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-    }
-
-    function stopObserving() {
-      if (observer) {
-        observer.disconnect();
-        observer = null;
-        console.log("🛑 MutationObserverによる監視を停止します");
-      }
-    }
-
-    function observeUrlChanges() {
-      const pushState = history.pushState;
-      history.pushState = function (...args) {
-        pushState.apply(this, args);
-        window.dispatchEvent(new Event("locationchange"));
-      };
-
-      const replaceState = history.replaceState;
-      history.replaceState = function (...args) {
-        replaceState.apply(this, args);
-        window.dispatchEvent(new Event("locationchange"));
-      };
-
-      window.addEventListener("popstate", () => {
-        window.dispatchEvent(new Event("locationchange"));
-      });
-
-      window.addEventListener("locationchange", () => {
-        if (location.href !== lastUrl) {
-          lastUrl = location.href;
-          alreadyUpdatedUrl = null; // URLが変化しているのでページの書き換えフラグも削除
-          console.log("🔄 URLが変化しました:", lastUrl);
-          if(location.href.startsWith("https://www.gaftalk.com/minir/#/viewer/song/")) {
-            startObserving();
-          }
-        }
-      });
-    }
-    observeUrlChanges(); // 初期起動
-    startObserving();
 
     // ==================================================================================================
     // 曲ページの書き換え処理
-    async function updatePage() {
-      // 現在URLが処理済みURL or 曲ページではない、場合return
-      if (location.href == alreadyUpdatedUrl || !location.href.startsWith("https://www.gaftalk.com/minir/#/viewer/song/")) {
+    async function updatePage({ markUpdated }) {
+      // 曲ページではない、場合return
+      if (!location.href.startsWith("https://www.gaftalk.com/minir/#/viewer/song/")) {
         return;
       }
       console.info("MinIRの曲ページ書き換え処理に入りました");
       // sha256抽出
       const url = window.location.href;
+      let targetsha256 = null;
       const match = url.match(/\/song\/([a-f0-9]{64})\/\d/);
       if (match) {
         targetsha256 = match[1];
       }
       // ターゲット要素特定
-      html_target_element = document.querySelector("#root > div > div > div > div.compact.tabulator");
-      html_target_dest = "beforebegin";
+      const htmlTargetElement = document.querySelector("#root > div > div > div > div.compact.tabulator");
+      const htmlTargetDest = "beforebegin";
       // sha256が取得できている、かつ、ターゲット要素が取得済み、かつ、bmsdataが挿入済みではない、場合にはbmsdataの挿入に進む
       // (LN/CN/HCNの切り替え時に挿入済みになりうる)
-      if (targetsha256 && html_target_element && html_target_dest && !document.getElementById("bmsdata-container")) {
+      if (targetsha256 && htmlTargetElement && htmlTargetDest && !document.getElementById("bmsdata-container")) {
+        const pageContext = {
+          identifiers: { md5: null, sha256: targetsha256, bmsid: null },
+          insertion: { element: htmlTargetElement, position: htmlTargetDest },
+          theme: { dctx: "#1A202C", dcbk: "#ffffff", hdtx: "#000000DE", hdbk: "#f1f1f1" }
+        };
         // テンプレートを挿入
-        insertBmsDataTemplate(html_target_element, html_target_dest, "#1A202C", "#ffffff", "#000000DE", "#f1f1f1");
+        const container = insertBmsDataTemplate(pageContext);
         // 外部から取得したデータでテンプレートを置換
-        if (await insertBmsData()) {
+        if (await insertBmsData(pageContext, container)) {
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
-          alreadyUpdatedUrl = location.href;
+          markUpdated();
         } else {
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
         }
@@ -481,6 +464,7 @@
 
       // sha256抽出
       const url = window.location.href;
+      let targetsha256 = null;
       const match = url.match(/sha256=([a-f0-9]{64})/);
       if (match) {
         targetsha256 = match[1];
@@ -488,20 +472,25 @@
 
       // ターゲット要素特定
       // 曲情報テーブルの下に挿入する
-      html_target_element = document.querySelector("#main > table.songinfo")
-      html_target_dest = "afterend";
+      let htmlTargetElement = document.querySelector("#main > table.songinfo");
+      let htmlTargetDest = "afterend";
       // 曲情報テーブルがない場合はフォーム(Score [Update]のところ)の上に挿入する
-      if (!html_target_element) {
-        html_target_element = document.querySelector("#main > form");
-        html_target_dest = "beforebegin";
+      if (!htmlTargetElement) {
+        htmlTargetElement = document.querySelector("#main > form");
+        htmlTargetDest = "beforebegin";
       }
 
       // sha256が取得済み、かつ、ターゲット要素が特定済み、の場合にはbmsdataの挿入に進む
-      if (targetsha256 && html_target_element && html_target_dest) {
+      if (targetsha256 && htmlTargetElement && htmlTargetDest) {
+        const pageContext = {
+          identifiers: { md5: null, sha256: targetsha256, bmsid: null },
+          insertion: { element: htmlTargetElement, position: htmlTargetDest },
+          theme: { dctx: "#ffffff", dcbk: "#333333", hdtx: "#ffffff", hdbk: "#666666" }
+        };
         // テンプレートを挿入
-        insertBmsDataTemplate(html_target_element, html_target_dest, "#ffffff", "#333333", "#ffffff", "#666666");
+        const container = insertBmsDataTemplate(pageContext);
         // 外部から取得したデータでテンプレートを置換
-        if (await insertBmsData()) {
+        if (await insertBmsData(pageContext, container)) {
           // 最後まで置換がうまく行った場合
           if (document.querySelector("#main > table.songinfo")) {
             // 曲情報テーブルがある場合は重複する情報を削除する
@@ -562,7 +551,9 @@
   //   テンプレートHTMLをinsertAdjacentHTML()で挿入する関数、サイトによって挿入先は異なるので、対象要素と挿入位置を引数で指定する
   //   ターゲット要素、ポジション、データセル文字色、データセル背景色、ヘッダーセル文字色、ヘッダーセル背景色
   // ====================================================================================================
-  function insertBmsDataTemplate(htmlTargetElement, htmlTargetDest, dctx = "#333", dcbk = "#fff", hdtx = "#eef", hdbk = "#669") {
+  function insertBmsDataTemplate(pageContext) {
+    const { element, position } = pageContext.insertion;
+    const { dctx, dcbk, hdtx, hdbk } = pageContext.theme;
     // CSSテンプレート
     const fs1 = "0.875rem";
     const fs2 = "0.750rem";
@@ -701,7 +692,11 @@
     bd_style.textContent = bd_css;
     document.head.appendChild(bd_style);
     // HTML挿入
-    htmlTargetElement.insertAdjacentHTML(htmlTargetDest, bd_html);
+    const template = document.createElement("template");
+    template.innerHTML = bd_html.trim();
+    const container = template.content.firstElementChild;
+    element.insertAdjacentElement(position, container);
+    return container;
   }
 
   // ====================================================================================================
@@ -709,17 +704,13 @@
   //   挿入済みのテンプレートHTMLを問い合わせた情報で書き換える関数
   //   テンプレート挿入後に実行するので書き換え先が存在することは保証されているものとして扱う
   // ====================================================================================================
-  async function insertBmsData() {
+  async function insertBmsData(pageContext, container) {
+    const { md5: targetmd5, sha256: targetsha256, bmsid: targetbmsid } = pageContext.identifiers;
+    const getById = (id) => container.querySelector(`#${id}`);
 
     // 取得できているハッシュによって問い合わせ先を変える
-    let url = "";
-    if (targetmd5) {
-      url = `https://bms.howan.jp/${targetmd5}`;
-    } else if (targetsha256) {
-      url = `https://bms.howan.jp/${targetsha256}`;
-    } else {
-      url = `https://bms.howan.jp/${targetbmsid}`;
-    }
+    const lookupKey = targetmd5 ?? targetsha256 ?? targetbmsid;
+    const url = `https://bms.howan.jp/${lookupKey}`;
 
     // 取得データのスキーマは以下となっている
     const columns = ["md5", "sha256", "maxbpm", "minbpm", "length", "mode", "judge", "feature", "notes", "n", "ln", "s", "ls", "total", "density", "peakdensity", "enddensity", "mainbpm", "distribution", "speedchange", "lanenotes", "tables", "stella", "bmsid"];
@@ -753,7 +744,7 @@
 
     if (!data) {
       // データが取得できなかった場合は、TEMPLATEを削除してfalseを返す
-      document.getElementById("bmsdata-container").remove();
+      container.remove();
       return false;
     }
 
@@ -834,36 +825,36 @@
 
     // 取得したデータでHTML書き換え
     if (md5) {
-      document.getElementById("bd-lr2ir").setAttribute("href", `http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsmd5=${md5}`);
-      document.getElementById("bd-lr2ir").setAttribute("style", "display: inline;");
-      document.getElementById("bd-viewer").setAttribute("href", `https://bms-score-viewer.pages.dev/view?md5=${md5}`);
-      document.getElementById("bd-viewer").setAttribute("style", "display: inline;");
+      getById("bd-lr2ir").setAttribute("href", `http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsmd5=${md5}`);
+      getById("bd-lr2ir").setAttribute("style", "display: inline;");
+      getById("bd-viewer").setAttribute("href", `https://bms-score-viewer.pages.dev/view?md5=${md5}`);
+      getById("bd-viewer").setAttribute("style", "display: inline;");
     }
     if (sha256) {
-      document.getElementById("bd-minir").setAttribute("href", `https://www.gaftalk.com/minir/#/viewer/song/${sha256}/0`);
-      document.getElementById("bd-minir").setAttribute("style", "display: inline;");
-      document.getElementById("bd-mocha").setAttribute("href", `https://mocha-repository.info/song.php?sha256=${sha256}`);
-      document.getElementById("bd-mocha").setAttribute("style", "display: inline;");
+      getById("bd-minir").setAttribute("href", `https://www.gaftalk.com/minir/#/viewer/song/${sha256}/0`);
+      getById("bd-minir").setAttribute("style", "display: inline;");
+      getById("bd-mocha").setAttribute("href", `https://mocha-repository.info/song.php?sha256=${sha256}`);
+      getById("bd-mocha").setAttribute("style", "display: inline;");
     }
     if (stella) {
-      document.getElementById("bd-stellaverse").setAttribute("href", `https://stellabms.xyz/song/${stella}`);
-      document.getElementById("bd-stellaverse").setAttribute("style", "display: inline;");
+      getById("bd-stellaverse").setAttribute("href", `https://stellabms.xyz/song/${stella}`);
+      getById("bd-stellaverse").setAttribute("style", "display: inline;");
     }
-    document.getElementById("bd-sha256").textContent = sha256;
-    document.getElementById("bd-md5").textContent = md5;
-    document.getElementById("bd-bmsid").textContent = bmsid ? bmsid : "Undefined";
-    document.getElementById("bd-mainbpm").textContent = mainbpm % 1 == 0 ? Math.round(mainbpm) : mainbpm;
-    document.getElementById("bd-maxbpm").textContent = maxbpm % 1 == 0 ? Math.round(maxbpm) : maxbpm;
-    document.getElementById("bd-minbpm").textContent = minbpm % 1 == 0 ? Math.round(minbpm) : minbpm;
-    document.getElementById("bd-mode").textContent = mode;
-    document.getElementById("bd-feature").textContent = featuresStr;
-    document.getElementById("bd-judgerank").textContent = judge;
-    document.getElementById("bd-notes").textContent = notesStr;
-    document.getElementById("bd-total").textContent = totalStr;
-    document.getElementById("bd-avgdensity").textContent = density.toFixed(3);
-    document.getElementById("bd-peakdensity").textContent = peakdensity.toFixed(0);
-    document.getElementById("bd-enddensity").textContent = enddensity;
-    document.getElementById("bd-duration").textContent = durationStr;
+    getById("bd-sha256").textContent = sha256;
+    getById("bd-md5").textContent = md5;
+    getById("bd-bmsid").textContent = bmsid ? bmsid : "Undefined";
+    getById("bd-mainbpm").textContent = mainbpm % 1 == 0 ? Math.round(mainbpm) : mainbpm;
+    getById("bd-maxbpm").textContent = maxbpm % 1 == 0 ? Math.round(maxbpm) : maxbpm;
+    getById("bd-minbpm").textContent = minbpm % 1 == 0 ? Math.round(minbpm) : minbpm;
+    getById("bd-mode").textContent = mode;
+    getById("bd-feature").textContent = featuresStr;
+    getById("bd-judgerank").textContent = judge;
+    getById("bd-notes").textContent = notesStr;
+    getById("bd-total").textContent = totalStr;
+    getById("bd-avgdensity").textContent = density.toFixed(3);
+    getById("bd-peakdensity").textContent = peakdensity.toFixed(0);
+    getById("bd-enddensity").textContent = enddensity;
+    getById("bd-duration").textContent = durationStr;
     // LANENOTESの値を生成し挿入
     {
       let modeprefix = ""; // mode に応じた prefix の決定
@@ -873,8 +864,8 @@
         modeprefix = "p";
       }
       // 親要素の取得
-      const container = document.getElementById("bd-lanenotes-div");
-      if (!container) {
+      const lanenotesContainer = getById("bd-lanenotes-div");
+      if (!lanenotesContainer) {
         console.warn("bd-lanenotes-divが見つかりませんでした");
       } else {
         if (mode === 7 || mode === 14 || mode === 9 || mode === 5 || mode === 10) {
@@ -884,7 +875,7 @@
             span.className = "bd-lanenote";
             span.setAttribute("lane", `${modeprefix}${i}`);
             span.textContent = lanenotesArr[i][3]; // 通常+LNノーツ数
-            container.appendChild(span);
+            lanenotesContainer.appendChild(span);
           }
         } else {
           //その他のモード時は全て白鍵盤扱い
@@ -894,13 +885,13 @@
             span.setAttribute("lane", "1");
             span.setAttribute("style", "margin-right: 0.1rem; padding: 0.1rem 0.1rem;");
             span.textContent = lanenotesArr[i][3]; // 通常+LNノーツ数
-            container.appendChild(span);
+            lanenotesContainer.appendChild(span);
           }
         }
       }
     }
     // tables配列の値をli要素にして追加
-    const ul = document.getElementById("bd-tables-ul");
+    const ul = getById("bd-tables-ul");
     tables.forEach(text => {
       const li = document.createElement("li");
       li.textContent = text;
@@ -908,11 +899,12 @@
     });
 
     // 拡張情報全体を表示状態にする
-    document.getElementById("bmsdata-container").style.display = "block";
+    container.style.display = "block";
 
     // グラフ描写処理実行
-    const canvas = document.getElementById("bd-graph-canvas");
-    drawDistribution(canvas, distribution, peakdensity, speedchange, mainbpm, maxbpm, minbpm);
+    const canvas = getById("bd-graph-canvas");
+    const tooltip = getById("bd-graph-tooltip");
+    drawDistribution(canvas, tooltip, distribution, peakdensity, speedchange, mainbpm, maxbpm, minbpm);
 
     // 最後まで完了
     return true;
@@ -944,7 +936,7 @@
     }
 
     // グラフ描写関数
-    function drawDistribution(canvas, distribution, peakDensity, speedchangeRaw, mainBPM, maxBPM, minBPM) {
+    function drawDistribution(canvas, tooltip, distribution, peakDensity, speedchangeRaw, mainBPM, maxBPM, minBPM) {
       // ノーツカラー設定
       const noteColors = [
         "#44FF44", // LN皿
@@ -1086,7 +1078,6 @@
       }
 
       // === インタラクティブ処理(グラフにマウスオーバー時ツールチップでその時間の情報表示) ===
-      const tooltip = document.getElementById("bd-graph-tooltip");
       canvas.onmousemove = (e) => {
         const rect = canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;

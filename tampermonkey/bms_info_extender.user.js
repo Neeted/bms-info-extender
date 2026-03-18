@@ -30,6 +30,169 @@
   const fontCSS = GM_getResourceText("googlefont");
   GM_addStyle(fontCSS);
 
+  const BMSDATA_STYLE_ID = "bms-info-extender-style";
+  const BMSDATA_COLUMNS = ["md5", "sha256", "maxbpm", "minbpm", "length", "mode", "judge", "feature", "notes", "n", "ln", "s", "ls", "total", "density", "peakdensity", "enddensity", "mainbpm", "distribution", "speedchange", "lanenotes", "tables", "stella", "bmsid"];
+  const BMS_FEATURE_NAMES = [
+    "LN(#LNMODE undef)",
+    "MINE",
+    "RANDOM",
+    "LN",
+    "CN",
+    "HCN",
+    "STOP",
+    "SCROLL"
+  ];
+  const DISTRIBUTION_NOTE_COLORS = [
+    "#44FF44",
+    "#228822",
+    "#FF4444",
+    "#4444FF",
+    "#222288",
+    "#CCCCCC",
+    "#880000"
+  ];
+  const DISTRIBUTION_NOTE_NAMES = [
+    "LNSCR",
+    "LNSCR HOLD",
+    "SCR",
+    "LN",
+    "LN HOLD",
+    "NORMAL",
+    "MINE"
+  ];
+  const BMSDATA_CSS = `
+    .bmsdata {
+      --bd-dctx: #333;
+      --bd-dcbk: #fff;
+      --bd-hdtx: #eef;
+      --bd-hdbk: #669;
+    }
+    .bmsdata * { line-height: 100%; color: var(--bd-dctx); background-color: var(--bd-dcbk); font-family: "Inconsolata", "Noto Sans JP"; vertical-align: middle; box-sizing: content-box; }
+    .bd-info { display: flex; border: 0px; height: 9.6rem; }
+    .bd-info a { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border: 1px solid; border-radius: 2px; font-size: 0.750rem; color: #155dfc; text-decoration: none; }
+    .bd-info a:hover { color: red; }
+    .bd-icon { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border-radius: 2px; background: var(--bd-dctx); color: var(--bd-dcbk); font-size: 0.750rem; }
+    .bd-icon:nth-child(n+2) { margin-left: 0.4rem; }
+    .bd-info .bd-info-table { flex: 1; border-collapse: collapse; height: 100%; }
+    .bd-info td { border: unset; padding: 0.1rem 0.2rem; height: 1rem; white-space: nowrap; font-size: 0.875rem; }
+    .bd-info .bd-header-cell { background-color: var(--bd-hdbk); color: var(--bd-hdtx); }
+    .bd-info .bd-lanenote { margin-right: 0.2rem; padding: 0.1rem 0.2rem; border-radius: 2px; font-size: 0.750rem; }
+    .bd-table-list { flex: 1; display: flex; min-width: 100px; flex-direction: column; box-sizing: border-box; }
+    .bd-table-list .bd-header-cell { padding: 0.1rem 0.2rem; min-height: 1rem; white-space: nowrap; font-size: 0.875rem; color: var(--bd-hdtx); display: flex; align-items: center; }
+    .bd-table-scroll { overflow: auto; flex: 1 1 auto; scrollbar-color: var(--bd-hdbk) white; scrollbar-width: thin; }
+    .bd-table-list ul { padding: 0.1rem 0.2rem; margin: 0; }
+    .bd-table-list li { margin-bottom: 0.2rem; line-height: 1rem; font-size: 0.875rem; white-space: nowrap; list-style-type: none; }
+    #bd-graph { padding: 0px; border-width: 0px; background-color: #000; overflow-x: auto; line-height: 0; scrollbar-color: var(--bd-hdbk) black; scrollbar-width: thin; }
+    #bd-graph-canvas { background-color: #000; }
+    #bd-graph-tooltip { line-height: 1rem; position: fixed; background: rgba(32, 32, 64, 0.8); color: #fff; padding: 4px 8px; font-size: 0.875rem; pointer-events: none; border-radius: 4px; display: none; z-index: 10; white-space: nowrap; }
+    .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
+    .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="2"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="3"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="4"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="5"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="6"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="7"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="8"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="9"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="10"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="11"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="12"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="13"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="14"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="15"] { background: #e04a4a; color: #fff; }
+    .bd-lanenote[lane="g0"] { background: #e04a4a; color: #fff; }
+    .bd-lanenote[lane="g1"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="g2"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="g3"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="g4"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="g5"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="g6"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="g7"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="g8"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="g9"] { background: #5074fe; color: #fff; }
+    .bd-lanenote[lane="g10"] { background: #bebebe; color: #000; }
+    .bd-lanenote[lane="g11"] { background: #e04a4a; color: #fff; }
+    .bd-lanenote[lane="p0"] { background: #c4c4c4; color: #000; }
+    .bd-lanenote[lane="p1"] { background: #fff500; color: #000; }
+    .bd-lanenote[lane="p2"] { background: #99ff67; color: #000; }
+    .bd-lanenote[lane="p3"] { background: #30b9f9; color: #000; }
+    .bd-lanenote[lane="p4"] { background: #ff6c6c; color: #000; }
+    .bd-lanenote[lane="p5"] { background: #30b9f9; color: #000; }
+    .bd-lanenote[lane="p6"] { background: #99ff67; color: #000; }
+    .bd-lanenote[lane="p7"] { background: #fff500; color: #000; }
+    .bd-lanenote[lane="p8"] { background: #c4c4c4; color: #000; }
+  `;
+  const BMSDATA_TEMPLATE_HTML = `
+    <div id="bmsdata-container" class="bmsdata" style="display: none;">
+      <div class="bd-info">
+        <table class="bd-info-table">
+          <tr>
+            <td class="bd-header-cell">LINK</td>
+            <td colspan="3">
+              <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
+            </td>
+          </tr>
+          <tr>
+            <td class="bd-header-cell">SHA256</td>
+            <td colspan="3" id="bd-sha256">Loading...</td>
+          </tr>
+          <tr>
+            <td class="bd-header-cell">MD5</td>
+            <td id="bd-md5">Loading...</td>
+            <td class="bd-header-cell">BMSID</td>
+            <td id="bd-bmsid">Loading...</td>
+          </tr>
+          <tr>
+            <td class="bd-header-cell">BPM</td>
+            <td>
+              <span class="bd-icon">MAIN</span><span id="bd-mainbpm">0</span><span class="bd-icon">MIN</span><span
+                id="bd-minbpm">0</span><span class="bd-icon">MAX</span><span id="bd-maxbpm">0</span>
+            </td>
+            <td class="bd-header-cell">MODE</td>
+            <td id="bd-mode">0</td>
+          </tr>
+          <tr>
+            <td class="bd-header-cell">FEATURE</td>
+            <td id="bd-feature">Loading...</td>
+            <td class="bd-header-cell">JUDGERANK</td>
+            <td id="bd-judgerank">0</td>
+          </tr>
+          <tr>
+            <td class="bd-header-cell">NOTES</td>
+            <td id="bd-notes">0 (N: 0, LN: 0, SC: 0, LNSC: 0)</td>
+            <td class="bd-header-cell">TOTAL</td>
+            <td id="bd-total">0 (0.000 T/N)</td>
+          </tr>
+          <tr>
+            <td class="bd-header-cell">DENSITY</td>
+            <td><span class="bd-icon">AVG</span><span id="bd-avgdensity">0.0</span><span class="bd-icon">PEAK</span><span
+                id="bd-peakdensity">0</span><span class="bd-icon">END</span><span id="bd-enddensity">0.0</span></td>
+            <td class="bd-header-cell">DURATION</td>
+            <td id="bd-duration">000.000 s</td>
+          </tr>
+          <tr>
+            <td class="bd-header-cell">LANENOTES</td>
+            <td colspan="3">
+              <div class="bd-lanenotes" id="bd-lanenotes-div"></div>
+            </td>
+          </tr>
+        </table>
+        <div class="bd-table-list">
+          <div class="bd-header-cell">TABLES</div>
+          <div class="bd-table-scroll">
+            <ul id="bd-tables-ul">
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div id="bd-graph">
+        <div id="bd-graph-tooltip"></div>
+        <canvas id="bd-graph-canvas"></canvas>
+      </div>
+    </div>
+  `;
+
   // サイトを特定
   const hostname = location.hostname;
 
@@ -551,569 +714,423 @@
   //   テンプレートHTMLをinsertAdjacentHTML()で挿入する関数、サイトによって挿入先は異なるので、対象要素と挿入位置を引数で指定する
   //   ターゲット要素、ポジション、データセル文字色、データセル背景色、ヘッダーセル文字色、ヘッダーセル背景色
   // ====================================================================================================
+  function ensureBmsDataStyleOnce() {
+    if (document.getElementById(BMSDATA_STYLE_ID)) {
+      return;
+    }
+
+    const styleElement = document.createElement("style");
+    styleElement.id = BMSDATA_STYLE_ID;
+    styleElement.textContent = BMSDATA_CSS;
+    document.head.appendChild(styleElement);
+  }
+
   function insertBmsDataTemplate(pageContext) {
     const { element, position } = pageContext.insertion;
     const { dctx, dcbk, hdtx, hdbk } = pageContext.theme;
-    // CSSテンプレート
-    const fs1 = "0.875rem";
-    const fs2 = "0.750rem";
-    const bd_css = `
-      .bmsdata * { line-height: 100%; color: ${dctx}; background-color: ${dcbk}; font-family: "Inconsolata", "Noto Sans JP"; vertical-align: middle; box-sizing: content-box;}
-      .bd-info { display: flex; border: 0px; height: 9.6rem; }
-      .bd-info a { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border:1px solid; border-radius: 2px; font-size: ${fs2}; color: #155dfc; text-decoration: none; }
-      .bd-info a:hover { color: red; }
-      .bd-icon { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border-radius: 2px; background: ${dctx}; color: ${dcbk}; font-size: ${fs2}; }
-      .bd-icon:nth-child(n+2) { margin-left: 0.4rem; }
-      .bd-info .bd-info-table { flex: 1; border-collapse: collapse; height: 100%; }
-      .bd-info td { border: unset; padding: 0.1rem 0.2rem; height: 1rem; white-space: nowrap; font-size: ${fs1}; }
-      .bd-info .bd-header-cell { background-color: ${hdbk}; color: ${hdtx}; }
-      .bd-info .bd-lanenote { margin-right: 0.2rem; padding: 0.1rem 0.2rem; border-radius: 2px; font-size: ${fs2}; }
-      .bd-table-list { flex: 1; display: flex; min-width: 100px; flex-direction: column; box-sizing: border-box; }
-      .bd-table-list .bd-header-cell { padding: 0.1rem 0.2rem; min-height: 1rem; white-space: nowrap; font-size: ${fs1}; color: ${hdtx}; display: flex; align-items: center; }
-      .bd-table-scroll { overflow: auto; flex: 1 1 auto; scrollbar-color: ${hdbk} white; scrollbar-width: thin; }
-      .bd-table-list ul { padding: 0.1rem 0.2rem; margin: 0; }
-      .bd-table-list li { margin-bottom: 0.2rem; line-height: 1rem; font-size: ${fs1}; white-space: nowrap; list-style-type: none; }
-      #bd-graph { padding: 0px; border-width: 0px; background-color: #000; overflow-x: auto; line-height: 0; scrollbar-color: ${hdbk} black; scrollbar-width: thin; }
-      #bd-graph-canvas { background-color: #000; }
-      #bd-graph-tooltip { line-height: 1rem; position: fixed; background: rgba(32, 32, 64, 0.8); color: #fff; padding: 4px 8px; font-size: ${fs1}; pointer-events: none; border-radius: 4px; display: none; z-index: 10; white-space: nowrap; }
-      /* 7key, 14key */
-      .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
-      .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="2"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="3"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="4"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="5"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="6"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="7"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="8"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="9"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="10"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="11"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="12"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="13"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="14"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="15"] { background: #e04a4a; color: #fff; }
-      /* 5key, 10key */
-      .bd-lanenote[lane="g0"] { background: #e04a4a; color: #fff; }
-      .bd-lanenote[lane="g1"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="g2"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="g3"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="g4"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="g5"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="g6"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="g7"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="g8"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="g9"] { background: #5074fe; color: #fff; }
-      .bd-lanenote[lane="g10"] { background: #bebebe; color: #000; }
-      .bd-lanenote[lane="g11"] { background: #e04a4a; color: #fff; }
-      /* 9key */
-      .bd-lanenote[lane="p0"] { background: #c4c4c4; color: #000; }
-      .bd-lanenote[lane="p1"] { background: #fff500; color: #000; }
-      .bd-lanenote[lane="p2"] { background: #99ff67; color: #000; }
-      .bd-lanenote[lane="p3"] { background: #30b9f9; color: #000; }
-      .bd-lanenote[lane="p4"] { background: #ff6c6c; color: #000; }
-      .bd-lanenote[lane="p5"] { background: #30b9f9; color: #000; }
-      .bd-lanenote[lane="p6"] { background: #99ff67; color: #000; }
-      .bd-lanenote[lane="p7"] { background: #fff500; color: #000; }
-      .bd-lanenote[lane="p8"] { background: #c4c4c4; color: #000; }
-    `;
-    // HTMLテンプレート
-    const bd_html = `
-      <div id="bmsdata-container" class="bmsdata" style="display: none;">
-        <div class="bd-info">
-          <table class="bd-info-table">
-            <tr>
-              <td class="bd-header-cell">LINK</td>
-              <td colspan="3">
-                <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
-              </td>
-            </tr>
-            <tr>
-              <td class="bd-header-cell">SHA256</td>
-              <td colspan="3" id="bd-sha256">Loading...</td>
-            </tr>
-            <tr>
-              <td class="bd-header-cell">MD5</td>
-              <td id="bd-md5">Loading...</td>
-              <td class="bd-header-cell">BMSID</td>
-              <td id="bd-bmsid">Loading...</td>
-            </tr>
-            <tr>
-              <td class="bd-header-cell">BPM</td>
-              <td>
-                <span class="bd-icon">MAIN</span><span id="bd-mainbpm">0</span><span class="bd-icon">MIN</span><span
-                  id="bd-minbpm">0</span><span class="bd-icon">MAX</span><span id="bd-maxbpm">0</span>
-              </td>
-              <td class="bd-header-cell">MODE</td>
-              <td id="bd-mode">0</td>
-            </tr>
-            <tr>
-              <td class="bd-header-cell">FEATURE</td>
-              <td id="bd-feature">Loading...</td>
-              <td class="bd-header-cell">JUDGERANK</td>
-              <td id="bd-judgerank">0</td>
-            </tr>
-            <tr>
-              <td class="bd-header-cell">NOTES</td>
-              <td id="bd-notes">0 (N: 0, LN: 0, SC: 0, LNSC: 0)</td>
-              <td class="bd-header-cell">TOTAL</td>
-              <td id="bd-total">0 (0.000 T/N)</td>
-            </tr>
-            <tr>
-              <td class="bd-header-cell">DENSITY</td>
-              <td><span class="bd-icon">AVG</span><span id="bd-avgdensity">0.0</span><span class="bd-icon">PEAK</span><span
-                  id="bd-peakdensity">0</span><span class="bd-icon">END</span><span id="bd-enddensity">0.0</span></td>
-              <td class="bd-header-cell">DURATION</td>
-              <td id="bd-duration">000.000 s</td>
-            </tr>
-            <tr>
-              <td class="bd-header-cell">LANENOTES</td>
-              <td colspan="3">
-                <div class="bd-lanenotes" id="bd-lanenotes-div"></div>
-              </td>
-            </tr>
-          </table>
-          <div class="bd-table-list">
-            <div class="bd-header-cell">TABLES</div>
-            <div class="bd-table-scroll">
-              <ul id="bd-tables-ul">
-              </ul>
-            </div>
-          </div>
-        </div>
-        <div id="bd-graph">
-          <div id="bd-graph-tooltip"></div>
-          <canvas id="bd-graph-canvas"></canvas>
-        </div>
-      </div>
-    `;
-    // CSS挿入
-    const bd_style = document.createElement('style');
-    bd_style.textContent = bd_css;
-    document.head.appendChild(bd_style);
-    // HTML挿入
+    ensureBmsDataStyleOnce();
     const template = document.createElement("template");
-    template.innerHTML = bd_html.trim();
+    template.innerHTML = BMSDATA_TEMPLATE_HTML.trim();
     const container = template.content.firstElementChild;
+    container.style.setProperty("--bd-dctx", dctx);
+    container.style.setProperty("--bd-dcbk", dcbk);
+    container.style.setProperty("--bd-hdtx", hdtx);
+    container.style.setProperty("--bd-hdbk", hdbk);
     element.insertAdjacentElement(position, container);
     return container;
   }
 
-  // ====================================================================================================
-  // BMSデータテンプレートを外部から情報を取得して書き換える関数
-  //   挿入済みのテンプレートHTMLを問い合わせた情報で書き換える関数
-  //   テンプレート挿入後に実行するので書き換え先が存在することは保証されているものとして扱う
-  // ====================================================================================================
   async function insertBmsData(pageContext, container) {
-    const { md5: targetmd5, sha256: targetsha256, bmsid: targetbmsid } = pageContext.identifiers;
-    const getById = (id) => container.querySelector(`#${id}`);
-
-    // 取得できているハッシュによって問い合わせ先を変える
-    const lookupKey = targetmd5 ?? targetsha256 ?? targetbmsid;
-    const url = `https://bms.howan.jp/${lookupKey}`;
-
-    // 取得データのスキーマは以下となっている
-    const columns = ["md5", "sha256", "maxbpm", "minbpm", "length", "mode", "judge", "feature", "notes", "n", "ln", "s", "ls", "total", "density", "peakdensity", "enddensity", "mainbpm", "distribution", "speedchange", "lanenotes", "tables", "stella", "bmsid"];
-    // 外部データの取得
-    const data = await (async () => {
-      try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`HTTP error: ${response.status}`);
-        }
-        const text = await response.text();
-        const values = text.split('\x1f'); // 区切り文字（Unit Separator）で分割、「,」を使わないことでパースコストを削減
-
-        if (values.length !== columns.length) {
-          throw new Error(`列数が一致しません（columns=${columns.length}, values=${values.length}）`);
-        }
-
-        // columnsに対応する連想配列（オブジェクト）を作成
-        const record = {};
-        for (let i = 0; i < columns.length; i++) {
-          record[columns[i]] = values[i];
-        }
-
-        return record;
-
-      } catch (error) {
-        console.error("Fetch or parse error:", error);
-        return false;
-      }
-    })();
-
-    if (!data) {
-      // データが取得できなかった場合は、TEMPLATEを削除してfalseを返す
+    const rawRecord = await fetchBmsRecord(pageContext);
+    if (!rawRecord) {
       container.remove();
       return false;
     }
 
-    // 外部から取得したデータを変換していく
-    const md5 = data.md5;
-    const sha256 = data.sha256;
-    const maxbpm = Number(data.maxbpm);
-    const minbpm = Number(data.minbpm);
-    const length = Number(data.length); // ミリ秒
-    const durationStr = (length / 1000).toFixed(2) + " s";
-    const mode = Number(data.mode);
-    const judge = Number(data.judge);
-    const feature = Number(data.feature);
-    const featureNames = [
-      "LN(#LNMODE undef)", // bit 0
-      "MINE",         // bit 1
-      "RANDOM",       // bit 2
-      "LN",           // bit 3
-      "CN",           // bit 4
-      "HCN",          // bit 5
-      "STOP",         // bit 6
-      "SCROLL"        // bit 7
-    ];
-    const featuresStr = featureNames
-    .filter((name, index) => (feature & (1 << index)) !== 0)
-    .join(", ");
-    const notes = Number(data.notes);
-    const n = Number(data.n);
-    const ln = Number(data.ln);
-    const s = Number(data.s);
-    const ls = Number(data.ls);
-    const notesStr = `${notes} (N:${n}, LN:${ln}, SCR:${s}, LNSCR:${ls})`;
-    const total = Number(data.total);
-    const totalStr = `${total % 1 == 0 ? Math.round(total) : total} (${(total / notes).toFixed(3)} T/N)`;
-    const density = Number(data.density);
-    const peakdensity = Number(data.peakdensity);
-    const enddensity = Number(data.enddensity);
-    const mainbpm = Number(data.mainbpm);
-    const distribution = data.distribution;
-    const speedchange = data.speedchange;
-    const lanenotes = data.lanenotes;
-    const lanenotesArr = (() => {
-      // modeによって皿の位置を整えつつレーンごとのノーツ数データを整形(5鍵や10鍵も1Pは左皿扱い)
-      const tokens = lanenotes.split(',').map(Number);
-      let laneCount = mode;
-      if (mode === 7) laneCount = 8;
-      else if (mode === 14) laneCount = 16;
-      else if (mode === 5) laneCount = 6;
-      else if (mode === 10) laneCount = 12;
-      const lanenotesArr = [];
-      for (let i = 0; i < laneCount; i++) {
-        const baseIndex = i * 3;
-        lanenotesArr.push([
-          tokens[baseIndex] ?? 0, // 通常ノーツ
-          tokens[baseIndex + 1] ?? 0, // LN
-          tokens[baseIndex + 2] ?? 0, // 地雷
-          tokens[baseIndex] + tokens[baseIndex + 1] ?? 0 // 通常ノーツ+LN
-        ]);
-      }
-      if (mode === 7 || mode === 14) {
-        const move = lanenotesArr.splice(7, 1)[0]; // 8番目（インデックス7）を削除
-        lanenotesArr.unshift(move);                // 先頭に挿入
-      } else if (mode === 5 || mode === 10) {
-        const move = lanenotesArr.splice(5, 1)[0]; // 6番目（インデックス5）を削除
-        lanenotesArr.unshift(move);                // 先頭に挿入
-      }
-      return lanenotesArr;
-    })();
-    const tables = (() => {
-      try {
-        return JSON.parse(data.tables); // JSONを文字列の配列にする
-      } catch {
-        return []; // 表外譜面など空文字でJSON.parseできない場合には空配列を返してforeachをスキップさせる
-      }
-    })();
-    const stella = Number(data.stella);
-    const bmsid = Number(data.bmsid);
+    const normalizedRecord = normalizeBmsRecord(rawRecord);
+    renderBmsData(container, normalizedRecord);
 
-    // 取得したデータでHTML書き換え
-    if (md5) {
-      getById("bd-lr2ir").setAttribute("href", `http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsmd5=${md5}`);
-      getById("bd-lr2ir").setAttribute("style", "display: inline;");
-      getById("bd-viewer").setAttribute("href", `https://bms-score-viewer.pages.dev/view?md5=${md5}`);
-      getById("bd-viewer").setAttribute("style", "display: inline;");
+    const canvas = container.querySelector("#bd-graph-canvas");
+    const tooltip = container.querySelector("#bd-graph-tooltip");
+    drawDistributionGraph(canvas, tooltip, normalizedRecord);
+
+    return true;
+  }
+
+  async function fetchBmsRecord(pageContext) {
+    const { md5, sha256, bmsid } = pageContext.identifiers;
+    const lookupKey = md5 ?? sha256 ?? bmsid;
+    if (!lookupKey) {
+      return false;
     }
-    if (sha256) {
-      getById("bd-minir").setAttribute("href", `https://www.gaftalk.com/minir/#/viewer/song/${sha256}/0`);
-      getById("bd-minir").setAttribute("style", "display: inline;");
-      getById("bd-mocha").setAttribute("href", `https://mocha-repository.info/song.php?sha256=${sha256}`);
-      getById("bd-mocha").setAttribute("style", "display: inline;");
-    }
-    if (stella) {
-      getById("bd-stellaverse").setAttribute("href", `https://stellabms.xyz/song/${stella}`);
-      getById("bd-stellaverse").setAttribute("style", "display: inline;");
-    }
-    getById("bd-sha256").textContent = sha256;
-    getById("bd-md5").textContent = md5;
-    getById("bd-bmsid").textContent = bmsid ? bmsid : "Undefined";
-    getById("bd-mainbpm").textContent = mainbpm % 1 == 0 ? Math.round(mainbpm) : mainbpm;
-    getById("bd-maxbpm").textContent = maxbpm % 1 == 0 ? Math.round(maxbpm) : maxbpm;
-    getById("bd-minbpm").textContent = minbpm % 1 == 0 ? Math.round(minbpm) : minbpm;
-    getById("bd-mode").textContent = mode;
-    getById("bd-feature").textContent = featuresStr;
-    getById("bd-judgerank").textContent = judge;
-    getById("bd-notes").textContent = notesStr;
-    getById("bd-total").textContent = totalStr;
-    getById("bd-avgdensity").textContent = density.toFixed(3);
-    getById("bd-peakdensity").textContent = peakdensity.toFixed(0);
-    getById("bd-enddensity").textContent = enddensity;
-    getById("bd-duration").textContent = durationStr;
-    // LANENOTESの値を生成し挿入
-    {
-      let modeprefix = ""; // mode に応じた prefix の決定
-      if (mode === 5 || mode === 10) {
-        modeprefix = "g";
-      } else if (mode === 9) {
-        modeprefix = "p";
+
+    const url = `https://bms.howan.jp/${lookupKey}`;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
       }
-      // 親要素の取得
-      const lanenotesContainer = getById("bd-lanenotes-div");
-      if (!lanenotesContainer) {
-        console.warn("bd-lanenotes-divが見つかりませんでした");
-      } else {
-        if (mode === 7 || mode === 14 || mode === 9 || mode === 5 || mode === 10) {
-          // 各レーンに対して span 要素を生成・追加
-          for (let i = 0; i < lanenotesArr.length; i++) {
-            const span = document.createElement("span");
-            span.className = "bd-lanenote";
-            span.setAttribute("lane", `${modeprefix}${i}`);
-            span.textContent = lanenotesArr[i][3]; // 通常+LNノーツ数
-            lanenotesContainer.appendChild(span);
-          }
-        } else {
-          //その他のモード時は全て白鍵盤扱い
-          for (let i = 0; i < lanenotesArr.length; i++) {
-            const span = document.createElement("span");
-            span.className = "bd-lanenote";
-            span.setAttribute("lane", "1");
-            span.setAttribute("style", "margin-right: 0.1rem; padding: 0.1rem 0.1rem;");
-            span.textContent = lanenotesArr[i][3]; // 通常+LNノーツ数
-            lanenotesContainer.appendChild(span);
-          }
-        }
+
+      const text = await response.text();
+      const values = text.split('\x1f');
+      if (values.length !== BMSDATA_COLUMNS.length) {
+        throw new Error(`列数が一致しません（columns=${BMSDATA_COLUMNS.length}, values=${values.length}）`);
+      }
+
+      const record = {};
+      for (let i = 0; i < BMSDATA_COLUMNS.length; i++) {
+        record[BMSDATA_COLUMNS[i]] = values[i];
+      }
+      return record;
+    } catch (error) {
+      console.error("Fetch or parse error:", error);
+      return false;
+    }
+  }
+
+  function normalizeBmsRecord(rawRecord) {
+    const md5 = rawRecord.md5;
+    const sha256 = rawRecord.sha256;
+    const maxbpm = Number(rawRecord.maxbpm);
+    const minbpm = Number(rawRecord.minbpm);
+    const length = Number(rawRecord.length);
+    const mode = Number(rawRecord.mode);
+    const judge = Number(rawRecord.judge);
+    const feature = Number(rawRecord.feature);
+    const notes = Number(rawRecord.notes);
+    const n = Number(rawRecord.n);
+    const ln = Number(rawRecord.ln);
+    const s = Number(rawRecord.s);
+    const ls = Number(rawRecord.ls);
+    const total = Number(rawRecord.total);
+    const density = Number(rawRecord.density);
+    const peakdensity = Number(rawRecord.peakdensity);
+    const enddensity = Number(rawRecord.enddensity);
+    const mainbpm = Number(rawRecord.mainbpm);
+    const stella = Number(rawRecord.stella);
+    const bmsid = Number(rawRecord.bmsid);
+    const featuresStr = BMS_FEATURE_NAMES
+      .filter((name, index) => (feature & (1 << index)) !== 0)
+      .join(", ");
+
+    return {
+      md5,
+      sha256,
+      maxbpm,
+      minbpm,
+      mode,
+      judge,
+      density,
+      peakdensity,
+      enddensity,
+      mainbpm,
+      stella,
+      bmsid,
+      durationStr: `${(length / 1000).toFixed(2)} s`,
+      notesStr: `${notes} (N:${n}, LN:${ln}, SCR:${s}, LNSCR:${ls})`,
+      totalStr: `${total % 1 == 0 ? Math.round(total) : total} (${(total / notes).toFixed(3)} T/N)`,
+      featuresStr,
+      distribution: rawRecord.distribution,
+      speedchange: rawRecord.speedchange,
+      lanenotesArr: parseLaneNotes(mode, rawRecord.lanenotes),
+      tables: parseTables(rawRecord.tables)
+    };
+  }
+
+  function parseLaneNotes(mode, lanenotes) {
+    const tokens = lanenotes.split(',').map(Number);
+    let laneCount = mode;
+    if (mode === 7) laneCount = 8;
+    else if (mode === 14) laneCount = 16;
+    else if (mode === 5) laneCount = 6;
+    else if (mode === 10) laneCount = 12;
+
+    const lanenotesArr = [];
+    for (let i = 0; i < laneCount; i++) {
+      const baseIndex = i * 3;
+      lanenotesArr.push([
+        tokens[baseIndex] ?? 0,
+        tokens[baseIndex + 1] ?? 0,
+        tokens[baseIndex + 2] ?? 0,
+        tokens[baseIndex] + tokens[baseIndex + 1] ?? 0
+      ]);
+    }
+
+    if (mode === 7 || mode === 14) {
+      const move = lanenotesArr.splice(7, 1)[0];
+      lanenotesArr.unshift(move);
+    } else if (mode === 5 || mode === 10) {
+      const move = lanenotesArr.splice(5, 1)[0];
+      lanenotesArr.unshift(move);
+    }
+
+    return lanenotesArr;
+  }
+
+  function parseTables(tablesRaw) {
+    try {
+      return JSON.parse(tablesRaw);
+    } catch {
+      return [];
+    }
+  }
+
+  function renderBmsData(container, normalizedRecord) {
+    const getById = (id) => container.querySelector(`#${id}`);
+
+    renderLinks(container, normalizedRecord);
+    getById("bd-sha256").textContent = normalizedRecord.sha256;
+    getById("bd-md5").textContent = normalizedRecord.md5;
+    getById("bd-bmsid").textContent = normalizedRecord.bmsid ? normalizedRecord.bmsid : "Undefined";
+    getById("bd-mainbpm").textContent = normalizedRecord.mainbpm % 1 == 0 ? Math.round(normalizedRecord.mainbpm) : normalizedRecord.mainbpm;
+    getById("bd-maxbpm").textContent = normalizedRecord.maxbpm % 1 == 0 ? Math.round(normalizedRecord.maxbpm) : normalizedRecord.maxbpm;
+    getById("bd-minbpm").textContent = normalizedRecord.minbpm % 1 == 0 ? Math.round(normalizedRecord.minbpm) : normalizedRecord.minbpm;
+    getById("bd-mode").textContent = normalizedRecord.mode;
+    getById("bd-feature").textContent = normalizedRecord.featuresStr;
+    getById("bd-judgerank").textContent = normalizedRecord.judge;
+    getById("bd-notes").textContent = normalizedRecord.notesStr;
+    getById("bd-total").textContent = normalizedRecord.totalStr;
+    getById("bd-avgdensity").textContent = normalizedRecord.density.toFixed(3);
+    getById("bd-peakdensity").textContent = normalizedRecord.peakdensity.toFixed(0);
+    getById("bd-enddensity").textContent = normalizedRecord.enddensity;
+    getById("bd-duration").textContent = normalizedRecord.durationStr;
+    renderLaneNotes(container, normalizedRecord);
+    renderTables(container, normalizedRecord);
+    container.style.display = "block";
+  }
+
+  function renderLinks(container, normalizedRecord) {
+    const getById = (id) => container.querySelector(`#${id}`);
+
+    if (normalizedRecord.md5) {
+      showLink(getById("bd-lr2ir"), `http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsmd5=${normalizedRecord.md5}`);
+      showLink(getById("bd-viewer"), `https://bms-score-viewer.pages.dev/view?md5=${normalizedRecord.md5}`);
+    }
+    if (normalizedRecord.sha256) {
+      showLink(getById("bd-minir"), `https://www.gaftalk.com/minir/#/viewer/song/${normalizedRecord.sha256}/0`);
+      showLink(getById("bd-mocha"), `https://mocha-repository.info/song.php?sha256=${normalizedRecord.sha256}`);
+    }
+    if (normalizedRecord.stella) {
+      showLink(getById("bd-stellaverse"), `https://stellabms.xyz/song/${normalizedRecord.stella}`);
+    }
+  }
+
+  function showLink(linkElement, href) {
+    linkElement.setAttribute("href", href);
+    linkElement.setAttribute("style", "display: inline;");
+  }
+
+  function renderLaneNotes(container, normalizedRecord) {
+    let modeprefix = "";
+    if (normalizedRecord.mode === 5 || normalizedRecord.mode === 10) {
+      modeprefix = "g";
+    } else if (normalizedRecord.mode === 9) {
+      modeprefix = "p";
+    }
+
+    const lanenotesContainer = container.querySelector("#bd-lanenotes-div");
+    if (!lanenotesContainer) {
+      console.warn("bd-lanenotes-divが見つかりませんでした");
+      return;
+    }
+
+    if (normalizedRecord.mode === 7 || normalizedRecord.mode === 14 || normalizedRecord.mode === 9 || normalizedRecord.mode === 5 || normalizedRecord.mode === 10) {
+      for (let i = 0; i < normalizedRecord.lanenotesArr.length; i++) {
+        const span = document.createElement("span");
+        span.className = "bd-lanenote";
+        span.setAttribute("lane", `${modeprefix}${i}`);
+        span.textContent = normalizedRecord.lanenotesArr[i][3];
+        lanenotesContainer.appendChild(span);
+      }
+    } else {
+      for (let i = 0; i < normalizedRecord.lanenotesArr.length; i++) {
+        const span = document.createElement("span");
+        span.className = "bd-lanenote";
+        span.setAttribute("lane", "1");
+        span.setAttribute("style", "margin-right: 0.1rem; padding: 0.1rem 0.1rem;");
+        span.textContent = normalizedRecord.lanenotesArr[i][3];
+        lanenotesContainer.appendChild(span);
       }
     }
-    // tables配列の値をli要素にして追加
-    const ul = getById("bd-tables-ul");
-    tables.forEach(text => {
+  }
+
+  function renderTables(container, normalizedRecord) {
+    const ul = container.querySelector("#bd-tables-ul");
+    normalizedRecord.tables.forEach(text => {
       const li = document.createElement("li");
       li.textContent = text;
       ul.appendChild(li);
     });
+  }
 
-    // 拡張情報全体を表示状態にする
-    container.style.display = "block";
+  function parseDistributionSegments(distribution) {
+    const noteTypes = 7;
+    const data = distribution.startsWith("#") ? distribution.slice(1) : distribution;
+    const segments = [];
 
-    // グラフ描写処理実行
-    const canvas = getById("bd-graph-canvas");
-    const tooltip = getById("bd-graph-tooltip");
-    drawDistribution(canvas, tooltip, distribution, peakdensity, speedchange, mainbpm, maxbpm, minbpm);
-
-    // 最後まで完了
-    return true;
-
-    // ====================================================================================================
-    // 以下グラフ描写用関数
-
-    // グラフ描写用ユーティリティ
-    function logScaleY(bpm, minValue, maxValue, minLog, maxLog, canvasHeight) {
-      // Clamp ratio and get log scale
-      const ratio = Math.min(Math.max(bpm / mainbpm, minValue), maxValue);
-      const logVal = Math.log10(ratio);
-      const t = (logVal - minLog) / (maxLog - minLog);
-      return canvasHeight - Math.round(t * (canvasHeight - 2)); // 反転
-    }
-
-    function timeToX(t, timeLength, canvasWidth) {
-      return Math.round((t / timeLength * 0.001) * canvasWidth) + 1;
-    }
-
-    // speedshangeRawデータパース関数
-    function parseSpeedChange(raw) {
-      const arr = raw.split(',').map(Number);
-      const result = [];
-      for (let i = 0; i < arr.length; i += 2) {
-        result.push([arr[i], arr[i + 1]]);
+    for (let i = 0; i < data.length; i += 14) {
+      const chunk = data.slice(i, i + 14);
+      if (chunk.length === 14) {
+        const noteCounts = [];
+        for (let j = 0; j < noteTypes; j++) {
+          const hex36 = chunk.slice(j * 2, j * 2 + 2);
+          const count = parseInt(hex36, 36) || 0;
+          noteCounts.push(count);
+        }
+        segments.push(noteCounts);
       }
-      return result;
     }
 
-    // グラフ描写関数
-    function drawDistribution(canvas, tooltip, distribution, peakDensity, speedchangeRaw, mainBPM, maxBPM, minBPM) {
-      // ノーツカラー設定
-      const noteColors = [
-        "#44FF44", // LN皿
-        "#228822", // LN皿2
-        "#FF4444", // 皿
-        "#4444FF", // LN
-        "#222288", // LN2
-        "#CCCCCC", // 通常
-        "#880000" // 地雷
-      ];
+    return segments;
+  }
 
-      const noteNames = [
-        "LNSCR",
-        "LNSCR HOLD",
-        "SCR",
-        "LN",
-        "LN HOLD",
-        "NORMAL",
-        "MINE"
-      ]
+  function parseSpeedChange(raw) {
+    const arr = raw.split(',').map(Number);
+    const result = [];
+    for (let i = 0; i < arr.length; i += 2) {
+      result.push([arr[i], arr[i + 1]]);
+    }
+    return result;
+  }
 
-      // ノーツサイズ設定
-      const rectWidth = 4;
-      const rectHeight = 2;
-      const spacing = 1;
-      const noteTypes = 7;
+  function logScaleY(bpm, mainBPM, minValue, maxValue, minLog, maxLog, canvasHeight) {
+    const ratio = Math.min(Math.max(bpm / mainBPM, minValue), maxValue);
+    const logVal = Math.log10(ratio);
+    const t = (logVal - minLog) / (maxLog - minLog);
+    return canvasHeight - Math.round(t * (canvasHeight - 2));
+  }
 
-      // distributionデータパース、曲長さ算出、canvasサイズ設定
-      const data = distribution.startsWith("#") ? distribution.slice(1) : distribution;
-      const segments = [];
-      for (let i = 0; i < data.length; i += 14) {
-        const chunk = data.slice(i, i + 14);
-        if (chunk.length === 14) {
-          const noteCounts = [];
-          for (let j = 0; j < noteTypes; j++) {
-            const hex36 = chunk.slice(j * 2, j * 2 + 2);
-            const count = parseInt(hex36, 36) || 0;
-            noteCounts.push(count);
-          }
-          segments.push(noteCounts);
+  function timeToX(t, timeLength, canvasWidth) {
+    return Math.round((t / timeLength * 0.001) * canvasWidth) + 1;
+  }
+
+  function drawDistributionGraph(canvas, tooltip, normalizedRecord) {
+    const rectWidth = 4;
+    const rectHeight = 2;
+    const spacing = 1;
+    const minValue = 1 / 8;
+    const maxValue = 8;
+    const minLog = Math.log10(minValue);
+    const maxLog = Math.log10(maxValue);
+    const segments = parseDistributionSegments(normalizedRecord.distribution);
+    const parsedSpeedchange = parseSpeedChange(normalizedRecord.speedchange);
+    const timeLength = segments.length;
+    const maxNotesPerSecond = Math.max(40, Math.min(normalizedRecord.peakdensity, 100));
+    const canvasWidth = timeLength * (rectWidth + spacing);
+    const canvasHeight = maxNotesPerSecond * (rectHeight + spacing) - spacing;
+
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = "#202080";
+    ctx.lineWidth = 1;
+    for (let i = 5; i < maxNotesPerSecond; i += 5) {
+      const y = canvasHeight - (i * (rectHeight + spacing) - 0.5);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvasWidth, y);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "#777";
+    for (let t = 10; t < timeLength; t += 10) {
+      const x = t * (rectWidth + spacing) - 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvasHeight);
+      ctx.stroke();
+    }
+
+    segments.forEach((counts, timeIndex) => {
+      let yOffset = 0;
+      for (let typeIndex = 0; typeIndex < DISTRIBUTION_NOTE_COLORS.length; typeIndex++) {
+        const color = DISTRIBUTION_NOTE_COLORS[typeIndex];
+        const count = counts[typeIndex];
+        for (let i = 0; i < count; i++) {
+          const x = timeIndex * (rectWidth + spacing);
+          const y = canvasHeight - ((yOffset + 1) * rectHeight + yOffset * spacing);
+          if (y < 0) break;
+          ctx.fillStyle = color;
+          ctx.fillRect(x, y, rectWidth, rectHeight);
+          yOffset++;
+          if (yOffset >= maxNotesPerSecond) break;
+        }
+      }
+    });
+
+    const bpmLineWidth = 2;
+    for (let i = 0; i < parsedSpeedchange.length; i++) {
+      const [bpm, time] = parsedSpeedchange[i];
+      const x1 = timeToX(time, timeLength, canvasWidth);
+      const y1 = logScaleY(bpm, normalizedRecord.mainbpm, minValue, maxValue, minLog, maxLog, canvasHeight) - 1;
+      const next = parsedSpeedchange[i + 1];
+      const x2 = next ? timeToX(next[1], timeLength, canvasWidth) : canvasWidth;
+
+      let color = "#ffff00";
+      if (bpm <= 0) color = "#ff00ff";
+      else if (bpm === normalizedRecord.mainbpm) color = "#00ff00";
+      else if (bpm === normalizedRecord.minbpm) color = "#0000ff";
+      else if (bpm === normalizedRecord.maxbpm) color = "#ff0000";
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = bpmLineWidth;
+      ctx.beginPath();
+      ctx.moveTo(x1 - 1, y1);
+      ctx.lineTo(x2 + 1, y1);
+      ctx.stroke();
+
+      if (next) {
+        const y2 = logScaleY(next[0], normalizedRecord.mainbpm, minValue, maxValue, minLog, maxLog, canvasHeight) - 1;
+        if (Math.abs(y2 - y1) >= 1) {
+          ctx.strokeStyle = "rgba(127,127,127,0.5)";
+          ctx.lineWidth = bpmLineWidth;
+          ctx.beginPath();
+          ctx.moveTo(x2, y2 < y1 ? y1 - 1 : y1 + 1);
+          ctx.lineTo(x2, y2 < y1 ? y2 + 1 : y2 - 1);
+          ctx.stroke();
+        }
+      }
+    }
+
+    canvas.onmousemove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const timeIndex = Math.floor(mouseX / (rectWidth + spacing));
+      if (timeIndex < 0 || timeIndex >= segments.length) {
+        tooltip.style.display = "none";
+        return;
+      }
+
+      let bpmDisplay = 0;
+      for (let i = parsedSpeedchange.length - 1; i >= 0; i--) {
+        if ((mouseX / (rectWidth + spacing)) * 1000 >= parsedSpeedchange[i][1]) {
+          bpmDisplay = parsedSpeedchange[i][0];
+          break;
         }
       }
 
-      const timeLength = segments.length;
-      const maxNotesPerSecond = Math.max(40, Math.min(peakDensity, 100)); // 最低でも40ノーツ分の高さを確保する、それ以上は譜面のピークに合わせて高さを増やす。Satellite/Stellaの密度を参考に設定した。
-      const canvasWidth = timeLength * (rectWidth + spacing);
-      const canvasHeight = maxNotesPerSecond * (rectHeight + spacing) - spacing; // 最下段に隙間なし
-      canvas.width = canvasWidth;
-      canvas.height = canvasHeight;
-
-      // グラフ描写開始
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // === 背景描画 ===
-      // Y軸（5ノーツごと）
-      ctx.strokeStyle = "#202080";
-      ctx.lineWidth = 1;
-      for (let i = 5; i < maxNotesPerSecond; i += 5) {
-        const y = canvasHeight - (i * (rectHeight + spacing) - 0.5);
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvasWidth, y);
-        ctx.stroke();
-      }
-
-      // X軸（10秒ごと）
-      ctx.strokeStyle = "#777";
-      for (let t = 10; t < timeLength; t += 10) {
-        const x = t * (rectWidth + spacing) - 0.5;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvasHeight);
-        ctx.stroke();
-      }
-
-      // === ノーツ描画 ===
-      segments.forEach((counts, timeIndex) => {
-        let yOffset = 0;
-        for (let typeIndex = 0; typeIndex < noteTypes; typeIndex++) {
-          const color = noteColors[typeIndex];
-          const count = counts[typeIndex];
-          for (let i = 0; i < count; i++) {
-            const x = timeIndex * (rectWidth + spacing);
-            const y = canvasHeight - ((yOffset + 1) * rectHeight + yOffset * spacing);
-            if (y < 0) break;
-            ctx.fillStyle = color;
-            ctx.fillRect(x, y, rectWidth, rectHeight);
-            yOffset++;
-            if (yOffset >= maxNotesPerSecond) break;
-          }
+      const counts = segments[timeIndex];
+      let total = counts.reduce((a, b) => a + b, 0);
+      let html = `${(mouseX / (rectWidth + spacing)).toFixed(1)} sec<br>`;
+      html += `BPM: ${bpmDisplay}<br>`;
+      html += `Notes: ${total}<br>`;
+      counts.forEach((c, i) => {
+        if (c > 0) {
+          html += `<span style="color: ${DISTRIBUTION_NOTE_COLORS[i]}; background-color: transparent;">■</span> ${c} - ${DISTRIBUTION_NOTE_NAMES[i]}<br>`;
         }
       });
+      tooltip.innerHTML = html;
+      tooltip.style.left = `${e.clientX + 10}px`;
+      tooltip.style.top = `${e.clientY + 10}px`;
+      tooltip.style.display = "block";
+    };
 
-      // === BPM推移描写 ===
-      // Y軸スケール設定
-      const minValue = 1 / 8;
-      const maxValue = 8;
-      const minLog = Math.log10(minValue);
-      const maxLog = Math.log10(maxValue);
-
-      const speedchange = parseSpeedChange(speedchangeRaw);
-      const bpmLineWidth = 2; // ラインの微調整は偶数を想定した処理だし、そもそも2px想定でベタ書きしているかも
-
-      for (let i = 0; i < speedchange.length; i++) {
-        const [bpm, time] = speedchange[i];
-        const x1 = timeToX(time, timeLength, canvasWidth);
-        const y1 = logScaleY(bpm, minValue, maxValue, minLog, maxLog, canvasHeight) - 1;
-
-        // 横線（次の時間まで）
-        const next = speedchange[i + 1];
-        const x2 = next ? timeToX(next[1], timeLength, canvasWidth) : canvasWidth;
-
-        let color = "#ffff00"; // other 黄
-        if (bpm <= 0) color = "#ff00ff"; // stop 紫
-        else if (bpm === mainBPM) color = "#00ff00"; // main 緑
-        else if (bpm === minBPM) color = "#0000ff"; // min 青
-        else if (bpm === maxBPM) color = "#ff0000"; // max 赤
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = bpmLineWidth;
-        ctx.beginPath();
-        ctx.moveTo(x1 - 1, y1);
-        ctx.lineTo(x2 + 1, y1);
-        ctx.stroke();
-
-        // 縦線（遷移部分）
-        if (next) {
-          const y2 = logScaleY(next[0], minValue, maxValue, minLog, maxLog, canvasHeight) - 1;
-          if (Math.abs(y2 - y1) >= 1) {
-            ctx.strokeStyle = "rgba(127,127,127,0.5)"; // 灰(半透明)
-            ctx.lineWidth = bpmLineWidth;
-            ctx.beginPath();
-            ctx.moveTo(x2, y2 < y1 ? y1 - 1 : y1 + 1); // Y軸の向きで混乱
-            ctx.lineTo(x2, y2 < y1 ? y2 + 1 : y2 - 1);
-            ctx.stroke();
-          }
-        }
-      }
-
-      // === インタラクティブ処理(グラフにマウスオーバー時ツールチップでその時間の情報表示) ===
-      canvas.onmousemove = (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const timeIndex = Math.floor(mouseX / (rectWidth + spacing));
-        if (timeIndex < 0 || timeIndex >= segments.length) {
-          tooltip.style.display = "none";
-          return;
-        }
-        // BPMデータ準備
-        let bpmDisplay = 0;
-        for (let i = speedchange.length - 1; i >= 0; i--) {
-          if ((mouseX / (rectWidth + spacing)) * 1000 >= speedchange[i][1]) {
-            bpmDisplay = speedchange[i][0];
-            break;
-          }
-        }
-        // グラフ上にマウスがあるときに表示する
-        const counts = segments[timeIndex];
-        let total = counts.reduce((a, b) => a + b, 0);
-        let html = `${(mouseX / (rectWidth + spacing)).toFixed(1)} sec<br>`;
-        html += `BPM: ${bpmDisplay}<br>`;
-        html += `Notes: ${total}<br>`;
-        counts.forEach((c, i) => {
-          if (c > 0) {
-            html += `<span style="color: ${noteColors[i]}; background-color: transparent;">■</span> ${c} - ${noteNames[i]}<br>`;
-          }
-        });
-        tooltip.innerHTML = html;
-        tooltip.style.left = `${e.clientX + 10}px`;
-        tooltip.style.top = `${e.clientY + 10}px`;
-        tooltip.style.display = "block";
-      };
-      // グラフからマウスが離れたら消す
-      canvas.onmouseleave = () => {
-        tooltip.style.display = "none";
-      };
-    }
+    canvas.onmouseleave = () => {
+      tooltip.style.display = "none";
+    };
   }
 })();

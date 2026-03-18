@@ -33,8 +33,8 @@ LOG_FILE = SAVE_DIR / "scraper.log"
 
 # --- セレクタ定義 ---
 # Stella BMSのページ構造に応じたXPath
-XPATH_TARGET1 = "//*[@id=\"scroll-area\"]/section/main/div[1]/div[2]/div/table/tbody/tr[7]/td[1]/div/a[1]"
-XPATH_TARGET2 = "//*[@id=\"scroll-area\"]/section/main/div[1]/div[2]/div[2]/table/tbody/tr[4]/td[1]/div/a[1]"
+XPATH_TARGET1 = "//*[@id=\"scroll-area\"]/section/main/div[1]/div[2]/div/table/tbody/tr[8]/td[1]/div/a[1]" # 2026/03/06 頃のサイトアップデートに対応
+XPATH_TARGET2 = "//*[@id=\"scroll-area\"]/section/main/div[1]/div[2]/div[2]/table/tbody/tr[4]/td[1]/div/a[1]" # 情報未登録の曲はここだったと思うけどなんのXPATHか忘れた、もう未登録の曲は存在しないので不要なはず
 XPATH_NOT_FOUND = "//*[@id=\"scroll-area\"]/section/div/div/h1"
 
 URL_TEMPLATE = "https://stellabms.xyz/song/{}"

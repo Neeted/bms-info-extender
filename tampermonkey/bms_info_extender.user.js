@@ -485,7 +485,12 @@
             // IR未登録の場合
             const table_element = document.createElement("table");
             table_element.innerHTML = `<tr><th>MD5</th><td>${targetmd5}</td></tr><tr><th>VIEWER</th><td><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td></tr>`;
-            document.querySelector(LR2IR_SELECTORS.search).after(table_element);
+            const searchElement = document.querySelector(LR2IR_SELECTORS.search);
+            if (searchElement) {
+              searchElement.after(table_element);
+            } else {
+              console.error("❌ LR2IRの検索フォームが見つかりませんでした");
+            }
           }
         }
       } else {
@@ -539,6 +544,7 @@
 
       // テーブルの1行目(レベル、key)を削除した後も、以降の index 解釈は従来どおり「削除後の並び」に合わせる
       const firstTableRow = stellaverseRefs.tableRows[0];
+      if (!firstTableRow) { console.info("処理対象のテーブル行が見つかりません"); return; }
       const removedHeadCount = firstTableRow.querySelectorAll(STELLAVERSE_SELECTORS.tableHead).length;
       const removedCellCount = firstTableRow.querySelectorAll(STELLAVERSE_SELECTORS.tableCell).length;
       const tableRows = stellaverseRefs.tableRows.slice(1);
@@ -563,6 +569,7 @@
       // トータルを抽出(判定も抽出し、拡張した表に統合することで行数削減を考えたが、#TOTAL未定義の場合の長い表示の置き場所がなくなるのでやめた)
       const totalCellElement = tableCells[STELLAVERSE_INDEXES.totalCell];
       const notesCellElement = tableCells[STELLAVERSE_INDEXES.notesCell];
+      if (!totalCellElement || !notesCellElement) { console.info("TOTALかNOTESのセルが見つかりません"); return; }
       const total = Number(totalCellElement.textContent.trim());
       const notes = Number(notesCellElement.textContent.trim());
       // const judge = tableCells[2].textContent.trim();
@@ -609,9 +616,14 @@
         if (await insertBmsData(pageContext, container)) {
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
           // 最後まで置換がうまく行った場合、更にBPM・ノーツ数の行と、IRリンク・譜面ビューアーの行を削除する。他はTOTAL値未定義が分かる場合があるなど必ずしも重複していない情報なので残す。
-          container.querySelector("#bd-bokutachi").setAttribute("href", `${bokutachi}`);
-          container.querySelector("#bd-bokutachi").setAttribute("style", "display: inline;");
-          const rowsToRemoveAfterSuccess = STELLAVERSE_INDEXES.removeRowsAfterSuccess.map(index => tableRows[index]);
+          const bokutachiLink = container.querySelector("#bd-bokutachi");
+          if (bokutachi && bokutachiLink) {
+            bokutachiLink.setAttribute("href", `${bokutachi}`);
+            bokutachiLink.setAttribute("style", "display: inline;");
+          }
+          const rowsToRemoveAfterSuccess = STELLAVERSE_INDEXES.removeRowsAfterSuccess
+            .map(index => tableRows[index])
+            .filter(Boolean);
           rowsToRemoveAfterSuccess.forEach(row => {
             row.remove();
           });
@@ -740,7 +752,7 @@
               songInfoRows[MOCHA_ROW_INDEXES.total],
               songInfoRows[MOCHA_ROW_INDEXES.totalNotes],
               songInfoRows[MOCHA_ROW_INDEXES.mode]
-            ];
+            ].filter(Boolean);
             rowsToRemove.forEach(row => {
               row.remove();
             });
@@ -751,12 +763,16 @@
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
           // LR2IRリンク要素取得
           const otherIrRow = songInfoRows[MOCHA_ROW_INDEXES.otherIr];
-          const otherIrLinks = Array.from(otherIrRow.querySelectorAll(MOCHA_SELECTORS.anchor));
+          const otherIrLinks = otherIrRow ? Array.from(otherIrRow.querySelectorAll(MOCHA_SELECTORS.anchor)) : [];
           const lr2irLink = otherIrLinks[MOCHA_LINK_INDEXES.lr2irInOtherIrRow];
           if (lr2irLink) {
             // hrefからmd5抽出
             const href = lr2irLink.getAttribute("href");
-            const md5Match = href.match(/bmsmd5=([0-9a-fA-F]{32})/);
+            const md5Match = href ? href.match(/bmsmd5=([0-9a-fA-F]{32})/) : null;
+            if (!md5Match) {
+              console.error("❌ LR2IRリンクからMD5が取得できませんでした");
+              return;
+            }
             const md5 = md5Match[1];
 
             // tbodyを取得し、末尾にsha256とmd5行を挿入
@@ -770,17 +786,26 @@
             md5Row.className = "ranking_header";
             md5Row.innerHTML = `<td class="songinfo_header">Md5</td><td class="songinfo_content">${md5}</td>`;
 
-            songInfoBody.appendChild(sha256Row);
-            songInfoBody.appendChild(md5Row);
+            if (songInfoBody) {
+              songInfoBody.appendChild(sha256Row);
+              songInfoBody.appendChild(md5Row);
+            } else {
+              console.error("❌ Mochaの曲情報テーブル本文が見つかりませんでした");
+              return;
+            }
 
             // 譜面ビューアへのリンクを追加
             const targetTd = otherIrRow.querySelector(MOCHA_SELECTORS.songInfoContentCell);
-            const viewerLink = document.createElement("a");
-            viewerLink.href = `https://bms-score-viewer.pages.dev/view?md5=${md5}`;
-            viewerLink.target = "_blank";
-            viewerLink.textContent = "Viewer";
-            targetTd.appendChild(document.createTextNode("　"));
-            targetTd.appendChild(viewerLink);
+            if (targetTd) {
+              const viewerLink = document.createElement("a");
+              viewerLink.href = `https://bms-score-viewer.pages.dev/view?md5=${md5}`;
+              viewerLink.target = "_blank";
+              viewerLink.textContent = "Viewer";
+              targetTd.appendChild(document.createTextNode("　"));
+              targetTd.appendChild(viewerLink);
+            } else {
+              console.error("❌ Mochaのリンク追加先セルが見つかりませんでした");
+            }
           } else {
             console.error("❌ LR2IRリンクが見つかりませんでした");
           }
@@ -834,7 +859,11 @@
 
     const canvas = container.querySelector("#bd-graph-canvas");
     const tooltip = container.querySelector("#bd-graph-tooltip");
-    drawDistributionGraph(canvas, tooltip, normalizedRecord);
+    if (canvas && tooltip) {
+      drawDistributionGraph(canvas, tooltip, normalizedRecord);
+    } else {
+      console.warn("グラフ描画用エレメントが見つかりませんでした");
+    }
 
     return true;
   }
@@ -999,6 +1028,9 @@
   }
 
   function showLink(linkElement, href) {
+    if (!linkElement) {
+      return;
+    }
     linkElement.setAttribute("href", href);
     linkElement.setAttribute("style", "display: inline;");
   }
@@ -1039,6 +1071,10 @@
 
   function renderTables(container, normalizedRecord) {
     const ul = container.querySelector("#bd-tables-ul");
+    if (!ul) {
+      console.warn("bd-tables-ulが見つかりませんでした");
+      return;
+    }
     normalizedRecord.tables.forEach(text => {
       const li = document.createElement("li");
       li.textContent = text;

@@ -192,6 +192,47 @@
       </div>
     </div>
   `;
+  const LR2IR_SELECTORS = {
+    allAnchors: "a",
+    registeredSongHeading: "#box > h2",
+    search: "#search",
+    registeredSongFallbackBody: "#box > table:nth-child(10) > tbody"
+  };
+  const STELLAVERSE_SELECTORS = {
+    datetimeElem: "#thread-1 > div:nth-child(1) > div > div:nth-child(1) > div:nth-child(1) > p:last-of-type",
+    targetElem: "#scroll-area > section > main > h2",
+    tableContainer: '[data-slot="table-container"]',
+    tableRow: '[data-slot="table-row"]',
+    tableHead: '[data-slot="table-head"]',
+    tableCell: '[data-slot="table-cell"]',
+    anchor: "a"
+  };
+  const STELLAVERSE_INDEXES = {
+    notesCell: 1,
+    totalCell: 3,
+    removeRowsAfterSuccess: [4, 0]
+  };
+  const MINIR_SELECTORS = {
+    targetElement: "#root > div > div > div > div.compact.tabulator"
+  };
+  const MOCHA_SELECTORS = {
+    songInfoTable: "#main > table.songinfo",
+    songInfoBody: "#main > table.songinfo > tbody",
+    form: "#main > form",
+    songInfoContentCell: "td.songinfo_content",
+    anchor: "a"
+  };
+  const MOCHA_ROW_INDEXES = {
+    mode: 1,
+    totalNotes: 3,
+    total: 4,
+    judgerank: 5,
+    bpm: 6,
+    otherIr: 10
+  };
+  const MOCHA_LINK_INDEXES = {
+    lr2irInOtherIrRow: 2
+  };
 
   // サイトを特定
   const hostname = location.hostname;
@@ -342,6 +383,36 @@
     startObserving();
   }
 
+  function findAnchorByText(anchors, text) {
+    let matchedAnchor = null;
+    for (const anchor of anchors) {
+      if (anchor.innerText == text) {
+        matchedAnchor = anchor;
+      }
+    }
+    return matchedAnchor;
+  }
+
+  function getStellaverseDomRefs() {
+    const datetimeElem = document.querySelector(STELLAVERSE_SELECTORS.datetimeElem);
+    const targetElem = document.querySelector(STELLAVERSE_SELECTORS.targetElem);
+    const tableContainer = document.querySelector(STELLAVERSE_SELECTORS.tableContainer);
+    const tableRows = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableRow)) : [];
+    const tableHeads = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableHead)) : [];
+    const tableCells = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableCell)) : [];
+    const anchors = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.anchor)) : [];
+
+    return { datetimeElem, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors };
+  }
+
+  function getMochaSongInfoRefs() {
+    const songInfoTable = document.querySelector(MOCHA_SELECTORS.songInfoTable);
+    const songInfoBody = document.querySelector(MOCHA_SELECTORS.songInfoBody);
+    const songInfoRows = songInfoBody ? Array.from(songInfoBody.children) : [];
+
+    return { songInfoTable, songInfoBody, songInfoRows };
+  }
+
   // ====================================================================================================
   // LR2IR
   //   近年のSPAサイトみたいにページが書き変わらないので処理が単純で良い
@@ -370,22 +441,21 @@
       let targetbmsid = null;
 
       // 曲ページ「更新履歴」リンクのGETパラメータからbmsidを取得
-      const a = document.getElementsByTagName("a"); // HTMLCollection
-      for (let i = 0; i < a.length; i++) {
-        if (a[i].innerText == "更新履歴") {
-          targetbmsid = new URL(a[i].href).searchParams.get('bmsid');
-        }
+      const anchors = Array.from(document.querySelectorAll(LR2IR_SELECTORS.allAnchors));
+      const historyAnchor = findAnchorByText(anchors, "更新履歴");
+      if (historyAnchor) {
+        targetbmsid = new URL(historyAnchor.href).searchParams.get('bmsid');
       }
       // 現在のウィンドウのGETパラメータを取得
       const targetmd5 = new URL(window.location.href).searchParams.get('bmsmd5');
 
       // ターゲット要素特定
       // アーティスト名用<h2>がある場合は登録曲なので曲名の下を挿入先にする
-      let htmlTargetElement = document.querySelector("#box > h2");
+      let htmlTargetElement = document.querySelector(LR2IR_SELECTORS.registeredSongHeading);
       let htmlTargetDest = "afterend";
       // <h2>がない場合は検索窓の下を挿入先にする
       if (!htmlTargetElement) {
-        htmlTargetElement = document.getElementById("search");
+        htmlTargetElement = document.querySelector(LR2IR_SELECTORS.search);
       }
       // MD5かBMSIDが取得済み、かつ、ターゲット要素が特定済み、の場合にはbmsdataの挿入に進む
       if ((targetmd5 || targetbmsid) && htmlTargetElement && htmlTargetDest) {
@@ -402,7 +472,7 @@
         } else {
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
           // 外部データが取得できなかった場合のフォールバック処理
-          const tbody = document.querySelector("#box > table:nth-child(10) > tbody")
+          const tbody = document.querySelector(LR2IR_SELECTORS.registeredSongFallbackBody)
           if (tbody) {
             // IR登録済み曲の場合
             const md5Row = document.createElement("tr");
@@ -415,7 +485,7 @@
             // IR未登録の場合
             const table_element = document.createElement("table");
             table_element.innerHTML = `<tr><th>MD5</th><td>${targetmd5}</td></tr><tr><th>VIEWER</th><td><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td></tr>`;
-            document.getElementById("search").after(table_element);
+            document.querySelector(LR2IR_SELECTORS.search).after(table_element);
           }
         }
       } else {
@@ -445,10 +515,8 @@
       }
       console.info("スレッドページの書き換え処理に入りました");
       // 経過時間の表示処理用エレメント取得
-      const datetimeElem = document.querySelector("#thread-1 > div:nth-child(1) > div > div:nth-child(1) > div:nth-child(1) > p:last-of-type");
-      const targetElem = document.querySelector("#scroll-area > section > main > h2");
-      // 譜面情報テーブル表示用コンテナエレメント取得
-      const tableContainer = document.querySelector('[data-slot="table-container"]');
+      const stellaverseRefs = getStellaverseDomRefs();
+      const { datetimeElem, targetElem, tableContainer, anchors } = stellaverseRefs;
 
       if (!datetimeElem || !targetElem || !tableContainer) { console.info("処理対象エレメントのいずれかが見つかりません"); return; }
 
@@ -469,28 +537,35 @@
       targetElem.insertAdjacentElement('afterend', elapsedTimeElement);
       markUpdated(); // 経過時間表示処理完了時点でフラグを立てる
 
-      // テーブルの1行目(レベル、key)を削除(多分なくても良い情報？)
-      tableContainer.querySelector('[data-slot="table-row"]').remove();
+      // テーブルの1行目(レベル、key)を削除した後も、以降の index 解釈は従来どおり「削除後の並び」に合わせる
+      const firstTableRow = stellaverseRefs.tableRows[0];
+      const removedHeadCount = firstTableRow.querySelectorAll(STELLAVERSE_SELECTORS.tableHead).length;
+      const removedCellCount = firstTableRow.querySelectorAll(STELLAVERSE_SELECTORS.tableCell).length;
+      const tableRows = stellaverseRefs.tableRows.slice(1);
+      const tableHeads = stellaverseRefs.tableHeads.slice(removedHeadCount);
+      const tableCells = stellaverseRefs.tableCells.slice(removedCellCount);
+      firstTableRow.remove();
       // テーブルをツメツメにして高さを削減
-      tableContainer.querySelectorAll('[data-slot="table-row"]').forEach(el => {
+      tableRows.forEach(el => {
         el.style.borderBottomWidth = '0';
       });
-      tableContainer.querySelectorAll('[data-slot="table-head"]').forEach(el => {
+      tableHeads.forEach(el => {
         el.style.height = '1.2rem';
         el.style.lineHeight = '100%';
         el.style.padding = '0.1rem 0.2rem';
         el.style.fontFamily = '"Inconsolata"';
       });
-      tableContainer.querySelectorAll('[data-slot="table-cell"]').forEach(el => {
+      tableCells.forEach(el => {
         el.style.lineHeight = '100%';
         el.style.padding = '0.1rem 0.2rem';
         el.style.fontFamily = '"Inconsolata"';
       });
       // トータルを抽出(判定も抽出し、拡張した表に統合することで行数削減を考えたが、#TOTAL未定義の場合の長い表示の置き場所がなくなるのでやめた)
-      const totalCellElement = tableContainer.querySelectorAll('[data-slot="table-cell"]')[3];
+      const totalCellElement = tableCells[STELLAVERSE_INDEXES.totalCell];
+      const notesCellElement = tableCells[STELLAVERSE_INDEXES.notesCell];
       const total = Number(totalCellElement.textContent.trim());
-      const notes = Number(tableContainer.querySelectorAll('[data-slot="table-cell"]')[1].textContent.trim());
-      // const judge = tableContainer.querySelectorAll('[data-slot="table-cell"]')[2].textContent.trim();
+      const notes = Number(notesCellElement.textContent.trim());
+      // const judge = tableCells[2].textContent.trim();
 
       // トータル0の場合は未定義なので、beatorajaとLR2の場合の値を計算し、セルの内容を書き換える
       let beatorajaTotal;
@@ -504,7 +579,6 @@
       // MD5抽出、Bokutachiリンク抽出
       let bokutachi;
       let targetmd5 = null;
-      const anchors = tableContainer.querySelectorAll('a');
       for (const a of anchors) {
         if (a.textContent.trim() === 'LR2IR') {
           const href = a.href;
@@ -537,9 +611,10 @@
           // 最後まで置換がうまく行った場合、更にBPM・ノーツ数の行と、IRリンク・譜面ビューアーの行を削除する。他はTOTAL値未定義が分かる場合があるなど必ずしも重複していない情報なので残す。
           container.querySelector("#bd-bokutachi").setAttribute("href", `${bokutachi}`);
           container.querySelector("#bd-bokutachi").setAttribute("style", "display: inline;");
-          const tableRows = tableContainer.querySelectorAll('[data-slot="table-row"]');
-          tableRows[4].remove();
-          tableRows[0].remove();
+          const rowsToRemoveAfterSuccess = STELLAVERSE_INDEXES.removeRowsAfterSuccess.map(index => tableRows[index]);
+          rowsToRemoveAfterSuccess.forEach(row => {
+            row.remove();
+          });
         } else {
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
         }
@@ -578,7 +653,7 @@
         targetsha256 = match[1];
       }
       // ターゲット要素特定
-      const htmlTargetElement = document.querySelector("#root > div > div > div > div.compact.tabulator");
+      const htmlTargetElement = document.querySelector(MINIR_SELECTORS.targetElement);
       const htmlTargetDest = "beforebegin";
       // sha256が取得できている、かつ、ターゲット要素が取得済み、かつ、bmsdataが挿入済みではない、場合にはbmsdataの挿入に進む
       // (LN/CN/HCNの切り替え時に挿入済みになりうる)
@@ -635,11 +710,12 @@
 
       // ターゲット要素特定
       // 曲情報テーブルの下に挿入する
-      let htmlTargetElement = document.querySelector("#main > table.songinfo");
+      const { songInfoTable, songInfoBody, songInfoRows } = getMochaSongInfoRefs();
+      let htmlTargetElement = songInfoTable;
       let htmlTargetDest = "afterend";
       // 曲情報テーブルがない場合はフォーム(Score [Update]のところ)の上に挿入する
       if (!htmlTargetElement) {
-        htmlTargetElement = document.querySelector("#main > form");
+        htmlTargetElement = document.querySelector(MOCHA_SELECTORS.form);
         htmlTargetDest = "beforebegin";
       }
 
@@ -655,21 +731,28 @@
         // 外部から取得したデータでテンプレートを置換
         if (await insertBmsData(pageContext, container)) {
           // 最後まで置換がうまく行った場合
-          if (document.querySelector("#main > table.songinfo")) {
+          if (songInfoTable) {
             // 曲情報テーブルがある場合は重複する情報を削除する
-            document.querySelector("#main > table.songinfo > tbody > tr:nth-child(11)").remove(); // Other IR
-            document.querySelector("#main > table.songinfo > tbody > tr:nth-child(7)").remove(); // BPM
-            document.querySelector("#main > table.songinfo > tbody > tr:nth-child(6)").remove(); // JUDGERANK
-            document.querySelector("#main > table.songinfo > tbody > tr:nth-child(5)").remove(); // TOTAL
-            document.querySelector("#main > table.songinfo > tbody > tr:nth-child(4)").remove(); // Total Notes
-            document.querySelector("#main > table.songinfo > tbody > tr:nth-child(2)").remove(); // Mode
+            const rowsToRemove = [
+              songInfoRows[MOCHA_ROW_INDEXES.otherIr],
+              songInfoRows[MOCHA_ROW_INDEXES.bpm],
+              songInfoRows[MOCHA_ROW_INDEXES.judgerank],
+              songInfoRows[MOCHA_ROW_INDEXES.total],
+              songInfoRows[MOCHA_ROW_INDEXES.totalNotes],
+              songInfoRows[MOCHA_ROW_INDEXES.mode]
+            ];
+            rowsToRemove.forEach(row => {
+              row.remove();
+            });
           }
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
         } else {
           // 外部データの取得が出来なかった場合にはMocha内のLR2IRリンクからmd5を取得しハッシュと譜面ビューアへのリンクを表示する
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
           // LR2IRリンク要素取得
-          const lr2irLink = document.querySelector("#main > table.songinfo > tbody > tr:nth-child(11) > td.songinfo_content > a:nth-child(3)");
+          const otherIrRow = songInfoRows[MOCHA_ROW_INDEXES.otherIr];
+          const otherIrLinks = Array.from(otherIrRow.querySelectorAll(MOCHA_SELECTORS.anchor));
+          const lr2irLink = otherIrLinks[MOCHA_LINK_INDEXES.lr2irInOtherIrRow];
           if (lr2irLink) {
             // hrefからmd5抽出
             const href = lr2irLink.getAttribute("href");
@@ -677,7 +760,6 @@
             const md5 = md5Match[1];
 
             // tbodyを取得し、末尾にsha256とmd5行を挿入
-            const tbody = document.querySelector("#main > table.songinfo > tbody");
             const sha256Row = document.createElement("tr");
             sha256Row.setAttribute("height", "20");
             sha256Row.className = "ranking_header";
@@ -688,11 +770,11 @@
             md5Row.className = "ranking_header";
             md5Row.innerHTML = `<td class="songinfo_header">Md5</td><td class="songinfo_content">${md5}</td>`;
 
-            tbody.appendChild(sha256Row);
-            tbody.appendChild(md5Row);
+            songInfoBody.appendChild(sha256Row);
+            songInfoBody.appendChild(md5Row);
 
             // 譜面ビューアへのリンクを追加
-            const targetTd = document.querySelector("#main > table.songinfo > tbody > tr:nth-child(11) > td.songinfo_content");
+            const targetTd = otherIrRow.querySelector(MOCHA_SELECTORS.songInfoContentCell);
             const viewerLink = document.createElement("a");
             viewerLink.href = `https://bms-score-viewer.pages.dev/view?md5=${md5}`;
             viewerLink.target = "_blank";

@@ -234,6 +234,98 @@
     lr2irInOtherIrRow: 2
   };
 
+  /**
+   * 外部サイト側で取得できた識別子群。
+   * @typedef {Object} PageIdentifiers
+   * @property {string|null} md5
+   * @property {string|null} sha256
+   * @property {string|null} bmsid
+   */
+
+  /**
+   * 拡張パネルをどこへ挿入するかを表す情報。
+   * @typedef {Object} PageInsertion
+   * @property {Element} element
+   * @property {InsertPosition} position
+   */
+
+  /**
+   * 拡張パネルの配色設定。
+   * @typedef {Object} PageTheme
+   * @property {string} dctx
+   * @property {string} dcbk
+   * @property {string} hdtx
+   * @property {string} hdbk
+   */
+
+  /**
+   * サイト別処理から共通描画へ渡すページコンテキスト。
+   * @typedef {Object} PageContext
+   * @property {PageIdentifiers} identifiers
+   * @property {PageInsertion} insertion
+   * @property {PageTheme} theme
+   */
+
+  /**
+   * SPA監視側から updatePage に渡す helper 群。
+   * @typedef {Object} UpdatePageHelpers
+   * @property {() => void} markUpdated
+   */
+
+  /**
+   * SPA 監視の設定。
+   * @typedef {Object} WatchSpaPageConfig
+   * @property {string} siteName
+   * @property {(url: string) => boolean} matchUrl
+   * @property {(helpers: UpdatePageHelpers) => Promise<void>} updatePage
+   * @property {(() => boolean)=} isSettled
+   */
+
+  /**
+   * STELLAVERSE 側でまとめて取得する DOM 参照群。
+   * @typedef {Object} StellaverseDomRefs
+   * @property {Element|null} datetimeElem
+   * @property {Element|null} targetElem
+   * @property {Element|null} tableContainer
+   * @property {Element[]} tableRows
+   * @property {Element[]} tableHeads
+   * @property {Element[]} tableCells
+   * @property {HTMLAnchorElement[]} anchors
+   */
+
+  /**
+   * Mocha の曲情報テーブル周りで使う DOM 参照群。
+   * @typedef {Object} MochaSongInfoRefs
+   * @property {Element|null} songInfoTable
+   * @property {Element|null} songInfoBody
+   * @property {Element[]} songInfoRows
+   */
+
+  /**
+   * 外部データを描画しやすい形へ正規化した結果。
+   * @typedef {Object} NormalizedBmsRecord
+   * @property {string} md5
+   * @property {string} sha256
+   * @property {number} maxbpm
+   * @property {number} minbpm
+   * @property {number} mode
+   * @property {number} judge
+   * @property {number} density
+   * @property {number} peakdensity
+   * @property {number} enddensity
+   * @property {number} mainbpm
+   * @property {number} stella
+   * @property {number} bmsid
+   * @property {string} durationStr
+   * @property {string} notesStr
+   * @property {string} totalStr
+   * @property {string} featuresStr
+   * @property {string} distribution
+   * @property {string} speedchange
+   * @property {Array<[number, number, number, number]>} lanenotesArr
+   * @property {string[]} tables
+   */
+
   // サイトを特定
   const hostname = location.hostname;
 
@@ -250,6 +342,10 @@
 
   return;
 
+  /**
+   * history API を一度だけパッチし、SPA 遷移時に locationchange を発火させる。
+   * @returns {void}
+   */
   function installLocationChangeHookOnce() {
     const hookFlag = "__bmsInfoExtenderLocationHookInstalled";
     if (window[hookFlag]) {
@@ -278,12 +374,18 @@
     window.addEventListener("popstate", dispatchLocationChange);
   }
 
+  /**
+   * SPA ページの URL 変化と DOM 変化を監視し、条件が整ったときだけ updatePage を呼び出す。
+   * @param {WatchSpaPageConfig} config
+   * @returns {void}
+   */
   function watchSpaPage({ siteName, matchUrl, updatePage, isSettled }) {
     let lastUrl = location.href;
     let completedUrl = null;
     let observer = null;
     let isUpdating = false;
 
+    // 同じ URL での再実行を止めるため、サイト側処理が完了した時点を記録する。
     function markUpdated() {
       completedUrl = location.href;
     }
@@ -383,6 +485,12 @@
     startObserving();
   }
 
+  /**
+   * テキスト一致するアンカーを検索し、最後に見つかった要素を返す。
+   * @param {HTMLAnchorElement[]} anchors
+   * @param {string} text
+   * @returns {HTMLAnchorElement|null}
+   */
   function findAnchorByText(anchors, text) {
     let matchedAnchor = null;
     for (const anchor of anchors) {
@@ -393,6 +501,10 @@
     return matchedAnchor;
   }
 
+  /**
+   * STELLAVERSE で繰り返し使う DOM 参照をまとめて取得する。
+   * @returns {StellaverseDomRefs}
+   */
   function getStellaverseDomRefs() {
     const datetimeElem = document.querySelector(STELLAVERSE_SELECTORS.datetimeElem);
     const targetElem = document.querySelector(STELLAVERSE_SELECTORS.targetElem);
@@ -405,6 +517,10 @@
     return { datetimeElem, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors };
   }
 
+  /**
+   * Mocha の曲情報テーブル周辺で使う DOM 参照をまとめて取得する。
+   * @returns {MochaSongInfoRefs}
+   */
   function getMochaSongInfoRefs() {
     const songInfoTable = document.querySelector(MOCHA_SELECTORS.songInfoTable);
     const songInfoBody = document.querySelector(MOCHA_SELECTORS.songInfoBody);
@@ -417,6 +533,10 @@
   // LR2IR
   //   近年のSPAサイトみたいにページが書き変わらないので処理が単純で良い
   // ====================================================================================================
+  /**
+   * LR2IR 向けの拡張処理を初期化する。
+   * @returns {Promise<void>}
+   */
   async function lr2ir() {
     console.info("LR2IRの処理に入りました");
 
@@ -432,7 +552,7 @@
 
     // 曲ページの書き換え処理
     async function updatePage() {
-      // 曲ページではない場合retun
+      // 曲ページ以外では何もせず終える。
       if (!location.href.startsWith("http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking")) {
         return;
       }
@@ -457,7 +577,7 @@
       if (!htmlTargetElement) {
         htmlTargetElement = document.querySelector(LR2IR_SELECTORS.search);
       }
-      // MD5かBMSIDが取得済み、かつ、ターゲット要素が特定済み、の場合にはbmsdataの挿入に進む
+      // MD5 か BMSID が取れていて、差し込み先も決まっている場合だけ拡張パネルを描画する。
       if ((targetmd5 || targetbmsid) && htmlTargetElement && htmlTargetDest) {
         const pageContext = {
           identifiers: { md5: targetmd5, sha256: null, bmsid: targetbmsid },
@@ -471,7 +591,7 @@
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
         } else {
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
-          // 外部データが取得できなかった場合のフォールバック処理
+          // 外部 API が落ちていても、最低限 MD5 と譜面ビューアーへの導線は残す。
           const tbody = document.querySelector(LR2IR_SELECTORS.registeredSongFallbackBody)
           if (tbody) {
             // IR登録済み曲の場合
@@ -503,6 +623,10 @@
   // STELLAVERSE
   //   ReactのSPAみたいな感じなのでDOMの監視に対策が必要
   // ====================================================================================================
+  /**
+   * STELLAVERSE 向けの拡張処理を初期化する。
+   * @returns {Promise<void>}
+   */
   async function stellaverse() {
     console.info("STELLAVERSEの処理に入りました");
     watchSpaPage({
@@ -514,12 +638,12 @@
     // ==================================================================================================
     // スレッドページの書き換え処理
     async function updatePage({ markUpdated }) {
-      // スレッドページではない場合return
+      // スレッドページ以外では何もせず終える。
       if (!location.href.startsWith("https://stellabms.xyz/thread/")) {
         return;
       }
       console.info("スレッドページの書き換え処理に入りました");
-      // 経過時間の表示処理用エレメント取得
+      // 投稿日時、経過時間の差し込み先、譜面情報テーブルをまとめて取得する。
       const stellaverseRefs = getStellaverseDomRefs();
       const { datetimeElem, targetElem, tableContainer, anchors } = stellaverseRefs;
 
@@ -540,9 +664,9 @@
       elapsedTimeElement.textContent = elapsedText;
 
       targetElem.insertAdjacentElement('afterend', elapsedTimeElement);
-      markUpdated(); // 経過時間表示処理完了時点でフラグを立てる
+      markUpdated(); // 経過時間表示が済めば、その URL での再実行は不要になる。
 
-      // テーブルの1行目(レベル、key)を削除した後も、以降の index 解釈は従来どおり「削除後の並び」に合わせる
+      // 先頭行を消した後も従来どおりの index を保つため、削除前配列を「削除後相当」に切り直して使う。
       const firstTableRow = stellaverseRefs.tableRows[0];
       if (!firstTableRow) { console.info("処理対象のテーブル行が見つかりません"); return; }
       const removedHeadCount = firstTableRow.querySelectorAll(STELLAVERSE_SELECTORS.tableHead).length;
@@ -566,15 +690,14 @@
         el.style.padding = '0.1rem 0.2rem';
         el.style.fontFamily = '"Inconsolata"';
       });
-      // トータルを抽出(判定も抽出し、拡張した表に統合することで行数削減を考えたが、#TOTAL未定義の場合の長い表示の置き場所がなくなるのでやめた)
+      // TOTAL と NOTES は後段の補正計算でも使うため、削除後相当の配列から拾う。
       const totalCellElement = tableCells[STELLAVERSE_INDEXES.totalCell];
       const notesCellElement = tableCells[STELLAVERSE_INDEXES.notesCell];
       if (!totalCellElement || !notesCellElement) { console.info("TOTALかNOTESのセルが見つかりません"); return; }
       const total = Number(totalCellElement.textContent.trim());
       const notes = Number(notesCellElement.textContent.trim());
-      // const judge = tableCells[2].textContent.trim();
 
-      // トータル0の場合は未定義なので、beatorajaとLR2の場合の値を計算し、セルの内容を書き換える
+      // #TOTAL 未定義時だけ、比較用として beatoraja/LR2 相当値をセルへ併記する。
       let beatorajaTotal;
       let lr2Total;
       if (total === 0) {
@@ -583,7 +706,7 @@
         totalCellElement.textContent = `0, so #TOTAL is undefined. beatoraja is ${beatorajaTotal.toFixed(2)}(${(beatorajaTotal / notes).toFixed(3)}T/N), LR2 is ${lr2Total.toFixed(2)}(${(lr2Total / notes).toFixed(3)}T/N).`;
       }
 
-      // MD5抽出、Bokutachiリンク抽出
+      // テーブル内リンクから MD5 と Bokutachi への導線を拾う。
       let bokutachi;
       let targetmd5 = null;
       for (const a of anchors) {
@@ -596,10 +719,10 @@
         } else if (a.textContent.trim() === 'Bokutachi') {
           bokutachi = a.href;
         }
-        // 両方のリンクが見つかったらbreak
+        // 必要な 2 本が揃ったら探索を打ち切る。
         if (targetmd5 && bokutachi) break;
       }
-      // MD5が取得できている場合には、bmsdataの挿入に進む
+      // MD5 が分かった場合だけ外部 API を引いて拡張情報を挿入する。
       if (targetmd5) {
         // ダークモード判定
         const isDarkMode = document.documentElement.style.getPropertyValue("color-scheme").includes("dark");
@@ -615,7 +738,7 @@
         // 外部から取得したデータでテンプレートを置換
         if (await insertBmsData(pageContext, container)) {
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
-          // 最後まで置換がうまく行った場合、更にBPM・ノーツ数の行と、IRリンク・譜面ビューアーの行を削除する。他はTOTAL値未定義が分かる場合があるなど必ずしも重複していない情報なので残す。
+          // STELLAVERSE 側と完全に重複する行だけを消し、補助情報のある行は残す。
           const bokutachiLink = container.querySelector("#bd-bokutachi");
           if (bokutachi && bokutachiLink) {
             bokutachiLink.setAttribute("href", `${bokutachi}`);
@@ -640,6 +763,10 @@
   // MinIR
   //   STELLAVERSEと同様のアプローチで問題なし
   // ====================================================================================================
+  /**
+   * MinIR 向けの拡張処理を初期化する。
+   * @returns {Promise<void>}
+   */
   async function minir() {
     console.info("MinIRの処理に入りました");
     watchSpaPage({
@@ -652,7 +779,7 @@
     // ==================================================================================================
     // 曲ページの書き換え処理
     async function updatePage({ markUpdated }) {
-      // 曲ページではない、場合return
+      // 曲ページ以外では何もせず終える。
       if (!location.href.startsWith("https://www.gaftalk.com/minir/#/viewer/song/")) {
         return;
       }
@@ -667,8 +794,7 @@
       // ターゲット要素特定
       const htmlTargetElement = document.querySelector(MINIR_SELECTORS.targetElement);
       const htmlTargetDest = "beforebegin";
-      // sha256が取得できている、かつ、ターゲット要素が取得済み、かつ、bmsdataが挿入済みではない、場合にはbmsdataの挿入に進む
-      // (LN/CN/HCNの切り替え時に挿入済みになりうる)
+      // LN/CN/HCN 切り替え時の二重挿入を避けるため、未挿入時だけ描画する。
       if (targetsha256 && htmlTargetElement && htmlTargetDest && !document.getElementById("bmsdata-container")) {
         const pageContext = {
           identifiers: { md5: null, sha256: targetsha256, bmsid: null },
@@ -694,6 +820,10 @@
   // Mocha-Repository
   //   LR2IRと同様のアプローチで問題なし
   // ====================================================================================================
+  /**
+   * Mocha 向けの拡張処理を初期化する。
+   * @returns {Promise<void>}
+   */
   async function mocha() {
     console.info("Mochaの処理に入りました");
 
@@ -731,7 +861,7 @@
         htmlTargetDest = "beforebegin";
       }
 
-      // sha256が取得済み、かつ、ターゲット要素が特定済み、の場合にはbmsdataの挿入に進む
+      // sha256 と差し込み先が取れた場合だけ拡張パネルを描画する。
       if (targetsha256 && htmlTargetElement && htmlTargetDest) {
         const pageContext = {
           identifiers: { md5: null, sha256: targetsha256, bmsid: null },
@@ -744,7 +874,7 @@
         if (await insertBmsData(pageContext, container)) {
           // 最後まで置換がうまく行った場合
           if (songInfoTable) {
-            // 曲情報テーブルがある場合は重複する情報を削除する
+            // Mocha 側と完全に重複する行だけを落とし、残す行の並びは変えない。
             const rowsToRemove = [
               songInfoRows[MOCHA_ROW_INDEXES.otherIr],
               songInfoRows[MOCHA_ROW_INDEXES.bpm],
@@ -759,7 +889,7 @@
           }
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
         } else {
-          // 外部データの取得が出来なかった場合にはMocha内のLR2IRリンクからmd5を取得しハッシュと譜面ビューアへのリンクを表示する
+          // 外部 API が落ちていても、Mocha 内の LR2IR リンクから拾える情報だけは補う。
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
           // LR2IRリンク要素取得
           const otherIrRow = songInfoRows[MOCHA_ROW_INDEXES.otherIr];
@@ -775,7 +905,7 @@
             }
             const md5 = md5Match[1];
 
-            // tbodyを取得し、末尾にsha256とmd5行を挿入
+            // フォールバック表示は既存テーブルの末尾へ追加する。
             const sha256Row = document.createElement("tr");
             sha256Row.setAttribute("height", "20");
             sha256Row.className = "ranking_header";
@@ -794,7 +924,7 @@
               return;
             }
 
-            // 譜面ビューアへのリンクを追加
+            // Viewer リンクは既存の Other IR 行へ追記する。
             const targetTd = otherIrRow.querySelector(MOCHA_SELECTORS.songInfoContentCell);
             if (targetTd) {
               const viewerLink = document.createElement("a");
@@ -818,9 +948,12 @@
 
   // ====================================================================================================
   // BMSデータテンプレート HTML + CSS
-  //   テンプレートHTMLをinsertAdjacentHTML()で挿入する関数、サイトによって挿入先は異なるので、対象要素と挿入位置を引数で指定する
-  //   ターゲット要素、ポジション、データセル文字色、データセル背景色、ヘッダーセル文字色、ヘッダーセル背景色
+  //   template 要素からパネルを生成し、サイトごとの差し込み先へ挿入する
   // ====================================================================================================
+  /**
+   * 拡張パネル用 CSS を一度だけ注入する。
+   * @returns {void}
+   */
   function ensureBmsDataStyleOnce() {
     if (document.getElementById(BMSDATA_STYLE_ID)) {
       return;
@@ -832,6 +965,11 @@
     document.head.appendChild(styleElement);
   }
 
+  /**
+   * ページコンテキストに応じたテーマを適用した空パネルを挿入する。
+   * @param {PageContext} pageContext
+   * @returns {HTMLElement}
+   */
   function insertBmsDataTemplate(pageContext) {
     const { element, position } = pageContext.insertion;
     const { dctx, dcbk, hdtx, hdbk } = pageContext.theme;
@@ -847,7 +985,14 @@
     return container;
   }
 
+  /**
+   * 外部データ取得から描画、グラフ描画までのパイプラインを実行する。
+   * @param {PageContext} pageContext
+   * @param {HTMLElement} container
+   * @returns {Promise<boolean>}
+   */
   async function insertBmsData(pageContext, container) {
+    // 取得失敗時は差し込んだ空パネルを片付けて終了する。
     const rawRecord = await fetchBmsRecord(pageContext);
     if (!rawRecord) {
       container.remove();
@@ -868,6 +1013,11 @@
     return true;
   }
 
+  /**
+   * 優先順位付きの識別子を使って外部 API から生データを取得する。
+   * @param {PageContext} pageContext
+   * @returns {Promise<Object.<string, string>|false>}
+   */
   async function fetchBmsRecord(pageContext) {
     const { md5, sha256, bmsid } = pageContext.identifiers;
     const lookupKey = md5 ?? sha256 ?? bmsid;
@@ -900,6 +1050,11 @@
     }
   }
 
+  /**
+   * 外部 API の生データを描画しやすい形へ正規化する。
+   * @param {Object.<string, string>} rawRecord
+   * @returns {NormalizedBmsRecord}
+   */
   function normalizeBmsRecord(rawRecord) {
     const md5 = rawRecord.md5;
     const sha256 = rawRecord.sha256;
@@ -949,6 +1104,12 @@
     };
   }
 
+  /**
+   * レーン別ノーツ数を mode ごとの scratch 位置に合わせて並べ替える。
+   * @param {number} mode
+   * @param {string} lanenotes
+   * @returns {Array<[number, number, number, number]>}
+   */
   function parseLaneNotes(mode, lanenotes) {
     const tokens = lanenotes.split(',').map(Number);
     let laneCount = mode;
@@ -968,6 +1129,7 @@
       ]);
     }
 
+    // 7/14 鍵と 5/10 鍵は scratch を先頭へ寄せ、描画用のレーン並びへ合わせる。
     if (mode === 7 || mode === 14) {
       const move = lanenotesArr.splice(7, 1)[0];
       lanenotesArr.unshift(move);
@@ -979,6 +1141,11 @@
     return lanenotesArr;
   }
 
+  /**
+   * 表データ文字列を配列へ変換し、空や不正値は空配列へ丸める。
+   * @param {string} tablesRaw
+   * @returns {string[]}
+   */
   function parseTables(tablesRaw) {
     try {
       return JSON.parse(tablesRaw);
@@ -987,9 +1154,16 @@
     }
   }
 
+  /**
+   * 正規化済みデータをパネル本体へ反映する。
+   * @param {HTMLElement} container
+   * @param {NormalizedBmsRecord} normalizedRecord
+   * @returns {void}
+   */
   function renderBmsData(container, normalizedRecord) {
     const getById = (id) => container.querySelector(`#${id}`);
 
+    // リンク、基本情報、追加リストの順で埋め、最後にパネル全体を表示する。
     renderLinks(container, normalizedRecord);
     getById("bd-sha256").textContent = normalizedRecord.sha256;
     getById("bd-md5").textContent = normalizedRecord.md5;
@@ -1011,6 +1185,12 @@
     container.style.display = "block";
   }
 
+  /**
+   * 利用可能な外部リンクだけを表示状態にする。
+   * @param {HTMLElement} container
+   * @param {NormalizedBmsRecord} normalizedRecord
+   * @returns {void}
+   */
   function renderLinks(container, normalizedRecord) {
     const getById = (id) => container.querySelector(`#${id}`);
 
@@ -1035,6 +1215,12 @@
     linkElement.setAttribute("style", "display: inline;");
   }
 
+  /**
+   * mode に応じた色分けルールでレーン別ノーツ数を描画する。
+   * @param {HTMLElement} container
+   * @param {NormalizedBmsRecord} normalizedRecord
+   * @returns {void}
+   */
   function renderLaneNotes(container, normalizedRecord) {
     let modeprefix = "";
     if (normalizedRecord.mode === 5 || normalizedRecord.mode === 10) {
@@ -1049,6 +1235,7 @@
       return;
     }
 
+    // 7/14/9/5/10 鍵は専用配色、それ以外は白鍵盤扱いで表示する。
     if (normalizedRecord.mode === 7 || normalizedRecord.mode === 14 || normalizedRecord.mode === 9 || normalizedRecord.mode === 5 || normalizedRecord.mode === 10) {
       for (let i = 0; i < normalizedRecord.lanenotesArr.length; i++) {
         const span = document.createElement("span");
@@ -1069,6 +1256,12 @@
     }
   }
 
+  /**
+   * 収録表一覧をリストへ追加する。
+   * @param {HTMLElement} container
+   * @param {NormalizedBmsRecord} normalizedRecord
+   * @returns {void}
+   */
   function renderTables(container, normalizedRecord) {
     const ul = container.querySelector("#bd-tables-ul");
     if (!ul) {
@@ -1082,6 +1275,7 @@
     });
   }
 
+  // グラフ utility: distribution を 1 秒ごとの配列へ展開し、BPM 推移と tooltip 表示に再利用する。
   function parseDistributionSegments(distribution) {
     const noteTypes = 7;
     const data = distribution.startsWith("#") ? distribution.slice(1) : distribution;
@@ -1123,6 +1317,13 @@
     return Math.round((t / timeLength * 0.001) * canvasWidth) + 1;
   }
 
+  /**
+   * ノーツ分布と BPM 推移を同じ canvas 上へ描画する。
+   * @param {HTMLCanvasElement} canvas
+   * @param {HTMLElement} tooltip
+   * @param {NormalizedBmsRecord} normalizedRecord
+   * @returns {void}
+   */
   function drawDistributionGraph(canvas, tooltip, normalizedRecord) {
     const rectWidth = 4;
     const rectHeight = 2;
@@ -1131,6 +1332,7 @@
     const maxValue = 8;
     const minLog = Math.log10(minValue);
     const maxLog = Math.log10(maxValue);
+    // distribution は 14 文字で 1 秒分、7 種類のノーツ数を base36 で持つ。
     const segments = parseDistributionSegments(normalizedRecord.distribution);
     const parsedSpeedchange = parseSpeedChange(normalizedRecord.speedchange);
     const timeLength = segments.length;
@@ -1180,6 +1382,7 @@
       }
     });
 
+    // BPM 線は main/min/max/stop を色で見分けられるようにしている。
     const bpmLineWidth = 2;
     for (let i = 0; i < parsedSpeedchange.length; i++) {
       const [bpm, time] = parsedSpeedchange[i];
@@ -1214,6 +1417,7 @@
       }
     }
 
+    // tooltip には時刻、現在 BPM、その 1 秒のノーツ内訳を表示する。
     canvas.onmousemove = (e) => {
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;

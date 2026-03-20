@@ -60,6 +60,9 @@
     "NORMAL",
     "MINE"
   ];
+  const BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
+  const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
+  const bmsSearchPatternAvailabilityCache = new Map();
   const BMSDATA_CSS = `
     .bmsdata {
       --bd-dctx: #333;
@@ -130,7 +133,7 @@
           <tr>
             <td class="bd-header-cell">LINK</td>
             <td colspan="3">
-              <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
+              <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
             </td>
           </tr>
           <tr>
@@ -924,7 +927,7 @@
               return;
             }
 
-            // Viewer リンクは既存の Other IR 行へ追記する。
+            // Viewer は即時、BMS SEARCH は存在確認後に既存の Other IR 行へ後追いで追記する。
             const targetTd = otherIrRow.querySelector(MOCHA_SELECTORS.songInfoContentCell);
             if (targetTd) {
               const viewerLink = document.createElement("a");
@@ -933,6 +936,7 @@
               viewerLink.textContent = "Viewer";
               targetTd.appendChild(document.createTextNode("　"));
               targetTd.appendChild(viewerLink);
+              void appendBmsSearchLinkIfAvailable(targetTd, targetsha256);
             } else {
               console.error("❌ Mochaのリンク追加先セルが見つかりませんでした");
             }
@@ -1009,6 +1013,10 @@
     } else {
       console.warn("グラフ描画用エレメントが見つかりませんでした");
     }
+    if (normalizedRecord.sha256) {
+      // BMS SEARCH は補助リンクなので、グラフ描画後に非同期で後追い表示する。
+      void renderBmsSearchLinkIfAvailable(container, normalizedRecord.sha256);
+    }
 
     return true;
   }
@@ -1047,6 +1055,96 @@
     } catch (error) {
       console.error("Fetch or parse error:", error);
       return false;
+    }
+  }
+
+  /**
+   * BMS SEARCH API で SHA256 に対応する譜面が存在するか確認する。
+   * @param {string} sha256
+   * @returns {Promise<boolean>}
+   */
+  async function checkBmsSearchPatternExists(sha256) {
+    if (!sha256) {
+      return false;
+    }
+
+    let cachedPromise = bmsSearchPatternAvailabilityCache.get(sha256);
+    if (!cachedPromise) {
+      cachedPromise = (async () => {
+        try {
+          const response = await fetch(`${BMSSEARCH_PATTERN_API_BASE_URL}/${sha256}`);
+          return response.ok;
+        } catch (error) {
+          bmsSearchPatternAvailabilityCache.delete(sha256);
+          console.warn("BMS SEARCH APIで譜面の存在確認に失敗しました:", error);
+          return false;
+        }
+      })();
+      bmsSearchPatternAvailabilityCache.set(sha256, cachedPromise);
+    }
+
+    return cachedPromise;
+  }
+
+  /**
+   * BMS SEARCH に譜面が存在する場合だけリンクを表示する。
+   * @param {HTMLElement} container
+   * @param {string} sha256
+   * @returns {Promise<void>}
+   */
+  async function renderBmsSearchLinkIfAvailable(container, sha256) {
+    try {
+      if (!sha256) {
+        return;
+      }
+      if (!await checkBmsSearchPatternExists(sha256)) {
+        return;
+      }
+      if (!container.isConnected) {
+        return;
+      }
+      const bmsSearchLink = container.querySelector("#bd-bmssearch");
+      if (!bmsSearchLink) {
+        return;
+      }
+      showLink(bmsSearchLink, `${BMSSEARCH_PATTERN_PAGE_BASE_URL}/${sha256}`);
+    } catch (error) {
+      console.warn("BMS SEARCHリンクの表示に失敗しました:", error);
+    }
+  }
+
+  /**
+   * Mocha フォールバックの既存セルへ BMS SEARCH リンクを後追いで追加する。
+   * @param {HTMLElement} targetTd
+   * @param {string|null} sha256
+   * @returns {Promise<void>}
+   */
+  async function appendBmsSearchLinkIfAvailable(targetTd, sha256) {
+    try {
+      if (!sha256) {
+        return;
+      }
+      if (!await checkBmsSearchPatternExists(sha256)) {
+        return;
+      }
+      if (!targetTd.isConnected) {
+        return;
+      }
+
+      const href = `${BMSSEARCH_PATTERN_PAGE_BASE_URL}/${sha256}`;
+      const existingLink = Array.from(targetTd.querySelectorAll("a")).find(anchor => anchor.href === href);
+      if (existingLink) {
+        return;
+      }
+
+      const bmsSearchLink = document.createElement("a");
+      bmsSearchLink.href = href;
+      bmsSearchLink.target = "_blank";
+      bmsSearchLink.textContent = "BMS SEARCH";
+      targetTd.appendChild(document.createTextNode("　"));
+      targetTd.appendChild(bmsSearchLink);
+    } catch (error) {
+      console.warn("MochaフォールバックへのBMS SEARCHリンク追加に失敗しました:", error);
     }
   }
 

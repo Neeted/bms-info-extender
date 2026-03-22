@@ -14,7 +14,7 @@ const MAX_SPACING_SCALE = 8.0;
 const SPACING_STEP = 0.01;
 const DEFAULT_SPACING_SCALE = 1.0;
 
-export function createScoreViewerController({ root, onTimeChange = () => {} }) {
+export function createScoreViewerController({ root, onTimeChange = () => {}, onPlaybackToggle = () => {} }) {
   const scrollHost = document.createElement("div");
   scrollHost.className = "score-viewer-scroll-host";
 
@@ -40,7 +40,18 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
   markerOverlay.append(markerLabelsLeft, markerLabelsRight);
 
   const primaryChip = document.createElement("div");
-  primaryChip.className = "score-viewer-chip";
+  primaryChip.className = "score-viewer-chip is-primary";
+
+  const playbackButton = document.createElement("button");
+  playbackButton.className = "score-viewer-playback-button";
+  playbackButton.type = "button";
+  playbackButton.setAttribute("aria-label", "Play score viewer");
+  playbackButton.textContent = "▶";
+
+  const playbackTime = document.createElement("span");
+  playbackTime.className = "score-viewer-playback-time";
+
+  primaryChip.append(playbackButton, playbackTime);
 
   const secondaryChip = document.createElement("div");
   secondaryChip.className = "score-viewer-chip";
@@ -90,6 +101,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     selectedTimeSec: 0,
     isPinned: false,
     isOpen: false,
+    isPlaying: false,
     spacingScale: DEFAULT_SPACING_SCALE,
     emptyTitle: "Canvas Viewer",
     emptyMessage: "Load a score to draw the actual chart in this stage.",
@@ -100,23 +112,15 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
   let dragState = null;
 
   scrollHost.addEventListener("scroll", () => {
-    if (!state.model || !state.isOpen || !state.isPinned || ignoreScrollUntilNextFrame) {
-      return;
-    }
-    const nextTimeSec = getTimeSecForScrollTop(state.model, scrollHost.scrollTop, getPixelsPerSecond());
-    if (Math.abs(nextTimeSec - state.selectedTimeSec) < 0.0005) {
-      return;
-    }
-    state.selectedTimeSec = nextTimeSec;
-    renderScene();
-    onTimeChange(nextTimeSec);
+    syncTimeFromScrollPosition();
   });
 
   scrollHost.addEventListener("wheel", (event) => {
-    if (!state.model || !state.isOpen || !state.isPinned) {
+    if (!state.model || !state.isOpen || !isScrollInteractive()) {
       return;
     }
     scrollHost.scrollTop += event.deltaY * SCROLL_MULTIPLIER;
+    syncTimeFromScrollPosition({ force: true });
     event.preventDefault();
   }, { passive: false });
 
@@ -142,6 +146,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     }
     const deltaY = event.clientY - dragState.startY;
     scrollHost.scrollTop = dragState.startScrollTop + deltaY * SCROLL_MULTIPLIER;
+    syncTimeFromScrollPosition({ force: true });
     event.preventDefault();
   });
 
@@ -158,6 +163,15 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     state.spacingScale = nextScale;
     spacingValue.textContent = formatSpacingScale(state.spacingScale);
     refreshLayout();
+  });
+
+  playbackButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!state.model) {
+      return;
+    }
+    onPlaybackToggle(!state.isPlaying);
   });
 
   if (typeof ResizeObserver !== "undefined") {
@@ -192,17 +206,19 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
 
   function setPinned(nextPinned) {
     state.isPinned = Boolean(nextPinned);
-    scrollHost.classList.toggle("is-pinned", state.isPinned);
-    scrollHost.style.overflowY = state.isPinned ? "auto" : "hidden";
-    if (!state.isPinned) {
-      clearDragState();
-    }
+    updateScrollInteractivity();
     renderScene();
   }
 
   function setOpen(nextOpen) {
     state.isOpen = Boolean(nextOpen);
     syncScrollPosition();
+    renderScene();
+  }
+
+  function setPlaybackState(nextPlaying) {
+    state.isPlaying = Boolean(nextPlaying);
+    updateScrollInteractivity();
     renderScene();
   }
 
@@ -229,6 +245,22 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     });
   }
 
+  function syncTimeFromScrollPosition({ force = false } = {}) {
+    if (!state.model || !state.isOpen || !isScrollInteractive()) {
+      return;
+    }
+    if (!force && ignoreScrollUntilNextFrame) {
+      return;
+    }
+    const nextTimeSec = getTimeSecForScrollTop(state.model, scrollHost.scrollTop, getPixelsPerSecond());
+    if (Math.abs(nextTimeSec - state.selectedTimeSec) < 0.0005) {
+      return;
+    }
+    state.selectedTimeSec = nextTimeSec;
+    renderScene();
+    onTimeChange(nextTimeSec);
+  }
+
   function refreshLayout() {
     const width = Math.max(1, root.clientWidth);
     const height = Math.max(260, root.clientHeight);
@@ -250,7 +282,10 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
 
     emptyState.innerHTML = `<strong>${escapeHtml(state.emptyTitle)}</strong><span>${escapeHtml(state.emptyMessage)}</span>`;
 
-    primaryChip.textContent = `${cursor.timeSec.toFixed(3)} s`;
+    playbackButton.disabled = !state.model;
+    playbackButton.textContent = state.isPlaying ? "❚❚" : "▶";
+    playbackButton.setAttribute("aria-label", state.isPlaying ? "Pause score viewer" : "Play score viewer");
+    playbackTime.textContent = `${cursor.timeSec.toFixed(3)} s`;
     secondaryChip.textContent = `Measure ${cursor.measureIndex} / Combo ${cursor.comboCount}`;
     tertiaryChip.textContent = state.model
       ? `${state.model.score.mode} / ${state.model.score.laneCount} lanes / ${state.isPinned ? "Pinned" : "Follow"}`
@@ -299,6 +334,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     setSelectedTimeSec,
     setPinned,
     setOpen,
+    setPlaybackState,
     setEmptyState,
     refreshLayout,
     destroy,
@@ -329,9 +365,22 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     return Boolean(
       state.model
         && state.isOpen
-        && state.isPinned
+        && isScrollInteractive()
         && (event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen"),
     );
+  }
+
+  function isScrollInteractive() {
+    return state.isPinned || state.isPlaying;
+  }
+
+  function updateScrollInteractivity() {
+    const interactive = isScrollInteractive();
+    scrollHost.classList.toggle("is-scrollable", interactive);
+    scrollHost.style.overflowY = interactive ? "auto" : "hidden";
+    if (!interactive) {
+      clearDragState();
+    }
   }
 
   function getPixelsPerSecond() {

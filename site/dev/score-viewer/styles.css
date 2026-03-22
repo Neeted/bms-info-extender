@@ -542,13 +542,13 @@ button:hover:not(:disabled) {
   scrollbar-gutter: stable;
 }
 
-.score-viewer-scroll-host.is-pinned {
+.score-viewer-scroll-host.is-scrollable {
   overflow-y: auto;
   cursor: grab;
   touch-action: none;
 }
 
-.score-viewer-scroll-host.is-pinned.is-dragging {
+.score-viewer-scroll-host.is-scrollable.is-dragging {
   cursor: grabbing;
 }
 
@@ -660,6 +660,43 @@ button:hover:not(:disabled) {
   color: var(--text-main);
   font-family: var(--mono-font);
   box-shadow: 0 10px 24px rgba(57, 46, 28, 0.08);
+}
+
+.score-viewer-chip.is-primary {
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.score-viewer-playback-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(103, 78, 44, 0.18);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--accent-strong);
+  box-shadow: none;
+  font-size: 0.76rem;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.score-viewer-playback-button:hover:not(:disabled) {
+  transform: none;
+  box-shadow: 0 8px 18px rgba(57, 46, 28, 0.08);
+}
+
+.score-viewer-playback-button:disabled {
+  opacity: 0.5;
+}
+
+.score-viewer-playback-time {
+  font-variant-numeric: tabular-nums;
 }
 
 .score-viewer-judge-line {

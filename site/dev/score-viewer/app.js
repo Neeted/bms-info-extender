@@ -22,6 +22,7 @@ const PANEL_STATES = new Set(["idle", "loading", "ready", "error"]);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 const NEARBY_EVENT_WINDOW_SEC = 2.0;
 const MAX_NEARBY_EVENTS = 50;
+const MAX_PLAYBACK_DELTA_MS = 250;
 
 const elements = {
   form: document.getElementById("control-form"),
@@ -92,6 +93,7 @@ const state = {
   selectedTimeSec: 0,
   isPinned: false,
   isViewerOpen: false,
+  isPlaying: false,
   isGraphHovered: false,
   loadState: "idle",
   panelLoadState: "idle",
@@ -111,11 +113,16 @@ const state = {
 
 let busyOperation = null;
 let activeRequestId = 0;
+let playbackFrameId = null;
+let lastPlaybackTimestamp = null;
 
 const viewerController = createScoreViewerController({
   root: elements.viewerStage,
   onTimeChange: (nextTimeSec) => {
     setSelectedTimeSec(nextTimeSec, { openViewer: true });
+  },
+  onPlaybackToggle: (nextPlaying) => {
+    setPlaybackState(nextPlaying);
   },
 });
 
@@ -126,11 +133,14 @@ const bmsInfoGraph = createBmsInfoGraph({
   pinInput: elements.graphPinInput,
   onHoverTime: (nextTimeSec) => {
     state.isGraphHovered = true;
+    if (state.isPlaying) {
+      return;
+    }
     setSelectedTimeSec(nextTimeSec, { openViewer: true });
   },
   onHoverLeave: () => {
     state.isGraphHovered = false;
-    if (!state.isPinned) {
+    if (!state.isPinned && !state.isPlaying) {
       state.isViewerOpen = false;
       render();
     }
@@ -143,7 +153,7 @@ const bmsInfoGraph = createBmsInfoGraph({
     state.isPinned = Boolean(nextPinned);
     if (state.isPinned) {
       state.isViewerOpen = true;
-    } else if (!state.isGraphHovered) {
+    } else if (!state.isGraphHovered && !state.isPlaying) {
       state.isViewerOpen = false;
     }
     render();
@@ -315,7 +325,7 @@ function getNormalizedSelectedTimeSec(value) {
   return Math.max(0, value);
 }
 
-function setSelectedTimeSec(nextValue, { openViewer = false } = {}) {
+function setSelectedTimeSec(nextValue, { openViewer = false, syncUrl = true } = {}) {
   const normalizedValue = getNormalizedSelectedTimeSec(Number.isFinite(nextValue) ? nextValue : 0);
   const changed = Math.abs(normalizedValue - state.selectedTimeSec) >= 0.0005;
 
@@ -332,8 +342,94 @@ function setSelectedTimeSec(nextValue, { openViewer = false } = {}) {
   state.selectedTimeSec = normalizedValue;
   elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
   elements.timeRangeInput.value = String(state.selectedTimeSec);
-  writeQueryState();
+  if (syncUrl) {
+    writeQueryState();
+  }
   render();
+}
+
+function setPlaybackState(nextPlaying) {
+  if (!state.viewerModel || !state.parsedScore) {
+    stopPlayback({ renderAfter: false, syncUrl: false });
+    state.isPlaying = false;
+    render();
+    return;
+  }
+
+  if (nextPlaying) {
+    startPlayback();
+    return;
+  }
+
+  stopPlayback();
+}
+
+function startPlayback() {
+  if (!state.viewerModel || !state.parsedScore) {
+    return;
+  }
+
+  const maxTimeSec = Math.max(state.parsedScore.lastPlayableTimeSec, 0);
+  if (maxTimeSec <= 0) {
+    return;
+  }
+
+  if (state.selectedTimeSec >= maxTimeSec - 0.0005) {
+    setSelectedTimeSec(0, { openViewer: true, syncUrl: false });
+  }
+
+  state.isPlaying = true;
+  state.isViewerOpen = true;
+  lastPlaybackTimestamp = null;
+  if (playbackFrameId !== null) {
+    cancelAnimationFrame(playbackFrameId);
+  }
+  render();
+  playbackFrameId = requestAnimationFrame(stepPlayback);
+}
+
+function stopPlayback({ renderAfter = true, syncUrl = true } = {}) {
+  if (playbackFrameId !== null) {
+    cancelAnimationFrame(playbackFrameId);
+    playbackFrameId = null;
+  }
+  lastPlaybackTimestamp = null;
+  const wasPlaying = state.isPlaying;
+  state.isPlaying = false;
+  if (syncUrl) {
+    writeQueryState();
+  }
+  if (renderAfter && wasPlaying) {
+    render();
+  }
+}
+
+function stepPlayback(timestamp) {
+  if (!state.isPlaying || !state.viewerModel || !state.parsedScore) {
+    playbackFrameId = null;
+    lastPlaybackTimestamp = null;
+    return;
+  }
+
+  if (lastPlaybackTimestamp === null || timestamp - lastPlaybackTimestamp > MAX_PLAYBACK_DELTA_MS) {
+    lastPlaybackTimestamp = timestamp;
+    playbackFrameId = requestAnimationFrame(stepPlayback);
+    return;
+  }
+
+  const deltaSec = (timestamp - lastPlaybackTimestamp) / 1000;
+  lastPlaybackTimestamp = timestamp;
+  const maxTimeSec = Math.max(state.parsedScore.lastPlayableTimeSec, 0);
+  const nextTimeSec = Math.min(state.selectedTimeSec + deltaSec, maxTimeSec);
+  setSelectedTimeSec(nextTimeSec, { openViewer: true, syncUrl: false });
+
+  if (nextTimeSec >= maxTimeSec - 0.0005) {
+    stopPlayback({ renderAfter: false, syncUrl: true });
+    render();
+    return;
+  }
+
+  playbackFrameId = requestAnimationFrame(stepPlayback);
 }
 
 function getLoaderModuleUrl(parserVersion) {
@@ -383,6 +479,7 @@ function setMessage(kind, text) {
 }
 
 function resetDiagnosticsForNewTarget() {
+  stopPlayback({ renderAfter: false, syncUrl: false });
   state.compressedSource = null;
   state.parsedScore = null;
   state.viewerModel = null;
@@ -395,6 +492,7 @@ function resetDiagnosticsForNewTarget() {
   state.panelLoadState = "idle";
   state.panelError = null;
   state.isViewerOpen = false;
+  state.isPlaying = false;
   state.isGraphHovered = false;
 }
 
@@ -701,6 +799,7 @@ function renderViewer() {
     elements.currentMeasure.textContent = "-";
     elements.currentCombo.textContent = "-";
     elements.comboTotal.textContent = "-";
+    viewerController.setPlaybackState(false);
     viewerController.setPinned(state.isPinned);
     viewerController.setEmptyState("Canvas Viewer", "Load a score to draw the actual chart in this stage.");
     viewerController.setOpen(false);
@@ -714,6 +813,7 @@ function renderViewer() {
   elements.currentCombo.textContent = formatInteger(cursor.comboCount);
   elements.comboTotal.textContent = formatInteger(cursor.totalCombo);
 
+  viewerController.setPlaybackState(state.isPlaying);
   viewerController.setPinned(state.isPinned);
   viewerController.setModel(state.viewerModel);
   viewerController.setSelectedTimeSec(state.selectedTimeSec);

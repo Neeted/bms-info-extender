@@ -1,5 +1,9 @@
 /data
 /.venv
 /.netlify
+/docs-internal/
 /site/score/
+/site/wasm/score-parser/
+/web/score-parser-wasm/target/
+/web/score-parser-wasm/Cargo.lock
 __pycache__/

@@ -1,0 +1,20 @@
+[package]
+name = "score-parser-wasm"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bms-rs = { git = "https://github.com/MikuroXina/bms-rs", rev = "5f3857cbfc2222082b3f142cc31b9788d479c959", default-features = false, features = ["bmson", "serde"] }
+encoding_rs = "0.8.35"
+serde = { version = "1.0.228", features = ["derive"] }
+serde-wasm-bindgen = "0.6.5"
+strict-num-extended = "0.5"
+wasm-bindgen = "=0.2.114"
+console_error_panic_hook = { version = "0.1.7", optional = true }
+
+[features]
+default = []
+console-error-panic-hook = ["dep:console_error_panic_hook"]

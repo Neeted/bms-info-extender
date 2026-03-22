@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.1.0
+// @version      1.2.0
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -11,12 +11,14 @@
 // @grant        GM_addStyle
 // @grant        GM_getResourceText
 // @connect      bms.howan.jp
+// @connect      bms-info-extender.netlify.app
 // @resource     googlefont https://fonts.googleapis.com/css2?family=Inconsolata&family=Noto+Sans+JP&display=swap
 // @updateURL    https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at document-start
 // ==/UserScript==
 
+// 1.2.0 譜面ビューワを userscript 本体へ統合し、グラフ hover/click 連携を追加
 // 1.1.0 外部データ取得失敗時のフォールバック処理を追加(LR2IR、MochaでMD5や譜面ビューアへのリンクを表示)
 // 1.0.5 誤字修正
 
@@ -32,6 +34,9 @@
 
   const BMSDATA_STYLE_ID = "bms-info-extender-style";
   const BMSDATA_COLUMNS = ["md5", "sha256", "maxbpm", "minbpm", "length", "mode", "judge", "feature", "notes", "n", "ln", "s", "ls", "total", "density", "peakdensity", "enddensity", "mainbpm", "distribution", "speedchange", "lanenotes", "tables", "stella", "bmsid"];
+  const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
+  const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
+  const SCORE_PARSER_VERSION = "0.4.0";
   const BMS_FEATURE_NAMES = [
     "LN(#LNMODE undef)",
     "MINE",
@@ -63,6 +68,76 @@
   const BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   const bmsSearchPatternAvailabilityCache = new Map();
+  let scoreLoaderContextPromise = null;
+  let scoreViewerManager = null;
+  const GRAPH_RECT_WIDTH = 4;
+  const GRAPH_RECT_HEIGHT = 2;
+  const GRAPH_SPACING = 1;
+  const GRAPH_MIN_VALUE = 1 / 8;
+  const GRAPH_MAX_VALUE = 8;
+  const GRAPH_MIN_LOG = Math.log10(GRAPH_MIN_VALUE);
+  const GRAPH_MAX_LOG = Math.log10(GRAPH_MAX_VALUE);
+  const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
+  const STANDALONE_DEFAULT_VIEWER_PIXELS_PER_SECOND = 160;
+  const STANDALONE_VIEWER_HORIZONTAL_PADDING = 16;
+  const STANDALONE_DP_GUTTER_UNITS = 1.2;
+  const STANDALONE_FIXED_LANE_WIDTH = 44;
+  const STANDALONE_VIEWER_MARKER_LABEL_WIDTH = 84;
+  const STANDALONE_BACKGROUND_FILL = "#000000";
+  const STANDALONE_SEPARATOR_COLOR = "rgba(72, 72, 72, 0.95)";
+  const STANDALONE_BAR_LINE = "rgba(255, 255, 255, 0.92)";
+  const STANDALONE_BPM_MARKER = "#00ff00";
+  const STANDALONE_STOP_MARKER = "#ff00ff";
+  const STANDALONE_MINE_COLOR = "#880000";
+  const STANDALONE_NOTE_HEAD_HEIGHT = 8;
+  const STANDALONE_TEMPO_MARKER_HEIGHT = 3;
+  const STANDALONE_TEMPO_LABEL_GAP = 8;
+  const STANDALONE_SCROLL_MULTIPLIER = 2;
+  const STANDALONE_MIN_SPACING_SCALE = 0.5;
+  const STANDALONE_MAX_SPACING_SCALE = 8.0;
+  const STANDALONE_SPACING_STEP = 0.01;
+  const STANDALONE_DEFAULT_SPACING_SCALE = 1.0;
+  const STANDALONE_BEAT_LANE_COLORS = new Map([
+    ["0", "#e04a4a"],
+    ["1", "#bebebe"],
+    ["2", "#5074fe"],
+    ["3", "#bebebe"],
+    ["4", "#5074fe"],
+    ["5", "#bebebe"],
+    ["6", "#5074fe"],
+    ["7", "#bebebe"],
+    ["8", "#bebebe"],
+    ["9", "#5074fe"],
+    ["10", "#bebebe"],
+    ["11", "#5074fe"],
+    ["12", "#bebebe"],
+    ["13", "#5074fe"],
+    ["14", "#bebebe"],
+    ["15", "#e04a4a"],
+    ["g0", "#e04a4a"],
+    ["g1", "#bebebe"],
+    ["g2", "#5074fe"],
+    ["g3", "#bebebe"],
+    ["g4", "#5074fe"],
+    ["g5", "#bebebe"],
+    ["g6", "#bebebe"],
+    ["g7", "#5074fe"],
+    ["g8", "#bebebe"],
+    ["g9", "#5074fe"],
+    ["g10", "#bebebe"],
+    ["g11", "#e04a4a"],
+  ]);
+  const STANDALONE_POPN_LANE_COLORS = new Map([
+    ["p0", "#c4c4c4"],
+    ["p1", "#fff500"],
+    ["p2", "#99ff67"],
+    ["p3", "#30b9f9"],
+    ["p4", "#ff6c6c"],
+    ["p5", "#30b9f9"],
+    ["p6", "#99ff67"],
+    ["p7", "#fff500"],
+    ["p8", "#c4c4c4"],
+  ]);
   const BMSDATA_CSS = `
     .bmsdata {
       --bd-dctx: #333;
@@ -85,9 +160,36 @@
     .bd-table-scroll { overflow: auto; flex: 1 1 auto; scrollbar-color: var(--bd-hdbk) white; scrollbar-width: thin; }
     .bd-table-list ul { padding: 0.1rem 0.2rem; margin: 0; }
     .bd-table-list li { margin-bottom: 0.2rem; line-height: 1rem; font-size: 0.875rem; white-space: nowrap; list-style-type: none; }
-    #bd-graph { padding: 0px; border-width: 0px; background-color: #000; overflow-x: auto; line-height: 0; scrollbar-color: var(--bd-hdbk) black; scrollbar-width: thin; }
+    #bd-graph { position: relative; padding: 0px; border-width: 0px; background-color: #000; overflow-x: auto; line-height: 0; scrollbar-color: var(--bd-hdbk) black; scrollbar-width: thin; }
     #bd-graph-canvas { background-color: #000; }
     #bd-graph-tooltip { line-height: 1rem; position: fixed; background: rgba(32, 32, 64, 0.8); color: #fff; padding: 4px 8px; font-size: 0.875rem; pointer-events: none; border-radius: 4px; display: none; z-index: 10; white-space: nowrap; }
+    .bd-scoreviewer-pin { position: absolute; top: 4px; left: 4px; display: inline-flex; align-items: center; gap: 0.35rem; padding: 4px 8px; border-radius: 4px; background: rgba(32, 32, 64, 0.8); color: #fff; font-size: 0.875rem; z-index: 2; }
+    .bd-scoreviewer-pin * { background: transparent; color: #fff; font-family: "Inconsolata", "Noto Sans JP"; }
+    .bd-scoreviewer-pin input { margin: 0; }
+    .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; }
+    .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
+    .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; }
+    .score-viewer-scroll-host.is-scrollable { overflow-y: auto; cursor: grab; touch-action: none; }
+    .score-viewer-scroll-host.is-scrollable.is-dragging { cursor: grabbing; }
+    .score-viewer-spacer { width: 1px; opacity: 0; }
+    .score-viewer-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; }
+    .score-viewer-marker-label { position: absolute; top: 0; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1; white-space: nowrap; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.72); }
+    .score-viewer-marker-label.is-left { transform: translate(-100%, -50%); text-align: right; }
+    .score-viewer-marker-label.is-right { transform: translate(0, -50%); text-align: left; }
+    .score-viewer-bottom-bar { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 3; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; pointer-events: none; }
+    .score-viewer-chip { display: inline-flex; align-items: center; min-height: 34px; padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.875rem; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); pointer-events: auto; }
+    .score-viewer-chip.is-primary { gap: 10px; }
+    .score-viewer-chip.is-compact { min-width: 70px; justify-content: center; }
+    .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.76rem; line-height: 1; pointer-events: auto; cursor: pointer; }
+    .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
+    .score-viewer-spacing-panel { display: grid; gap: 6px; min-width: 160px; flex: 1 1 180px; }
+    .score-viewer-spacing-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
+    .score-viewer-spacing-value { color: #fff; letter-spacing: 0.02em; }
+    .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; }
+    .score-viewer-judge-line { position: absolute; left: 16px; right: 16px; top: 50%; display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
+    .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
     .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
     .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }
     .bd-lanenote[lane="2"] { background: #5074fe; color: #fff; }
@@ -190,6 +292,10 @@
         </div>
       </div>
       <div id="bd-graph">
+        <label class="bd-scoreviewer-pin">
+          <input id="bd-scoreviewer-pin-input" type="checkbox">
+          <span>Pin the score viewer</span>
+        </label>
         <div id="bd-graph-tooltip"></div>
         <canvas id="bd-graph-canvas"></canvas>
       </div>
@@ -1006,10 +1112,39 @@
     const normalizedRecord = normalizeBmsRecord(rawRecord);
     renderBmsData(container, normalizedRecord);
 
+    const graphHost = container.querySelector("#bd-graph");
     const canvas = container.querySelector("#bd-graph-canvas");
     const tooltip = container.querySelector("#bd-graph-tooltip");
-    if (canvas && tooltip) {
-      drawDistributionGraph(canvas, tooltip, normalizedRecord);
+    const pinInput = container.querySelector("#bd-scoreviewer-pin-input");
+    if (graphHost && canvas && tooltip && pinInput) {
+      let viewerManager = null;
+      try {
+        viewerManager = getScoreViewerManager();
+      } catch (error) {
+        console.error("Score viewer manager initialization failed:", error);
+      }
+
+      const graphController = drawDistributionGraph(
+        graphHost,
+        canvas,
+        tooltip,
+        pinInput,
+        normalizedRecord,
+        viewerManager
+          ? {
+            onHoverTime: (timeSec) => viewerManager.handleGraphHover(normalizedRecord, timeSec),
+            onHoverLeave: () => viewerManager.handleGraphHoverLeave(normalizedRecord),
+            onSelectTime: (timeSec) => viewerManager.handleGraphClick(normalizedRecord, timeSec),
+            onPinChange: (nextPinned) => viewerManager.handlePinChange(normalizedRecord, nextPinned),
+          }
+          : {},
+      );
+      if (viewerManager) {
+        viewerManager.attachGraphController(graphController, normalizedRecord);
+        if (normalizedRecord.sha256) {
+          void viewerManager.prefetch(normalizedRecord);
+        }
+      }
     } else {
       console.warn("グラフ描画用エレメントが見つかりませんでした");
     }
@@ -1174,6 +1309,8 @@
     const mainbpm = Number(rawRecord.mainbpm);
     const stella = Number(rawRecord.stella);
     const bmsid = Number(rawRecord.bmsid);
+    const distribution = rawRecord.distribution;
+    const speedchange = rawRecord.speedchange;
     const featuresStr = BMS_FEATURE_NAMES
       .filter((name, index) => (feature & (1 << index)) !== 0)
       .join(", ");
@@ -1191,12 +1328,16 @@
       mainbpm,
       stella,
       bmsid,
+      lengthMs: length,
+      durationSec: length / 1000,
       durationStr: `${(length / 1000).toFixed(2)} s`,
       notesStr: `${notes} (N:${n}, LN:${ln}, SCR:${s}, LNSCR:${ls})`,
       totalStr: `${total % 1 == 0 ? Math.round(total) : total} (${(total / notes).toFixed(3)} T/N)`,
       featuresStr,
-      distribution: rawRecord.distribution,
-      speedchange: rawRecord.speedchange,
+      distribution,
+      distributionSegments: parseDistributionSegments(distribution),
+      speedchange,
+      speedChangePoints: parseSpeedChange(speedchange),
       lanenotesArr: parseLaneNotes(mode, rawRecord.lanenotes),
       tables: parseTables(rawRecord.tables)
     };
@@ -1223,7 +1364,7 @@
         tokens[baseIndex] ?? 0,
         tokens[baseIndex + 1] ?? 0,
         tokens[baseIndex + 2] ?? 0,
-        tokens[baseIndex] + tokens[baseIndex + 1] ?? 0
+        (tokens[baseIndex] ?? 0) + (tokens[baseIndex + 1] ?? 0)
       ]);
     }
 
@@ -1422,7 +1563,7 @@
    * @param {NormalizedBmsRecord} normalizedRecord
    * @returns {void}
    */
-  function drawDistributionGraph(canvas, tooltip, normalizedRecord) {
+  function drawDistributionGraphLegacy(canvas, tooltip, normalizedRecord) {
     const rectWidth = 4;
     const rectHeight = 2;
     const spacing = 1;
@@ -1552,5 +1693,1527 @@
     canvas.onmouseleave = () => {
       tooltip.style.display = "none";
     };
+  }
+
+  function drawDistributionGraph(scrollHost, canvas, tooltip, pinInput, normalizedRecord, handlers = {}) {
+    const {
+      onHoverTime = () => {},
+      onHoverLeave = () => {},
+      onSelectTime = () => {},
+      onPinChange = () => {},
+    } = handlers;
+
+    const state = {
+      selectedTimeSec: 0,
+      isPinned: false,
+    };
+
+    const handleMouseMove = (event) => {
+      const timeSec = getGraphHoverTimeSec(event, canvas);
+      if (!Number.isFinite(timeSec) || timeSec < 0 || timeSec > normalizedRecord.distributionSegments.length) {
+        hideGraphTooltip(tooltip);
+        return;
+      }
+      renderGraphTooltip(tooltip, event, normalizedRecord, timeSec);
+      onHoverTime(timeSec);
+    };
+
+    const handleMouseLeave = () => {
+      hideGraphTooltip(tooltip);
+      onHoverLeave();
+    };
+
+    const handleClick = (event) => {
+      const timeSec = getGraphHoverTimeSec(event, canvas);
+      if (!Number.isFinite(timeSec) || timeSec < 0) {
+        return;
+      }
+      onSelectTime(timeSec);
+    };
+
+    const handlePinChange = () => {
+      onPinChange(Boolean(pinInput.checked));
+    };
+
+    canvas.addEventListener("mousemove", handleMouseMove);
+    canvas.addEventListener("mouseleave", handleMouseLeave);
+    canvas.addEventListener("click", handleClick);
+    pinInput.addEventListener("change", handlePinChange);
+
+    function setSelectedTimeSec(timeSec) {
+      state.selectedTimeSec = Number.isFinite(timeSec) ? Math.max(0, timeSec) : 0;
+      render();
+      syncScrollToSelected();
+    }
+
+    function setPinned(nextPinned) {
+      state.isPinned = Boolean(nextPinned);
+      pinInput.checked = state.isPinned;
+    }
+
+    function render() {
+      const segments = normalizedRecord.distributionSegments;
+      const timeLength = Math.max(segments.length, 1);
+      const maxNotesPerSecond = Math.max(40, Math.min(normalizedRecord.peakdensity || 0, 100));
+      const canvasWidth = timeLength * (GRAPH_RECT_WIDTH + GRAPH_SPACING);
+      const canvasHeight = maxNotesPerSecond * (GRAPH_RECT_HEIGHT + GRAPH_SPACING) - GRAPH_SPACING;
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#000000";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+
+      drawGraphHorizontalGrid(context, canvasWidth, canvasHeight, maxNotesPerSecond);
+      drawGraphVerticalGrid(context, canvasWidth, canvasHeight, timeLength);
+      drawGraphDistributionBars(context, segments, canvasHeight, maxNotesPerSecond);
+      drawGraphSpeedChangeLines(context, normalizedRecord, canvasWidth, canvasHeight);
+      drawGraphSelectedTimeLine(context, graphTimeToX(state.selectedTimeSec), canvasHeight);
+    }
+
+    function syncScrollToSelected() {
+      if (!scrollHost) {
+        return;
+      }
+      const x = graphTimeToX(state.selectedTimeSec);
+      const maxScrollLeft = Math.max(0, scrollHost.scrollWidth - scrollHost.clientWidth);
+      const desiredScrollLeft = clampValue(x - scrollHost.clientWidth / 2, 0, maxScrollLeft);
+      if (Math.abs(scrollHost.scrollLeft - desiredScrollLeft) > 8) {
+        scrollHost.scrollLeft = desiredScrollLeft;
+      }
+    }
+
+    function destroy() {
+      canvas.removeEventListener("mousemove", handleMouseMove);
+      canvas.removeEventListener("mouseleave", handleMouseLeave);
+      canvas.removeEventListener("click", handleClick);
+      pinInput.removeEventListener("change", handlePinChange);
+    }
+
+    render();
+
+    return {
+      setSelectedTimeSec,
+      setPinned,
+      destroy,
+    };
+  }
+
+  function drawGraphHorizontalGrid(context, canvasWidth, canvasHeight, maxNotesPerSecond) {
+    context.strokeStyle = "#202080";
+    context.lineWidth = 1;
+    for (let count = 5; count < maxNotesPerSecond; count += 5) {
+      const y = canvasHeight - (count * (GRAPH_RECT_HEIGHT + GRAPH_SPACING) - 0.5);
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(canvasWidth, y);
+      context.stroke();
+    }
+  }
+
+  function drawGraphVerticalGrid(context, canvasWidth, canvasHeight, timeLength) {
+    context.strokeStyle = "#777777";
+    context.lineWidth = 1;
+    for (let second = 10; second < timeLength; second += 10) {
+      const x = second * (GRAPH_RECT_WIDTH + GRAPH_SPACING) - 0.5;
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, canvasHeight);
+      context.stroke();
+    }
+  }
+
+  function drawGraphDistributionBars(context, segments, canvasHeight, maxNotesPerSecond) {
+    segments.forEach((counts, timeIndex) => {
+      let yOffset = 0;
+      for (let typeIndex = 0; typeIndex < DISTRIBUTION_NOTE_COLORS.length; typeIndex += 1) {
+        const count = counts[typeIndex];
+        const color = DISTRIBUTION_NOTE_COLORS[typeIndex];
+        for (let index = 0; index < count; index += 1) {
+          const x = timeIndex * (GRAPH_RECT_WIDTH + GRAPH_SPACING);
+          const y = canvasHeight - ((yOffset + 1) * GRAPH_RECT_HEIGHT + yOffset * GRAPH_SPACING);
+          if (y < 0 || yOffset >= maxNotesPerSecond) {
+            break;
+          }
+          context.fillStyle = color;
+          context.fillRect(x, y, GRAPH_RECT_WIDTH, GRAPH_RECT_HEIGHT);
+          yOffset += 1;
+        }
+      }
+    });
+  }
+
+  function drawGraphSpeedChangeLines(context, normalizedRecord, canvasWidth, canvasHeight) {
+    const points = normalizedRecord.speedChangePoints;
+    for (let index = 0; index < points.length; index += 1) {
+      const [bpm, timeMs] = points[index];
+      const x1 = graphTimeToX(timeMs / 1000);
+      const y1 = graphLogScaleY(bpm, normalizedRecord.mainbpm, canvasHeight) - 1;
+      const next = points[index + 1];
+      const x2 = next ? graphTimeToX(next[1] / 1000) : canvasWidth;
+
+      let color = "#ffff00";
+      if (bpm <= 0) {
+        color = "#ff00ff";
+      } else if (bpm === normalizedRecord.mainbpm) {
+        color = "#00ff00";
+      } else if (bpm === normalizedRecord.minbpm) {
+        color = "#0000ff";
+      } else if (bpm === normalizedRecord.maxbpm) {
+        color = "#ff0000";
+      }
+
+      context.strokeStyle = color;
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(x1 - 1, y1);
+      context.lineTo(x2 + 1, y1);
+      context.stroke();
+
+      if (next) {
+        const y2 = graphLogScaleY(next[0], normalizedRecord.mainbpm, canvasHeight) - 1;
+        if (Math.abs(y2 - y1) >= 1) {
+          context.strokeStyle = "rgba(127, 127, 127, 0.5)";
+          context.beginPath();
+          context.moveTo(x2, y2 < y1 ? y1 - 1 : y1 + 1);
+          context.lineTo(x2, y2 < y1 ? y2 + 1 : y2 - 1);
+          context.stroke();
+        }
+      }
+    }
+  }
+
+  function drawGraphSelectedTimeLine(context, x, canvasHeight) {
+    context.save();
+    context.strokeStyle = "#ff2c2c";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(x + 0.5, 0);
+    context.lineTo(x + 0.5, canvasHeight);
+    context.stroke();
+    context.restore();
+  }
+
+  function renderGraphTooltip(tooltip, event, normalizedRecord, timeSec) {
+    const timeIndex = Math.floor(timeSec);
+    const counts = normalizedRecord.distributionSegments[timeIndex] ?? Array.from({ length: 7 }, () => 0);
+    let bpmDisplay = 0;
+    for (let index = normalizedRecord.speedChangePoints.length - 1; index >= 0; index -= 1) {
+      if (timeSec * 1000 >= normalizedRecord.speedChangePoints[index][1]) {
+        bpmDisplay = normalizedRecord.speedChangePoints[index][0];
+        break;
+      }
+    }
+
+    let html = `${timeSec.toFixed(1)} sec<br>`;
+    html += `BPM: ${bpmDisplay}<br>`;
+    html += `Notes: ${counts.reduce((sum, count) => sum + count, 0)}<br>`;
+    counts.forEach((count, index) => {
+      if (count > 0) {
+        html += `<span style="color: ${DISTRIBUTION_NOTE_COLORS[index]}; background-color: transparent;">■</span> ${count} - ${DISTRIBUTION_NOTE_NAMES[index]}<br>`;
+      }
+    });
+
+    tooltip.innerHTML = html;
+    tooltip.style.left = `${event.clientX + 10}px`;
+    tooltip.style.top = `${event.clientY + 10}px`;
+    tooltip.style.display = "block";
+  }
+
+  function hideGraphTooltip(tooltip) {
+    tooltip.style.display = "none";
+  }
+
+  function getGraphHoverTimeSec(event, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    return mouseX / (GRAPH_RECT_WIDTH + GRAPH_SPACING);
+  }
+
+  function graphLogScaleY(bpm, mainBpm, canvasHeight) {
+    const ratio = Math.min(Math.max(bpm / mainBpm, GRAPH_MIN_VALUE), GRAPH_MAX_VALUE);
+    const logValue = Math.log10(ratio);
+    const t = (logValue - GRAPH_MIN_LOG) / (GRAPH_MAX_LOG - GRAPH_MIN_LOG);
+    return canvasHeight - Math.round(t * (canvasHeight - 2));
+  }
+
+  function graphTimeToX(timeSec) {
+    return Math.round(timeSec * (GRAPH_RECT_WIDTH + GRAPH_SPACING)) + 1;
+  }
+
+  async function ensureScoreLoaderContext() {
+    if (scoreLoaderContextPromise) {
+      return scoreLoaderContextPromise;
+    }
+
+    const moduleUrl = `${SCORE_PARSER_BASE_URL}/v${SCORE_PARSER_VERSION}/score_loader.js`;
+    scoreLoaderContextPromise = import(moduleUrl)
+      .then((module) => ({
+        moduleUrl,
+        loader: module.createScoreLoader({
+          scoreBaseUrl: SCORE_BASE_URL,
+        }),
+      }))
+      .catch((error) => {
+        scoreLoaderContextPromise = null;
+        throw error;
+      });
+
+    return scoreLoaderContextPromise;
+  }
+
+  function getScoreViewerManager() {
+    if (!scoreViewerManager) {
+      scoreViewerManager = createScoreViewerManager();
+    }
+    return scoreViewerManager;
+  }
+
+  function createScoreViewerManager() {
+    const shell = document.createElement("div");
+    shell.className = "score-viewer-shell";
+    document.body.appendChild(shell);
+
+    const parsedScoreCache = new Map();
+    const loadPromiseCache = new Map();
+    const state = {
+      normalizedRecord: null,
+      graphController: null,
+      selectedSha256: null,
+      selectedTimeSec: 0,
+      isPinned: false,
+      isViewerOpen: false,
+      isPlaying: false,
+      isGraphHovered: false,
+      parsedScore: null,
+      viewerModel: null,
+      loadToken: 0,
+    };
+
+    let playbackFrameId = null;
+    let lastPlaybackTimestamp = null;
+
+    const viewerController = createStandaloneScoreViewerController({
+      root: shell,
+      onTimeChange: (timeSec) => {
+        setSelectedTimeSec(timeSec, { openViewer: true });
+      },
+      onPlaybackToggle: (nextPlaying) => {
+        setPlaybackState(nextPlaying);
+      },
+    });
+
+    window.addEventListener("locationchange", resetForPageChange);
+
+    function attachGraphController(graphController, normalizedRecord) {
+      if (state.graphController && state.graphController !== graphController) {
+        state.graphController.destroy?.();
+      }
+      state.graphController = graphController;
+      if (normalizedRecord) {
+        shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(normalizedRecord.mode)}px`);
+      }
+
+      if (state.normalizedRecord?.sha256 && normalizedRecord?.sha256 && state.normalizedRecord.sha256 === normalizedRecord.sha256) {
+        state.normalizedRecord = normalizedRecord;
+        state.graphController.setPinned(state.isPinned);
+        state.graphController.setSelectedTimeSec(state.selectedTimeSec);
+      } else {
+        state.graphController.setPinned(false);
+        state.graphController.setSelectedTimeSec(0);
+      }
+    }
+
+    async function prefetch(normalizedRecord) {
+      if (!normalizedRecord?.sha256) {
+        return;
+      }
+      try {
+        const loaderContext = await ensureScoreLoaderContext();
+        await loaderContext.loader.prefetchScore(normalizedRecord.sha256.toLowerCase());
+      } catch (error) {
+        console.warn("Score prefetch failed:", error);
+      }
+    }
+
+    function handleGraphHover(normalizedRecord, timeSec) {
+      state.isGraphHovered = true;
+      if (normalizedRecord) {
+        void activateRecord(normalizedRecord, { openViewer: true });
+      }
+      if (state.isPlaying) {
+        return;
+      }
+      setSelectedTimeSec(timeSec, { openViewer: true });
+    }
+
+    function handleGraphHoverLeave(normalizedRecord) {
+      if (!state.normalizedRecord || !normalizedRecord || state.normalizedRecord.sha256 === normalizedRecord.sha256) {
+        state.isGraphHovered = false;
+      }
+      if (!state.isPinned && !state.isPlaying) {
+        state.isViewerOpen = false;
+        render();
+      }
+    }
+
+    function handleGraphClick(normalizedRecord, timeSec) {
+      state.isPinned = true;
+      if (normalizedRecord) {
+        void activateRecord(normalizedRecord, { openViewer: true });
+      }
+      setSelectedTimeSec(timeSec, { openViewer: true });
+    }
+
+    function handlePinChange(normalizedRecord, nextPinned) {
+      state.isPinned = Boolean(nextPinned);
+      if (normalizedRecord) {
+        void activateRecord(normalizedRecord, { openViewer: state.isPinned });
+      }
+      if (state.isPinned) {
+        state.isViewerOpen = true;
+      } else if (!state.isGraphHovered && !state.isPlaying) {
+        state.isViewerOpen = false;
+      }
+      render();
+    }
+
+    async function activateRecord(normalizedRecord, { openViewer = false } = {}) {
+      if (!normalizedRecord) {
+        return;
+      }
+      state.normalizedRecord = normalizedRecord;
+      state.selectedSha256 = normalizedRecord.sha256 || null;
+      shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(normalizedRecord.mode)}px`);
+      if (openViewer) {
+        state.isViewerOpen = true;
+      }
+      render();
+      await loadSelectedRecord(normalizedRecord);
+    }
+
+    async function loadSelectedRecord(normalizedRecord) {
+      if (!normalizedRecord?.sha256) {
+        state.parsedScore = null;
+        state.viewerModel = null;
+        render();
+        return;
+      }
+      const sha256 = normalizedRecord.sha256.toLowerCase();
+      const loadToken = ++state.loadToken;
+
+      if (parsedScoreCache.has(sha256)) {
+        const cached = parsedScoreCache.get(sha256);
+        if (loadToken !== state.loadToken || state.selectedSha256 !== sha256) {
+          return;
+        }
+        state.parsedScore = cached.score;
+        state.viewerModel = cached.viewerModel;
+        state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
+        render();
+        return;
+      }
+
+      try {
+        let loadPromise = loadPromiseCache.get(sha256);
+        if (!loadPromise) {
+          loadPromise = ensureScoreLoaderContext()
+            .then((loaderContext) => loaderContext.loader.loadParsedScore(sha256))
+            .then((parsedResult) => {
+              const viewerModel = createStandaloneScoreViewerModel(parsedResult.score);
+              const cached = { score: parsedResult.score, viewerModel };
+              parsedScoreCache.set(sha256, cached);
+              loadPromiseCache.delete(sha256);
+              return cached;
+            })
+            .catch((error) => {
+              loadPromiseCache.delete(sha256);
+              throw error;
+            });
+          loadPromiseCache.set(sha256, loadPromise);
+        }
+
+        const cached = await loadPromise;
+        if (loadToken !== state.loadToken || state.selectedSha256 !== sha256) {
+          return;
+        }
+        state.parsedScore = cached.score;
+        state.viewerModel = cached.viewerModel;
+        state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
+        render();
+      } catch (error) {
+        if (loadToken !== state.loadToken || state.selectedSha256 !== sha256) {
+          return;
+        }
+        console.warn("Score viewer parse/load failed:", error);
+        state.parsedScore = null;
+        state.viewerModel = null;
+        state.isViewerOpen = false;
+        render();
+      }
+    }
+
+    function setSelectedTimeSec(nextTimeSec, { openViewer = false } = {}) {
+      const clampedTimeSec = clampSelectedTimeSec(state, nextTimeSec);
+      const changed = Math.abs(clampedTimeSec - state.selectedTimeSec) >= 0.0005;
+      if (openViewer) {
+        state.isViewerOpen = true;
+      }
+      state.selectedTimeSec = clampedTimeSec;
+      if (!changed && !openViewer) {
+        return;
+      }
+      render();
+    }
+
+    function setPlaybackState(nextPlaying) {
+      if (!state.viewerModel || !state.parsedScore) {
+        stopPlayback(false);
+        render();
+        return;
+      }
+      if (nextPlaying) {
+        startPlayback();
+      } else {
+        stopPlayback(true);
+      }
+    }
+
+    function startPlayback() {
+      if (!state.viewerModel || !state.parsedScore) {
+        return;
+      }
+      const maxTimeSec = Math.max(state.parsedScore.lastPlayableTimeSec, 0);
+      if (maxTimeSec <= 0) {
+        return;
+      }
+      if (state.selectedTimeSec >= maxTimeSec - 0.0005) {
+        state.selectedTimeSec = 0;
+      }
+      state.isPlaying = true;
+      state.isViewerOpen = true;
+      lastPlaybackTimestamp = null;
+      if (playbackFrameId !== null) {
+        cancelAnimationFrame(playbackFrameId);
+      }
+      render();
+      playbackFrameId = requestAnimationFrame(stepPlayback);
+    }
+
+    function stopPlayback(renderAfter = true) {
+      if (playbackFrameId !== null) {
+        cancelAnimationFrame(playbackFrameId);
+        playbackFrameId = null;
+      }
+      lastPlaybackTimestamp = null;
+      const wasPlaying = state.isPlaying;
+      state.isPlaying = false;
+      if (renderAfter && wasPlaying) {
+        render();
+      }
+    }
+
+    function stepPlayback(timestamp) {
+      if (!state.isPlaying || !state.viewerModel || !state.parsedScore) {
+        playbackFrameId = null;
+        lastPlaybackTimestamp = null;
+        return;
+      }
+      if (lastPlaybackTimestamp === null || timestamp - lastPlaybackTimestamp > SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS) {
+        lastPlaybackTimestamp = timestamp;
+        playbackFrameId = requestAnimationFrame(stepPlayback);
+        return;
+      }
+      const deltaSec = (timestamp - lastPlaybackTimestamp) / 1000;
+      lastPlaybackTimestamp = timestamp;
+      const maxTimeSec = Math.max(state.parsedScore.lastPlayableTimeSec, 0);
+      const nextTimeSec = Math.min(state.selectedTimeSec + deltaSec, maxTimeSec);
+      state.selectedTimeSec = nextTimeSec;
+      render();
+      if (nextTimeSec >= maxTimeSec - 0.0005) {
+        stopPlayback(false);
+        render();
+        return;
+      }
+      playbackFrameId = requestAnimationFrame(stepPlayback);
+    }
+
+    function resetForPageChange() {
+      stopPlayback(false);
+      state.graphController?.destroy?.();
+      state.normalizedRecord = null;
+      state.graphController = null;
+      state.selectedSha256 = null;
+      state.selectedTimeSec = 0;
+      state.isPinned = false;
+      state.isViewerOpen = false;
+      state.isPlaying = false;
+      state.isGraphHovered = false;
+      state.parsedScore = null;
+      state.viewerModel = null;
+      state.loadToken += 1;
+      shell.style.removeProperty("--score-viewer-width");
+      render();
+    }
+
+    function render() {
+      state.graphController?.setPinned(state.isPinned);
+      state.graphController?.setSelectedTimeSec(state.selectedTimeSec);
+      viewerController.setPlaybackState(state.isPlaying);
+      viewerController.setPinned(state.isPinned);
+      viewerController.setModel(state.viewerModel);
+      viewerController.setSelectedTimeSec(state.selectedTimeSec);
+      viewerController.setOpen(Boolean(state.isViewerOpen && state.viewerModel));
+    }
+
+    render();
+
+    return {
+      attachGraphController,
+      prefetch,
+      handleGraphHover,
+      handleGraphHoverLeave,
+      handleGraphClick,
+      handlePinChange,
+    };
+  }
+
+  function createStandaloneScoreViewerModel(score) {
+    if (!score) {
+      return null;
+    }
+
+    const notes = score.notes
+      .filter((note) => note.kind !== "invisible")
+      .map((note) => ({ ...note }))
+      .sort(compareNoteLike);
+
+    const comboEvents = (score.comboEvents?.length > 0 ? score.comboEvents : createFallbackComboEvents(score.notes))
+      .map((event) => ({ ...event }))
+      .sort(compareComboEvent)
+      .map((event, index) => ({
+        ...event,
+        combo: index + 1,
+      }));
+
+    const longEndEventKeys = new Set(
+      comboEvents
+        .filter((event) => event.kind === "long-end")
+        .map(createTimedLaneKey),
+    );
+
+    return {
+      score,
+      notes,
+      comboEvents,
+      longEndEventKeys,
+      barLines: [...score.barLines].sort(compareNoteLike),
+      bpmChanges: [...score.bpmChanges].sort(compareNoteLike),
+      stops: [...score.stops].sort(compareNoteLike),
+      totalCombo: comboEvents.length,
+    };
+  }
+
+  function getStandaloneClampedSelectedTimeSec(model, timeSec) {
+    if (!model) {
+      return 0;
+    }
+    const numericValue = Number.isFinite(timeSec) ? timeSec : 0;
+    return clampValue(numericValue, 0, model.score.lastPlayableTimeSec);
+  }
+
+  function getStandaloneContentHeightPx(model, viewportHeight, pixelsPerSecond = STANDALONE_DEFAULT_VIEWER_PIXELS_PER_SECOND) {
+    if (!model) {
+      return Math.max(1, viewportHeight);
+    }
+    return Math.max(
+      Math.max(1, viewportHeight),
+      Math.ceil(model.score.lastPlayableTimeSec * pixelsPerSecond + viewportHeight),
+    );
+  }
+
+  function getStandaloneTimeSecForScrollTop(model, scrollTop, pixelsPerSecond = STANDALONE_DEFAULT_VIEWER_PIXELS_PER_SECOND) {
+    if (!model) {
+      return 0;
+    }
+    return getStandaloneClampedSelectedTimeSec(model, scrollTop / pixelsPerSecond);
+  }
+
+  function getStandaloneScrollTopForTimeSec(model, timeSec, viewportHeight, pixelsPerSecond = STANDALONE_DEFAULT_VIEWER_PIXELS_PER_SECOND) {
+    if (!model) {
+      return 0;
+    }
+    const clampedTimeSec = getStandaloneClampedSelectedTimeSec(model, timeSec);
+    const maxScrollTop = Math.max(0, getStandaloneContentHeightPx(model, viewportHeight, pixelsPerSecond) - viewportHeight);
+    return clampValue(clampedTimeSec * pixelsPerSecond, 0, maxScrollTop);
+  }
+
+  function getStandaloneVisibleTimeRange(
+    model,
+    selectedTimeSec,
+    viewportHeight,
+    pixelsPerSecond = STANDALONE_DEFAULT_VIEWER_PIXELS_PER_SECOND,
+  ) {
+    if (!model) {
+      return { startTimeSec: 0, endTimeSec: 0 };
+    }
+    const clampedTimeSec = getStandaloneClampedSelectedTimeSec(model, selectedTimeSec);
+    const halfViewportSec = viewportHeight / pixelsPerSecond / 2;
+    const overscanSec = Math.max(halfViewportSec * 0.35, 0.75);
+    return {
+      startTimeSec: Math.max(0, clampedTimeSec - halfViewportSec - overscanSec),
+      endTimeSec: Math.min(model.score.lastPlayableTimeSec, clampedTimeSec + halfViewportSec + overscanSec),
+    };
+  }
+
+  function getStandaloneViewerCursor(model, selectedTimeSec) {
+    if (!model) {
+      return {
+        timeSec: 0,
+        measureIndex: 0,
+        comboCount: 0,
+        totalCombo: 0,
+      };
+    }
+    const clampedTimeSec = getStandaloneClampedSelectedTimeSec(model, selectedTimeSec);
+    return {
+      timeSec: clampedTimeSec,
+      measureIndex: getMeasureIndexAtTime(model, clampedTimeSec),
+      comboCount: getComboCountAtTime(model, clampedTimeSec),
+      totalCombo: model.totalCombo,
+    };
+  }
+
+  function getMeasureIndexAtTime(model, timeSec) {
+    if (!model || model.barLines.length === 0) {
+      return 0;
+    }
+    const index = upperBoundByTime(model.barLines, timeSec) - 1;
+    return Math.max(0, index);
+  }
+
+  function getComboCountAtTime(model, timeSec) {
+    if (!model || model.comboEvents.length === 0) {
+      return 0;
+    }
+    return upperBoundByTime(model.comboEvents, timeSec);
+  }
+
+  function shouldDrawLongEndCap(model, note) {
+    if (!model || note?.kind !== "long" || !Number.isFinite(note?.endTimeSec)) {
+      return false;
+    }
+    return model.longEndEventKeys.has(createTimedLaneKey(note.lane, note.endTimeSec, note.side));
+  }
+
+  function createFallbackComboEvents(notes) {
+    return notes
+      .filter((note) => note.kind === "normal" || note.kind === "long")
+      .map((note) => ({
+        lane: note.lane,
+        timeSec: note.timeSec,
+        kind: note.kind === "long" ? "long-start" : "normal",
+        ...(note.side ? { side: note.side } : {}),
+      }));
+  }
+
+  function upperBoundByTime(items, timeSec) {
+    let low = 0;
+    let high = items.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (items[mid].timeSec <= timeSec) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
+  }
+
+  function compareNoteLike(left, right) {
+    if (left.timeSec !== right.timeSec) {
+      return left.timeSec - right.timeSec;
+    }
+    return (left.lane ?? 0) - (right.lane ?? 0);
+  }
+
+  function compareComboEvent(left, right) {
+    if (left.timeSec !== right.timeSec) {
+      return left.timeSec - right.timeSec;
+    }
+    const order = comboEventOrder(left.kind) - comboEventOrder(right.kind);
+    if (order !== 0) {
+      return order;
+    }
+    return left.lane - right.lane;
+  }
+
+  function comboEventOrder(kind) {
+    switch (kind) {
+      case "normal":
+        return 0;
+      case "long-start":
+        return 1;
+      case "long-end":
+        return 2;
+      default:
+        return 99;
+    }
+  }
+
+  function createTimedLaneKey(input, timeSec, side = undefined) {
+    if (typeof input === "object" && input !== null) {
+      return createTimedLaneKey(input.lane, input.timeSec ?? input.endTimeSec, input.side);
+    }
+    return `${side ?? "-"}:${input}:${Math.round((timeSec ?? 0) * 1000000)}`;
+  }
+
+  function createStandaloneScoreViewerRenderer(canvas) {
+    const context = canvas.getContext("2d");
+    let width = 0;
+    let height = 0;
+    let dpr = 1;
+
+    function resize(nextWidth, nextHeight) {
+      width = Math.max(1, Math.floor(nextWidth));
+      height = Math.max(1, Math.floor(nextHeight));
+      dpr = Math.max(window.devicePixelRatio || 1, 1);
+      canvas.width = Math.max(1, Math.round(width * dpr));
+      canvas.height = Math.max(1, Math.round(height * dpr));
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function render(model, selectedTimeSec, pixelsPerSecond = STANDALONE_DEFAULT_VIEWER_PIXELS_PER_SECOND) {
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = STANDALONE_BACKGROUND_FILL;
+      context.fillRect(0, 0, width, height);
+
+      if (!model) {
+        return createEmptyRenderResult();
+      }
+
+      const lanes = createStandaloneLaneLayout(model.score.mode, model.score.laneCount, width);
+      const { startTimeSec, endTimeSec } = getStandaloneVisibleTimeRange(model, selectedTimeSec, height, pixelsPerSecond);
+
+      drawStandaloneBarLines(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+      drawStandaloneLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+      drawStandaloneNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+      drawStandaloneLaneSeparators(context, lanes, height);
+      const markers = drawStandaloneTempoMarkers(
+        context,
+        model.bpmChanges,
+        model.stops,
+        lanes,
+        selectedTimeSec,
+        startTimeSec,
+        endTimeSec,
+        height,
+        pixelsPerSecond,
+      );
+
+      return {
+        markers,
+        laneBounds: getStandaloneLaneBounds(lanes),
+      };
+    }
+
+    return { resize, render };
+  }
+
+  function estimateViewerWidthFromParsedScore(score) {
+    return estimateViewerWidthFromMode(score?.mode, score?.laneCount);
+  }
+
+  function estimateViewerWidthFromNumericMode(mode) {
+    switch (Number(mode)) {
+      case 5:
+        return estimateViewerWidthFromMode("5k", 6);
+      case 7:
+        return estimateViewerWidthFromMode("7k", 8);
+      case 9:
+        return estimateViewerWidthFromMode("popn-9k", 9);
+      case 10:
+        return estimateViewerWidthFromMode("10k", 12);
+      case 14:
+        return estimateViewerWidthFromMode("14k", 16);
+      default:
+        return estimateViewerWidthFromMode(String(mode ?? ""), getDisplayLaneCount(mode));
+    }
+  }
+
+  function estimateViewerWidthFromMode(mode, laneCount) {
+    const layout = getStandaloneModeLayout(mode, laneCount);
+    const gutterWidth = layout.splitAfter === null ? 0 : STANDALONE_FIXED_LANE_WIDTH * STANDALONE_DP_GUTTER_UNITS;
+    const contentWidth = layout.display.length * STANDALONE_FIXED_LANE_WIDTH + gutterWidth;
+    return Math.ceil(
+      STANDALONE_VIEWER_HORIZONTAL_PADDING * 2
+      + contentWidth
+      + STANDALONE_VIEWER_MARKER_LABEL_WIDTH * 2
+      + STANDALONE_TEMPO_LABEL_GAP * 2,
+    );
+  }
+
+  function getDisplayLaneCount(mode) {
+    switch (mode) {
+      case 5:
+      case "5k":
+        return 6;
+      case 7:
+      case "7k":
+        return 8;
+      case 10:
+      case "10k":
+        return 12;
+      case 14:
+      case "14k":
+        return 16;
+      case 9:
+      case "9k":
+      case "popn-9k":
+        return 9;
+      case "popn-5k":
+        return 5;
+      default:
+        return Number.isFinite(Number(mode)) && Number(mode) > 0 ? Number(mode) : 8;
+    }
+  }
+
+  function createStandaloneLaneLayout(mode, laneCount, viewportWidth) {
+    const layout = getStandaloneModeLayout(mode, laneCount);
+    const gutterWidth = layout.splitAfter === null ? 0 : STANDALONE_FIXED_LANE_WIDTH * STANDALONE_DP_GUTTER_UNITS;
+    const contentWidth = layout.display.length * STANDALONE_FIXED_LANE_WIDTH + gutterWidth;
+    const startX = Math.max(STANDALONE_VIEWER_HORIZONTAL_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
+    const lanes = new Array(Math.max(1, laneCount));
+
+    let cursorX = startX;
+    for (let slotIndex = 0; slotIndex < layout.display.length; slotIndex += 1) {
+      if (layout.splitAfter !== null && slotIndex === layout.splitAfter) {
+        cursorX += gutterWidth;
+      }
+      const slot = layout.display[slotIndex];
+      lanes[slot.actualLane] = {
+        lane: slot.actualLane,
+        x: cursorX,
+        width: STANDALONE_FIXED_LANE_WIDTH,
+        note: slot.note,
+      };
+      cursorX += STANDALONE_FIXED_LANE_WIDTH;
+    }
+
+    return lanes;
+  }
+
+  function getStandaloneModeLayout(mode, laneCount) {
+    switch (mode) {
+      case "5k":
+        return createStandaloneDisplayLayout([0, 1, 2, 3, 4, 5], null, (slotIndex) => getStandaloneBeatNoteColor(`g${slotIndex}`));
+      case "7k":
+        return createStandaloneDisplayLayout([0, 1, 2, 3, 4, 5, 6, 7], null, (slotIndex) => getStandaloneBeatNoteColor(String(slotIndex)));
+      case "10k":
+        return createStandaloneDisplayLayout([0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 6], 6, (slotIndex) => getStandaloneBeatNoteColor(`g${slotIndex}`));
+      case "14k":
+        return createStandaloneDisplayLayout([0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 8], 8, (slotIndex) => getStandaloneBeatNoteColor(String(slotIndex)));
+      case "popn-5k":
+        return createStandaloneDisplayLayout([0, 1, 2, 3, 4], null, (slotIndex) => getStandalonePopnNoteColor(slotIndex));
+      case "popn-9k":
+      case "9k":
+        return createStandaloneDisplayLayout(Array.from({ length: Math.max(1, laneCount) }, (_, index) => index), null, (slotIndex) => getStandalonePopnNoteColor(slotIndex));
+      default:
+        return createStandaloneDisplayLayout(Array.from({ length: Math.max(1, laneCount) }, (_, index) => index), null, () => "#bebebe");
+    }
+  }
+
+  function createStandaloneDisplayLayout(displayOrder, splitAfter, getColor) {
+    return {
+      splitAfter,
+      display: displayOrder.map((actualLane, slotIndex) => ({
+        actualLane,
+        note: getColor(slotIndex),
+      })),
+    };
+  }
+
+  function getStandaloneBeatNoteColor(key) {
+    return STANDALONE_BEAT_LANE_COLORS.get(key) ?? "#bebebe";
+  }
+
+  function getStandalonePopnNoteColor(slotIndex) {
+    return STANDALONE_POPN_LANE_COLORS.get(`p${slotIndex}`) ?? "#c4c4c4";
+  }
+
+  function drawStandaloneBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+    if (lanes.length === 0) {
+      return;
+    }
+    const leftX = lanes[0].x;
+    const rightX = lanes[lanes.length - 1].x + lanes[lanes.length - 1].width;
+    context.save();
+    context.strokeStyle = STANDALONE_BAR_LINE;
+    context.lineWidth = 1;
+    for (const barLine of barLines) {
+      if (barLine.timeSec < startTimeSec || barLine.timeSec > endTimeSec) {
+        continue;
+      }
+      const y = standaloneTimeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      context.beginPath();
+      context.moveTo(leftX, y + 0.5);
+      context.lineTo(rightX, y + 0.5);
+      context.stroke();
+    }
+    context.restore();
+  }
+
+  function drawStandaloneTempoMarkers(context, bpmChanges, stops, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+    if (lanes.length === 0) {
+      return [];
+    }
+    const leftLane = lanes[0];
+    const rightLane = lanes[lanes.length - 1];
+    const markers = [];
+
+    context.save();
+    context.fillStyle = STANDALONE_BPM_MARKER;
+    for (const bpmChange of bpmChanges) {
+      if (bpmChange.timeSec < startTimeSec || bpmChange.timeSec > endTimeSec) {
+        continue;
+      }
+      const y = standaloneTimeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      context.fillRect(rightLane.x, Math.round(y - STANDALONE_TEMPO_MARKER_HEIGHT / 2), rightLane.width, STANDALONE_TEMPO_MARKER_HEIGHT);
+      markers.push({
+        type: "bpm",
+        timeSec: bpmChange.timeSec,
+        y,
+        label: trimDecimal(Number(bpmChange.bpm).toFixed(2)),
+        side: "right",
+        color: STANDALONE_BPM_MARKER,
+        x: rightLane.x + rightLane.width + STANDALONE_TEMPO_LABEL_GAP,
+      });
+    }
+
+    context.fillStyle = STANDALONE_STOP_MARKER;
+    for (const stop of stops) {
+      if (stop.timeSec < startTimeSec || stop.timeSec > endTimeSec) {
+        continue;
+      }
+      const y = standaloneTimeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      context.fillRect(leftLane.x, Math.round(y - STANDALONE_TEMPO_MARKER_HEIGHT / 2), leftLane.width, STANDALONE_TEMPO_MARKER_HEIGHT);
+      markers.push({
+        type: "stop",
+        timeSec: stop.timeSec,
+        y,
+        label: `${trimDecimal(Number(stop.durationSec).toFixed(3))}s`,
+        side: "left",
+        color: STANDALONE_STOP_MARKER,
+        x: leftLane.x - STANDALONE_TEMPO_LABEL_GAP,
+      });
+    }
+
+    context.restore();
+    return markers;
+  }
+
+  function drawStandaloneLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+    context.save();
+    for (const note of model.notes) {
+      if (note.kind !== "long" || !Number.isFinite(note.endTimeSec)) {
+        continue;
+      }
+      if (note.endTimeSec < startTimeSec || note.timeSec > endTimeSec) {
+        continue;
+      }
+      const lane = lanes[note.lane];
+      if (!lane) {
+        continue;
+      }
+      const startY = standaloneTimeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const endY = standaloneTimeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const topY = Math.max(Math.min(startY, endY), -STANDALONE_NOTE_HEAD_HEIGHT - 24);
+      const bottomY = Math.min(Math.max(startY, endY), viewportHeight + STANDALONE_NOTE_HEAD_HEIGHT + 24);
+      const bodyHeight = Math.max(bottomY - topY, 2);
+      context.fillStyle = dimColor(lane.note, 0.42);
+      context.fillRect(lane.x, topY, lane.width, bodyHeight);
+    }
+    context.restore();
+  }
+
+  function drawStandaloneNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+    context.save();
+    for (const note of model.notes) {
+      const noteEndTimeSec = note.endTimeSec ?? note.timeSec;
+      if (noteEndTimeSec < startTimeSec || note.timeSec > endTimeSec) {
+        continue;
+      }
+      const lane = lanes[note.lane];
+      if (!lane || note.kind === "invisible") {
+        continue;
+      }
+      const headY = standaloneTimeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      drawStandaloneRectNote(context, lane, headY, note.kind === "mine" ? STANDALONE_MINE_COLOR : lane.note);
+      if (note.kind === "long" && Number.isFinite(note.endTimeSec) && shouldDrawLongEndCap(model, note)) {
+        const endHeadY = standaloneTimeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+        drawStandaloneRectNote(context, lane, endHeadY, lane.note);
+      }
+    }
+    context.restore();
+  }
+
+  function drawStandaloneRectNote(context, lane, y, color) {
+    context.fillStyle = color;
+    context.fillRect(lane.x, Math.round(y - STANDALONE_NOTE_HEAD_HEIGHT), lane.width, STANDALONE_NOTE_HEAD_HEIGHT);
+  }
+
+  function drawStandaloneLaneSeparators(context, lanes, viewportHeight) {
+    if (lanes.length === 0) {
+      return;
+    }
+    context.save();
+    context.strokeStyle = STANDALONE_SEPARATOR_COLOR;
+    context.lineWidth = 1;
+    const uniqueBoundaries = new Set();
+    uniqueBoundaries.add(Math.round(lanes[0].x));
+    for (const lane of lanes) {
+      uniqueBoundaries.add(Math.round(lane.x));
+      uniqueBoundaries.add(Math.round(lane.x + lane.width));
+    }
+    for (const x of [...uniqueBoundaries].sort((left, right) => left - right)) {
+      context.beginPath();
+      context.moveTo(x + 0.5, 0);
+      context.lineTo(x + 0.5, viewportHeight);
+      context.stroke();
+    }
+    context.restore();
+  }
+
+  function getStandaloneLaneBounds(lanes) {
+    if (lanes.length === 0) {
+      return { leftX: 0, rightX: 0 };
+    }
+    return {
+      leftX: lanes[0].x,
+      rightX: lanes[lanes.length - 1].x + lanes[lanes.length - 1].width,
+    };
+  }
+
+  function createEmptyRenderResult() {
+    return {
+      markers: [],
+      laneBounds: {
+        leftX: 0,
+        rightX: 0,
+      },
+    };
+  }
+
+  function standaloneTimeToViewportY(eventTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond) {
+    return viewportHeight / 2 - (eventTimeSec - selectedTimeSec) * pixelsPerSecond;
+  }
+
+  function dimColor(color, factor) {
+    if (!String(color).startsWith("#")) {
+      return color;
+    }
+    const normalized = color.replace("#", "");
+    const red = Number.parseInt(normalized.slice(0, 2), 16);
+    const green = Number.parseInt(normalized.slice(2, 4), 16);
+    const blue = Number.parseInt(normalized.slice(4, 6), 16);
+    return `rgb(${Math.round(red * factor)}, ${Math.round(green * factor)}, ${Math.round(blue * factor)})`;
+  }
+
+  function createStandaloneScoreViewerController({ root, onTimeChange = () => {}, onPlaybackToggle = () => {} }) {
+    const scrollHost = document.createElement("div");
+    scrollHost.className = "score-viewer-scroll-host";
+
+    const spacer = document.createElement("div");
+    spacer.className = "score-viewer-spacer";
+    scrollHost.appendChild(spacer);
+
+    const canvas = document.createElement("canvas");
+    canvas.className = "score-viewer-canvas";
+
+    const markerOverlay = document.createElement("div");
+    markerOverlay.className = "score-viewer-marker-overlay";
+
+    const markerLabelsLeft = document.createElement("div");
+    markerLabelsLeft.className = "score-viewer-marker-labels is-left";
+
+    const markerLabelsRight = document.createElement("div");
+    markerLabelsRight.className = "score-viewer-marker-labels is-right";
+
+    markerOverlay.append(markerLabelsLeft, markerLabelsRight);
+
+    const bottomBar = document.createElement("div");
+    bottomBar.className = "score-viewer-bottom-bar";
+
+    const primaryChip = document.createElement("div");
+    primaryChip.className = "score-viewer-chip is-primary";
+
+    const playbackButton = document.createElement("button");
+    playbackButton.className = "score-viewer-playback-button";
+    playbackButton.type = "button";
+    playbackButton.setAttribute("aria-label", "Play score viewer");
+    playbackButton.textContent = "▶";
+
+    const playbackTime = document.createElement("span");
+    playbackTime.className = "score-viewer-playback-time";
+    primaryChip.append(playbackButton, playbackTime);
+
+    const measureChip = document.createElement("div");
+    measureChip.className = "score-viewer-chip is-compact";
+
+    const comboChip = document.createElement("div");
+    comboChip.className = "score-viewer-chip is-compact";
+
+    const spacingPanel = document.createElement("div");
+    spacingPanel.className = "score-viewer-chip score-viewer-spacing-panel";
+
+    const spacingLabel = document.createElement("label");
+    spacingLabel.className = "score-viewer-spacing-label";
+    spacingLabel.textContent = "SPACING";
+
+    const spacingValue = document.createElement("span");
+    spacingValue.className = "score-viewer-spacing-value";
+    spacingLabel.appendChild(spacingValue);
+
+    const spacingInput = document.createElement("input");
+    spacingInput.className = "score-viewer-spacing-input";
+    spacingInput.type = "range";
+    spacingInput.min = String(STANDALONE_MIN_SPACING_SCALE);
+    spacingInput.max = String(STANDALONE_MAX_SPACING_SCALE);
+    spacingInput.step = String(STANDALONE_SPACING_STEP);
+    spacingInput.value = String(STANDALONE_DEFAULT_SPACING_SCALE);
+
+    spacingPanel.append(spacingLabel, spacingInput);
+    bottomBar.append(primaryChip, measureChip, comboChip, spacingPanel);
+
+    const judgeLine = document.createElement("div");
+    judgeLine.className = "score-viewer-judge-line";
+
+    root.replaceChildren(scrollHost, canvas, markerOverlay, bottomBar, judgeLine);
+
+    const renderer = createStandaloneScoreViewerRenderer(canvas);
+    const state = {
+      model: null,
+      selectedTimeSec: 0,
+      isPinned: false,
+      isOpen: false,
+      isPlaying: false,
+      spacingScale: STANDALONE_DEFAULT_SPACING_SCALE,
+    };
+
+    let ignoreScrollUntilNextFrame = false;
+    let resizeObserver = null;
+    let dragState = null;
+
+    scrollHost.addEventListener("scroll", () => {
+      syncTimeFromScrollPosition();
+    });
+
+    scrollHost.addEventListener("wheel", (event) => {
+      if (!state.model || !state.isOpen || !isScrollInteractive()) {
+        return;
+      }
+      scrollHost.scrollTop += event.deltaY * STANDALONE_SCROLL_MULTIPLIER;
+      syncTimeFromScrollPosition({ force: true });
+      event.preventDefault();
+    }, { passive: false });
+
+    scrollHost.addEventListener("pointerdown", (event) => {
+      if (!canDragScroll(event)) {
+        return;
+      }
+      dragState = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startScrollTop: scrollHost.scrollTop,
+      };
+      scrollHost.classList.add("is-dragging");
+      if (typeof scrollHost.setPointerCapture === "function") {
+        scrollHost.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+    });
+
+    scrollHost.addEventListener("pointermove", (event) => {
+      if (!dragState || event.pointerId !== dragState.pointerId) {
+        return;
+      }
+      const deltaY = event.clientY - dragState.startY;
+      scrollHost.scrollTop = dragState.startScrollTop + deltaY * STANDALONE_SCROLL_MULTIPLIER;
+      syncTimeFromScrollPosition({ force: true });
+      event.preventDefault();
+    });
+
+    scrollHost.addEventListener("pointerup", handlePointerRelease);
+    scrollHost.addEventListener("pointercancel", handlePointerRelease);
+    scrollHost.addEventListener("lostpointercapture", handlePointerRelease);
+
+    spacingInput.addEventListener("input", () => {
+      const nextScale = clampScale(Number.parseFloat(spacingInput.value));
+      if (Math.abs(nextScale - state.spacingScale) < 0.0005) {
+        spacingValue.textContent = formatSpacingScale(state.spacingScale);
+        return;
+      }
+      state.spacingScale = nextScale;
+      spacingValue.textContent = formatSpacingScale(state.spacingScale);
+      refreshLayout();
+    });
+
+    playbackButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!state.model) {
+        return;
+      }
+      onPlaybackToggle(!state.isPlaying);
+    });
+
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        refreshLayout();
+      });
+      resizeObserver.observe(root);
+    } else {
+      window.addEventListener("resize", refreshLayout);
+    }
+
+    function setModel(model) {
+      if (state.model === model) {
+        return;
+      }
+      state.model = model;
+      state.selectedTimeSec = getStandaloneClampedSelectedTimeSec(state.model, state.selectedTimeSec);
+      updateRootWidth();
+      refreshLayout();
+    }
+
+    function setSelectedTimeSec(timeSec) {
+      const clampedTimeSec = getStandaloneClampedSelectedTimeSec(state.model, timeSec);
+      if (Math.abs(clampedTimeSec - state.selectedTimeSec) < 0.0005 && state.model) {
+        syncScrollPosition();
+        renderScene();
+        return;
+      }
+      state.selectedTimeSec = clampedTimeSec;
+      syncScrollPosition();
+      renderScene();
+    }
+
+    function setPinned(nextPinned) {
+      state.isPinned = Boolean(nextPinned);
+      updateScrollInteractivity();
+      renderScene();
+    }
+
+    function setOpen(nextOpen) {
+      state.isOpen = Boolean(nextOpen);
+      root.classList.toggle("is-visible", state.isOpen && Boolean(state.model));
+      syncScrollPosition();
+      renderScene();
+    }
+
+    function setPlaybackState(nextPlaying) {
+      state.isPlaying = Boolean(nextPlaying);
+      updateScrollInteractivity();
+      renderScene();
+    }
+
+    function syncScrollPosition() {
+      if (!state.model) {
+        scrollHost.scrollTop = 0;
+        return;
+      }
+      ignoreScrollUntilNextFrame = true;
+      scrollHost.scrollTop = getStandaloneScrollTopForTimeSec(
+        state.model,
+        state.selectedTimeSec,
+        root.clientHeight || 0,
+        getPixelsPerSecond(),
+      );
+      requestAnimationFrame(() => {
+        ignoreScrollUntilNextFrame = false;
+      });
+    }
+
+    function syncTimeFromScrollPosition({ force = false } = {}) {
+      if (!state.model || !state.isOpen || !isScrollInteractive()) {
+        return;
+      }
+      if (!force && ignoreScrollUntilNextFrame) {
+        return;
+      }
+      const nextTimeSec = getStandaloneTimeSecForScrollTop(state.model, scrollHost.scrollTop, getPixelsPerSecond());
+      if (Math.abs(nextTimeSec - state.selectedTimeSec) < 0.0005) {
+        return;
+      }
+      state.selectedTimeSec = nextTimeSec;
+      renderScene();
+      onTimeChange(nextTimeSec);
+    }
+
+    function refreshLayout() {
+      updateRootWidth();
+      const width = Math.max(1, root.clientWidth);
+      const height = Math.max(260, root.clientHeight);
+      renderer.resize(width, height);
+      spacer.style.height = `${getStandaloneContentHeightPx(state.model, height, getPixelsPerSecond())}px`;
+      syncScrollPosition();
+      renderScene();
+    }
+
+    function renderScene() {
+      const cursor = getStandaloneViewerCursor(state.model, state.selectedTimeSec);
+      const showScene = Boolean(state.model && state.isOpen);
+      canvas.hidden = !showScene;
+      markerOverlay.hidden = !showScene;
+      bottomBar.hidden = !showScene;
+      judgeLine.hidden = !showScene;
+
+      playbackButton.disabled = !state.model;
+      playbackButton.textContent = state.isPlaying ? "❚❚" : "▶";
+      playbackButton.setAttribute("aria-label", state.isPlaying ? "Pause score viewer" : "Play score viewer");
+      playbackTime.textContent = `${cursor.timeSec.toFixed(3)} s`;
+      measureChip.textContent = `M ${cursor.measureIndex}`;
+      comboChip.textContent = `C ${cursor.comboCount}/${cursor.totalCombo}`;
+      spacingValue.textContent = formatSpacingScale(state.spacingScale);
+      spacingInput.value = String(state.spacingScale);
+
+      const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec, getPixelsPerSecond());
+      renderMarkerLabels(showScene ? renderResult.markers : []);
+    }
+
+    function renderMarkerLabels(markers) {
+      markerLabelsLeft.replaceChildren();
+      markerLabelsRight.replaceChildren();
+      if (!Array.isArray(markers) || markers.length === 0) {
+        return;
+      }
+      const leftMarkers = filterMarkerLabels(markers.filter((marker) => marker.side === "left"));
+      const rightMarkers = filterMarkerLabels(markers.filter((marker) => marker.side === "right"));
+      for (const marker of leftMarkers) {
+        markerLabelsLeft.appendChild(createMarkerLabel(marker, "left"));
+      }
+      for (const marker of rightMarkers) {
+        markerLabelsRight.appendChild(createMarkerLabel(marker, "right"));
+      }
+    }
+
+    function handlePointerRelease(event) {
+      if (!dragState || event.pointerId !== dragState.pointerId) {
+        return;
+      }
+      clearDragState();
+    }
+
+    function clearDragState() {
+      if (dragState && typeof scrollHost.releasePointerCapture === "function") {
+        try {
+          if (scrollHost.hasPointerCapture?.(dragState.pointerId)) {
+            scrollHost.releasePointerCapture(dragState.pointerId);
+          }
+        } catch {
+          // Ignore already released pointers.
+        }
+      }
+      dragState = null;
+      scrollHost.classList.remove("is-dragging");
+    }
+
+    function canDragScroll(event) {
+      return Boolean(
+        state.model
+          && state.isOpen
+          && isScrollInteractive()
+          && (event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen"),
+      );
+    }
+
+    function isScrollInteractive() {
+      return state.isPinned || state.isPlaying;
+    }
+
+    function updateRootWidth() {
+      if (!state.model) {
+        return;
+      }
+      root.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromParsedScore(state.model.score)}px`);
+    }
+
+    function updateScrollInteractivity() {
+      const interactive = isScrollInteractive();
+      scrollHost.classList.toggle("is-scrollable", interactive);
+      scrollHost.style.overflowY = interactive ? "auto" : "hidden";
+      if (!interactive) {
+        clearDragState();
+      }
+    }
+
+    function getPixelsPerSecond() {
+      return STANDALONE_DEFAULT_VIEWER_PIXELS_PER_SECOND * state.spacingScale;
+    }
+
+    spacingValue.textContent = formatSpacingScale(state.spacingScale);
+    refreshLayout();
+
+    return {
+      setModel,
+      setSelectedTimeSec,
+      setPinned,
+      setOpen,
+      setPlaybackState,
+    };
+  }
+
+  function createMarkerLabel(marker, side) {
+    const label = document.createElement("div");
+    label.className = `score-viewer-marker-label is-${marker.type} is-${side}`;
+    label.textContent = marker.label;
+    label.style.top = `${marker.y}px`;
+    label.style.color = marker.color;
+    label.style.left = `${marker.x}px`;
+    return label;
+  }
+
+  function filterMarkerLabels(markers) {
+    const filtered = [];
+    let lastY = Number.NEGATIVE_INFINITY;
+    for (const marker of [...markers].sort((left, right) => left.y - right.y)) {
+      if (Math.abs(marker.y - lastY) < 12) {
+        continue;
+      }
+      filtered.push(marker);
+      lastY = marker.y;
+    }
+    return filtered;
+  }
+
+  function clampSelectedTimeSec(state, timeSec) {
+    if (state.viewerModel) {
+      return getStandaloneClampedSelectedTimeSec(state.viewerModel, timeSec);
+    }
+    const maxTimeSec = state.normalizedRecord?.durationSec ?? 0;
+    return clampValue(Number.isFinite(timeSec) ? timeSec : 0, 0, Math.max(maxTimeSec, 0));
+  }
+
+  function clampScale(value) {
+    if (!Number.isFinite(value)) {
+      return STANDALONE_DEFAULT_SPACING_SCALE;
+    }
+    return clampValue(value, STANDALONE_MIN_SPACING_SCALE, STANDALONE_MAX_SPACING_SCALE);
+  }
+
+  function formatSpacingScale(value) {
+    return `${clampScale(value).toFixed(2)}x`;
+  }
+
+  function clampValue(value, minValue, maxValue) {
+    return Math.min(Math.max(value, minValue), maxValue);
+  }
+
+  function trimDecimal(value) {
+    return String(value).replace(/\.?0+$/, "");
   }
 })();

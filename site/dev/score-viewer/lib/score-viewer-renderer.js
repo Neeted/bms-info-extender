@@ -4,9 +4,10 @@ import {
   shouldDrawLongEndCap,
 } from "./score-viewer-model.js";
 
-const HORIZONTAL_PADDING = 16;
-const DP_GUTTER_UNITS = 1.2;
-const FIXED_LANE_WIDTH = 44;
+export const VIEWER_HORIZONTAL_PADDING = 16;
+export const DP_GUTTER_UNITS = 1.2;
+export const FIXED_LANE_WIDTH = 44;
+export const VIEWER_MARKER_LABEL_WIDTH = 84;
 const BACKGROUND_FILL = "#000000";
 const SEPARATOR_COLOR = "rgba(72, 72, 72, 0.95)";
 const BAR_LINE = "rgba(255, 255, 255, 0.92)";
@@ -112,6 +113,18 @@ export function createScoreViewerRenderer(canvas) {
   }
 
   return { resize, render };
+}
+
+export function estimateViewerWidth(mode, laneCount) {
+  const layout = getModeLayout(mode, laneCount);
+  const gutterWidth = layout.splitAfter === null ? 0 : FIXED_LANE_WIDTH * DP_GUTTER_UNITS;
+  const contentWidth = layout.display.length * FIXED_LANE_WIDTH + gutterWidth;
+  return Math.ceil(
+    VIEWER_HORIZONTAL_PADDING * 2
+      + contentWidth
+      + VIEWER_MARKER_LABEL_WIDTH * 2
+      + TEMPO_LABEL_GAP * 2,
+  );
 }
 
 function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
@@ -306,7 +319,7 @@ function createLaneLayout(mode, laneCount, viewportWidth) {
   const layout = getModeLayout(mode, laneCount);
   const gutterWidth = layout.splitAfter === null ? 0 : FIXED_LANE_WIDTH * DP_GUTTER_UNITS;
   const contentWidth = layout.display.length * FIXED_LANE_WIDTH + gutterWidth;
-  const startX = Math.max(HORIZONTAL_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
+  const startX = Math.max(VIEWER_HORIZONTAL_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
   const lanes = new Array(Math.max(1, laneCount));
 
   let cursorX = startX;

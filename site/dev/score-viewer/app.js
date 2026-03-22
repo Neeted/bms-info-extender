@@ -73,10 +73,6 @@ const elements = {
   errorType: document.getElementById("error-type"),
   errorMessage: document.getElementById("error-message"),
   errorCause: document.getElementById("error-cause"),
-  viewerSummaryBadge: document.getElementById("viewer-summary-badge"),
-  currentMeasure: document.getElementById("current-measure"),
-  currentCombo: document.getElementById("current-combo"),
-  comboTotal: document.getElementById("combo-total"),
   viewerStage: document.getElementById("viewer-stage"),
   nearbyEventsWindow: document.getElementById("nearby-events-window"),
   nearbyEventsList: document.getElementById("nearby-events-list"),
@@ -791,43 +787,26 @@ function renderNearbyEvents() {
 }
 
 function renderViewer() {
-  const cursor = getCurrentCursor();
   const hasScore = Boolean(state.parsedScore && state.viewerModel);
+  const shouldShowViewer = hasScore && state.isViewerOpen;
+
+  elements.viewerStage.classList.toggle("is-visible", shouldShowViewer);
 
   if (!hasScore) {
-    elements.viewerSummaryBadge.textContent = "No score loaded";
-    elements.currentMeasure.textContent = "-";
-    elements.currentCombo.textContent = "-";
-    elements.comboTotal.textContent = "-";
     viewerController.setPlaybackState(false);
     viewerController.setPinned(state.isPinned);
-    viewerController.setEmptyState("Canvas Viewer", "Load a score to draw the actual chart in this stage.");
     viewerController.setOpen(false);
     viewerController.setModel(null);
     viewerController.setSelectedTimeSec(0);
     return;
   }
 
-  elements.viewerSummaryBadge.textContent = `${state.parsedScore.mode} / ${state.parsedScore.laneCount} lanes`;
-  elements.currentMeasure.textContent = String(cursor.measureIndex);
-  elements.currentCombo.textContent = formatInteger(cursor.comboCount);
-  elements.comboTotal.textContent = formatInteger(cursor.totalCombo);
-
   viewerController.setPlaybackState(state.isPlaying);
   viewerController.setPinned(state.isPinned);
   viewerController.setModel(state.viewerModel);
   viewerController.setSelectedTimeSec(state.selectedTimeSec);
 
-  if (!state.isViewerOpen) {
-    viewerController.setEmptyState(
-      "Score Viewer Ready",
-      "Hover the graph, click the graph, or move selectedTimeSec to open the synchronized score viewer.",
-    );
-    viewerController.setOpen(false);
-    return;
-  }
-
-  viewerController.setOpen(true);
+  viewerController.setOpen(shouldShowViewer);
 }
 
 function renderSliderBounds() {

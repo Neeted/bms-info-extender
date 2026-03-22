@@ -6,7 +6,10 @@ import {
   getTimeSecForScrollTop,
   getViewerCursor,
 } from "./score-viewer-model.js";
-import { createScoreViewerRenderer } from "./score-viewer-renderer.js";
+import {
+  createScoreViewerRenderer,
+  estimateViewerWidth,
+} from "./score-viewer-renderer.js";
 
 const SCROLL_MULTIPLIER = 2;
 const MIN_SPACING_SCALE = 0.5;
@@ -25,9 +28,6 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
   const canvas = document.createElement("canvas");
   canvas.className = "score-viewer-canvas";
 
-  const overlay = document.createElement("div");
-  overlay.className = "score-viewer-overlay";
-
   const markerOverlay = document.createElement("div");
   markerOverlay.className = "score-viewer-marker-overlay";
 
@@ -38,6 +38,9 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
   markerLabelsRight.className = "score-viewer-marker-labels is-right";
 
   markerOverlay.append(markerLabelsLeft, markerLabelsRight);
+
+  const bottomBar = document.createElement("div");
+  bottomBar.className = "score-viewer-bottom-bar";
 
   const primaryChip = document.createElement("div");
   primaryChip.className = "score-viewer-chip is-primary";
@@ -53,20 +56,18 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
 
   primaryChip.append(playbackButton, playbackTime);
 
-  const secondaryChip = document.createElement("div");
-  secondaryChip.className = "score-viewer-chip";
+  const measureChip = document.createElement("div");
+  measureChip.className = "score-viewer-chip is-compact";
 
-  const tertiaryChip = document.createElement("div");
-  tertiaryChip.className = "score-viewer-chip";
-
-  overlay.append(primaryChip, secondaryChip, tertiaryChip);
+  const comboChip = document.createElement("div");
+  comboChip.className = "score-viewer-chip is-compact";
 
   const spacingPanel = document.createElement("div");
-  spacingPanel.className = "score-viewer-spacing-panel";
+  spacingPanel.className = "score-viewer-chip score-viewer-spacing-panel";
 
   const spacingLabel = document.createElement("label");
   spacingLabel.className = "score-viewer-spacing-label";
-  spacingLabel.textContent = "Spacing";
+  spacingLabel.textContent = "SPACING";
 
   const spacingValue = document.createElement("span");
   spacingValue.className = "score-viewer-spacing-value";
@@ -81,19 +82,12 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
   spacingInput.value = String(DEFAULT_SPACING_SCALE);
 
   spacingPanel.append(spacingLabel, spacingInput);
+  bottomBar.append(primaryChip, measureChip, comboChip, spacingPanel);
 
   const judgeLine = document.createElement("div");
   judgeLine.className = "score-viewer-judge-line";
-  const judgeLabel = document.createElement("span");
-  judgeLabel.className = "score-viewer-judge-label";
-  judgeLabel.textContent = "selectedTimeSec";
-  judgeLine.appendChild(judgeLabel);
 
-  const emptyState = document.createElement("div");
-  emptyState.className = "score-viewer-empty";
-  emptyState.innerHTML = "<strong>Canvas Viewer</strong><span>Load a score to draw the actual chart in this stage.</span>";
-
-  root.replaceChildren(scrollHost, canvas, overlay, markerOverlay, spacingPanel, judgeLine, emptyState);
+  root.replaceChildren(scrollHost, canvas, markerOverlay, bottomBar, judgeLine);
 
   const renderer = createScoreViewerRenderer(canvas);
   const state = {
@@ -103,8 +97,6 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     isOpen: false,
     isPlaying: false,
     spacingScale: DEFAULT_SPACING_SCALE,
-    emptyTitle: "Canvas Viewer",
-    emptyMessage: "Load a score to draw the actual chart in this stage.",
   };
 
   let ignoreScrollUntilNextFrame = false;
@@ -189,6 +181,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     }
     state.model = model;
     state.selectedTimeSec = getClampedSelectedTimeSec(state.model, state.selectedTimeSec);
+    updateRootWidth();
     refreshLayout();
   }
 
@@ -212,6 +205,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
 
   function setOpen(nextOpen) {
     state.isOpen = Boolean(nextOpen);
+    root.classList.toggle("is-visible", state.isOpen && Boolean(state.model));
     syncScrollPosition();
     renderScene();
   }
@@ -222,11 +216,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     renderScene();
   }
 
-  function setEmptyState(title, message) {
-    state.emptyTitle = title;
-    state.emptyMessage = message;
-    renderScene();
-  }
+  function setEmptyState(_title, _message) {}
 
   function syncScrollPosition() {
     if (!state.model) {
@@ -262,6 +252,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
   }
 
   function refreshLayout() {
+    updateRootWidth();
     const width = Math.max(1, root.clientWidth);
     const height = Math.max(260, root.clientHeight);
     renderer.resize(width, height);
@@ -273,23 +264,17 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
   function renderScene() {
     const cursor = getViewerCursor(state.model, state.selectedTimeSec);
     const showScene = Boolean(state.model && state.isOpen);
-    emptyState.hidden = showScene;
     canvas.hidden = !showScene;
-    overlay.hidden = !showScene;
     markerOverlay.hidden = !showScene;
-    spacingPanel.hidden = !showScene;
+    bottomBar.hidden = !showScene;
     judgeLine.hidden = !showScene;
-
-    emptyState.innerHTML = `<strong>${escapeHtml(state.emptyTitle)}</strong><span>${escapeHtml(state.emptyMessage)}</span>`;
 
     playbackButton.disabled = !state.model;
     playbackButton.textContent = state.isPlaying ? "❚❚" : "▶";
     playbackButton.setAttribute("aria-label", state.isPlaying ? "Pause score viewer" : "Play score viewer");
     playbackTime.textContent = `${cursor.timeSec.toFixed(3)} s`;
-    secondaryChip.textContent = `Measure ${cursor.measureIndex} / Combo ${cursor.comboCount}`;
-    tertiaryChip.textContent = state.model
-      ? `${state.model.score.mode} / ${state.model.score.laneCount} lanes / ${state.isPinned ? "Pinned" : "Follow"}`
-      : "No parsed score";
+    measureChip.textContent = `M ${cursor.measureIndex}`;
+    comboChip.textContent = `C ${cursor.comboCount}/${cursor.totalCombo}`;
     spacingValue.textContent = formatSpacingScale(state.spacingScale);
     spacingInput.value = String(state.spacingScale);
 
@@ -374,6 +359,17 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     return state.isPinned || state.isPlaying;
   }
 
+  function updateRootWidth() {
+    if (!state.model) {
+      root.style.removeProperty("--score-viewer-width");
+      return;
+    }
+    root.style.setProperty(
+      "--score-viewer-width",
+      `${estimateViewerWidth(state.model.score.mode, state.model.score.laneCount)}px`,
+    );
+  }
+
   function updateScrollInteractivity() {
     const interactive = isScrollInteractive();
     scrollHost.classList.toggle("is-scrollable", interactive);
@@ -409,13 +405,6 @@ function filterMarkerLabels(markers) {
     lastY = marker.y;
   }
   return filtered;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
 }
 
 function clampScale(value) {

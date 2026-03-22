@@ -544,6 +544,12 @@ button:hover:not(:disabled) {
 
 .score-viewer-scroll-host.is-pinned {
   overflow-y: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.score-viewer-scroll-host.is-pinned.is-dragging {
+  cursor: grabbing;
 }
 
 .score-viewer-spacer {
@@ -569,6 +575,35 @@ button:hover:not(:disabled) {
   gap: 10px;
   align-items: flex-start;
   pointer-events: none;
+}
+
+.score-viewer-marker-overlay,
+.score-viewer-marker-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.score-viewer-marker-label {
+  position: absolute;
+  top: 0;
+  font-family: var(--mono-font);
+  font-size: 0.75rem;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow:
+    0 0 4px rgba(0, 0, 0, 0.95),
+    0 0 10px rgba(0, 0, 0, 0.72);
+}
+
+.score-viewer-marker-label.is-left {
+  transform: translate(-100%, -50%);
+  text-align: right;
+}
+
+.score-viewer-marker-label.is-right {
+  transform: translate(0, -50%);
+  text-align: left;
 }
 
 .score-viewer-chip {

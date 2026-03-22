@@ -10,10 +10,12 @@ const FIXED_LANE_WIDTH = 44;
 const BACKGROUND_FILL = "#000000";
 const SEPARATOR_COLOR = "rgba(72, 72, 72, 0.95)";
 const BAR_LINE = "rgba(255, 255, 255, 0.92)";
-const BPM_MARKER = "rgba(90, 170, 110, 0.82)";
-const STOP_MARKER = "rgba(200, 156, 80, 0.82)";
+const BPM_MARKER = "#00ff00";
+const STOP_MARKER = "#ff00ff";
 const MINE_COLOR = "#880000";
-const NOTE_HEAD_HEIGHT = 10;
+const NOTE_HEAD_HEIGHT = 8;
+const TEMPO_MARKER_HEIGHT = 3;
+const TEMPO_LABEL_GAP = 8;
 
 const BEAT_LANE_COLORS = new Map([
   ["0", "#e04a4a"],
@@ -81,17 +83,31 @@ export function createScoreViewerRenderer(canvas) {
     context.fillRect(0, 0, width, height);
 
     if (!model) {
-      return;
+      return createEmptyRenderResult();
     }
 
     const lanes = createLaneLayout(model.score.mode, model.score.laneCount, width);
     const { startTimeSec, endTimeSec } = getVisibleTimeRange(model, selectedTimeSec, height);
 
     drawBarLines(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height);
-    drawTempoMarkers(context, model.bpmChanges, model.stops, lanes, selectedTimeSec, startTimeSec, endTimeSec, height);
     drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height);
     drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height);
     drawLaneSeparators(context, lanes, height);
+    const markers = drawTempoMarkers(
+      context,
+      model.bpmChanges,
+      model.stops,
+      lanes,
+      selectedTimeSec,
+      startTimeSec,
+      endTimeSec,
+      height,
+    );
+
+    return {
+      markers,
+      laneBounds: getLaneBounds(lanes),
+    };
   }
 
   return { resize, render };
@@ -121,39 +137,61 @@ function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, e
 
 function drawTempoMarkers(context, bpmChanges, stops, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight) {
   if (lanes.length === 0) {
-    return;
+    return [];
   }
-  const leftX = lanes[0].x;
-  const rightX = lanes[lanes.length - 1].x + lanes[lanes.length - 1].width;
+  const leftLane = lanes[0];
+  const rightLane = lanes[lanes.length - 1];
+  const markers = [];
 
   context.save();
-  context.lineWidth = 2;
-
-  context.strokeStyle = BPM_MARKER;
+  context.fillStyle = BPM_MARKER;
   for (const bpmChange of bpmChanges) {
     if (bpmChange.timeSec < startTimeSec || bpmChange.timeSec > endTimeSec) {
       continue;
     }
     const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight);
-    context.beginPath();
-    context.moveTo(rightX - 14, y + 0.5);
-    context.lineTo(rightX, y + 0.5);
-    context.stroke();
+    context.fillRect(
+      rightLane.x,
+      Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+      rightLane.width,
+      TEMPO_MARKER_HEIGHT,
+    );
+    markers.push({
+      type: "bpm",
+      timeSec: bpmChange.timeSec,
+      y,
+      label: formatBpmMarkerLabel(bpmChange.bpm),
+      side: "right",
+      color: BPM_MARKER,
+      x: rightLane.x + rightLane.width + TEMPO_LABEL_GAP,
+    });
   }
 
-  context.strokeStyle = STOP_MARKER;
+  context.fillStyle = STOP_MARKER;
   for (const stop of stops) {
     if (stop.timeSec < startTimeSec || stop.timeSec > endTimeSec) {
       continue;
     }
     const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight);
-    context.beginPath();
-    context.moveTo(leftX, y + 0.5);
-    context.lineTo(leftX + 14, y + 0.5);
-    context.stroke();
+    context.fillRect(
+      leftLane.x,
+      Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+      leftLane.width,
+      TEMPO_MARKER_HEIGHT,
+    );
+    markers.push({
+      type: "stop",
+      timeSec: stop.timeSec,
+      y,
+      label: formatStopMarkerLabel(stop.durationSec),
+      side: "left",
+      color: STOP_MARKER,
+      x: leftLane.x - TEMPO_LABEL_GAP,
+    });
   }
 
   context.restore();
+  return markers;
 }
 
 function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight) {
@@ -228,6 +266,29 @@ function drawLaneSeparators(context, lanes, viewportHeight) {
     context.stroke();
   }
   context.restore();
+}
+
+function getLaneBounds(lanes) {
+  if (lanes.length === 0) {
+    return {
+      leftX: 0,
+      rightX: 0,
+    };
+  }
+  return {
+    leftX: lanes[0].x,
+    rightX: lanes[lanes.length - 1].x + lanes[lanes.length - 1].width,
+  };
+}
+
+function createEmptyRenderResult() {
+  return {
+    markers: [],
+    laneBounds: {
+      leftX: 0,
+      rightX: 0,
+    },
+  };
 }
 
 function createLaneLayout(mode, laneCount, viewportWidth) {
@@ -312,6 +373,18 @@ function getPopnNoteColor(slotIndex) {
 
 function timeToViewportY(eventTimeSec, selectedTimeSec, viewportHeight) {
   return viewportHeight / 2 - (eventTimeSec - selectedTimeSec) * VIEWER_PIXELS_PER_SECOND;
+}
+
+function formatBpmMarkerLabel(bpm) {
+  return trimDecimal(Number(bpm).toFixed(2));
+}
+
+function formatStopMarkerLabel(durationSec) {
+  return `${trimDecimal(Number(durationSec).toFixed(3))}s`;
+}
+
+function trimDecimal(value) {
+  return String(value).replace(/\.?0+$/, "");
 }
 
 function dimColor(color, factor) {

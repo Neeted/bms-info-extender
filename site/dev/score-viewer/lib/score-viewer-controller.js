@@ -7,6 +7,8 @@ import {
 } from "./score-viewer-model.js";
 import { createScoreViewerRenderer } from "./score-viewer-renderer.js";
 
+const SCROLL_MULTIPLIER = 2;
+
 export function createScoreViewerController({ root, onTimeChange = () => {} }) {
   const scrollHost = document.createElement("div");
   scrollHost.className = "score-viewer-scroll-host";
@@ -20,6 +22,17 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
 
   const overlay = document.createElement("div");
   overlay.className = "score-viewer-overlay";
+
+  const markerOverlay = document.createElement("div");
+  markerOverlay.className = "score-viewer-marker-overlay";
+
+  const markerLabelsLeft = document.createElement("div");
+  markerLabelsLeft.className = "score-viewer-marker-labels is-left";
+
+  const markerLabelsRight = document.createElement("div");
+  markerLabelsRight.className = "score-viewer-marker-labels is-right";
+
+  markerOverlay.append(markerLabelsLeft, markerLabelsRight);
 
   const primaryChip = document.createElement("div");
   primaryChip.className = "score-viewer-chip";
@@ -43,7 +56,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
   emptyState.className = "score-viewer-empty";
   emptyState.innerHTML = "<strong>Canvas Viewer</strong><span>Load a score to draw the actual chart in this stage.</span>";
 
-  root.replaceChildren(scrollHost, canvas, overlay, judgeLine, emptyState);
+  root.replaceChildren(scrollHost, canvas, overlay, markerOverlay, judgeLine, emptyState);
 
   const renderer = createScoreViewerRenderer(canvas);
   const state = {
@@ -57,6 +70,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
 
   let ignoreScrollUntilNextFrame = false;
   let resizeObserver = null;
+  let dragState = null;
 
   scrollHost.addEventListener("scroll", () => {
     if (!state.model || !state.isOpen || !state.isPinned || ignoreScrollUntilNextFrame) {
@@ -70,6 +84,43 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     renderScene();
     onTimeChange(nextTimeSec);
   });
+
+  scrollHost.addEventListener("wheel", (event) => {
+    if (!state.model || !state.isOpen || !state.isPinned) {
+      return;
+    }
+    scrollHost.scrollTop += event.deltaY * SCROLL_MULTIPLIER;
+    event.preventDefault();
+  }, { passive: false });
+
+  scrollHost.addEventListener("pointerdown", (event) => {
+    if (!canDragScroll(event)) {
+      return;
+    }
+    dragState = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startScrollTop: scrollHost.scrollTop,
+    };
+    scrollHost.classList.add("is-dragging");
+    if (typeof scrollHost.setPointerCapture === "function") {
+      scrollHost.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+  });
+
+  scrollHost.addEventListener("pointermove", (event) => {
+    if (!dragState || event.pointerId !== dragState.pointerId) {
+      return;
+    }
+    const deltaY = event.clientY - dragState.startY;
+    scrollHost.scrollTop = dragState.startScrollTop + deltaY * SCROLL_MULTIPLIER;
+    event.preventDefault();
+  });
+
+  scrollHost.addEventListener("pointerup", handlePointerRelease);
+  scrollHost.addEventListener("pointercancel", handlePointerRelease);
+  scrollHost.addEventListener("lostpointercapture", handlePointerRelease);
 
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(() => {
@@ -105,6 +156,9 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     state.isPinned = Boolean(nextPinned);
     scrollHost.classList.toggle("is-pinned", state.isPinned);
     scrollHost.style.overflowY = state.isPinned ? "auto" : "hidden";
+    if (!state.isPinned) {
+      clearDragState();
+    }
     renderScene();
   }
 
@@ -147,6 +201,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     emptyState.hidden = showScene;
     canvas.hidden = !showScene;
     overlay.hidden = !showScene;
+    markerOverlay.hidden = !showScene;
     judgeLine.hidden = !showScene;
 
     emptyState.innerHTML = `<strong>${escapeHtml(state.emptyTitle)}</strong><span>${escapeHtml(state.emptyMessage)}</span>`;
@@ -157,10 +212,31 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
       ? `${state.model.score.mode} / ${state.model.score.laneCount} lanes / ${state.isPinned ? "Pinned" : "Follow"}`
       : "No parsed score";
 
-    renderer.render(showScene ? state.model : null, cursor.timeSec);
+    const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec);
+    renderMarkerLabels(showScene ? renderResult.markers : []);
+  }
+
+  function renderMarkerLabels(markers) {
+    markerLabelsLeft.replaceChildren();
+    markerLabelsRight.replaceChildren();
+
+    if (!Array.isArray(markers) || markers.length === 0) {
+      return;
+    }
+
+    const leftMarkers = filterMarkerLabels(markers.filter((marker) => marker.side === "left"));
+    const rightMarkers = filterMarkerLabels(markers.filter((marker) => marker.side === "right"));
+
+    for (const marker of leftMarkers) {
+      markerLabelsLeft.appendChild(createMarkerLabel(marker, "left"));
+    }
+    for (const marker of rightMarkers) {
+      markerLabelsRight.appendChild(createMarkerLabel(marker, "right"));
+    }
   }
 
   function destroy() {
+    clearDragState();
     if (resizeObserver) {
       resizeObserver.disconnect();
     } else {
@@ -180,6 +256,59 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     refreshLayout,
     destroy,
   };
+
+  function handlePointerRelease(event) {
+    if (!dragState || event.pointerId !== dragState.pointerId) {
+      return;
+    }
+    clearDragState();
+  }
+
+  function clearDragState() {
+    if (dragState && typeof scrollHost.releasePointerCapture === "function") {
+      try {
+        if (scrollHost.hasPointerCapture?.(dragState.pointerId)) {
+          scrollHost.releasePointerCapture(dragState.pointerId);
+        }
+      } catch {
+        // Ignore release errors from already-cleared captures.
+      }
+    }
+    dragState = null;
+    scrollHost.classList.remove("is-dragging");
+  }
+
+  function canDragScroll(event) {
+    return Boolean(
+      state.model
+        && state.isOpen
+        && state.isPinned
+        && (event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen"),
+    );
+  }
+}
+
+function createMarkerLabel(marker, side) {
+  const label = document.createElement("div");
+  label.className = `score-viewer-marker-label is-${marker.type} is-${side}`;
+  label.textContent = marker.label;
+  label.style.top = `${marker.y}px`;
+  label.style.color = marker.color;
+  label.style.left = `${marker.x}px`;
+  return label;
+}
+
+function filterMarkerLabels(markers) {
+  const filtered = [];
+  let lastY = Number.NEGATIVE_INFINITY;
+  for (const marker of [...markers].sort((left, right) => left.y - right.y)) {
+    if (Math.abs(marker.y - lastY) < 12) {
+      continue;
+    }
+    filtered.push(marker);
+    lastY = marker.y;
+  }
+  return filtered;
 }
 
 function escapeHtml(value) {

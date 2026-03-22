@@ -143,6 +143,12 @@ export function parseBmsonText(text, options) {
 
 function detectBmsonMode(bmson) {
   const modeHint = bmson.info?.mode_hint;
+  if (modeHint === "popn-5k") {
+    return "popn-5k";
+  }
+  if (modeHint === "popn-9k") {
+    return "popn-9k";
+  }
   if (modeHint === "beat-5k") {
     return "5k";
   }
@@ -184,7 +190,11 @@ function laneCountForBmsonMode(mode) {
       return 6;
     case "7k":
       return 8;
+    case "popn-5k":
+      return 5;
     case "9k":
+      return 9;
+    case "popn-9k":
       return 9;
     case "10k":
       return 12;
@@ -214,7 +224,17 @@ function mapBmsonLane(mode, xValue) {
         return { lane: x, side: "p1" };
       }
       return null;
+    case "popn-5k":
+      if (x >= 1 && x <= 5) {
+        return { lane: x - 1 };
+      }
+      return null;
     case "9k":
+      if (x >= 1 && x <= 9) {
+        return { lane: x - 1 };
+      }
+      return null;
+    case "popn-9k":
       if (x >= 1 && x <= 9) {
         return { lane: x - 1 };
       }

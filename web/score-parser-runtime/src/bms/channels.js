@@ -132,6 +132,10 @@ export function laneCountForMode(mode) {
       return 6;
     case "7k":
       return 8;
+    case "popn-5k":
+      return 5;
+    case "popn-9k":
+      return 9;
     case "10k":
       return 12;
     case "14k":
@@ -142,10 +146,23 @@ export function laneCountForMode(mode) {
 }
 
 export function detectBmsMode(noteDescriptors) {
+  let popnCompatible = true;
+  let hasPopnRightHalf = false;
   let hasPlayer2 = false;
   let hasKey6Or7 = false;
 
   for (const descriptor of noteDescriptors) {
+    if (
+      (descriptor.side === "p1" && Number.isInteger(descriptor.key) && descriptor.key >= 1 && descriptor.key <= 5)
+      || (descriptor.side === "p2" && Number.isInteger(descriptor.key) && descriptor.key >= 2 && descriptor.key <= 5)
+    ) {
+      if (descriptor.side === "p2") {
+        hasPopnRightHalf = true;
+      }
+    } else {
+      popnCompatible = false;
+    }
+
     if (descriptor.side === "p2") {
       hasPlayer2 = true;
     }
@@ -156,6 +173,9 @@ export function detectBmsMode(noteDescriptors) {
 
   if (noteDescriptors.length === 0) {
     return "unknown";
+  }
+  if (popnCompatible && hasPopnRightHalf) {
+    return "popn-9k";
   }
   if (hasPlayer2) {
     return hasKey6Or7 ? "14k" : "10k";
@@ -181,6 +201,19 @@ export function mapBmsLane(mode, side, key) {
         return 0;
       }
       return key >= 1 && key <= 7 ? key : null;
+    case "popn-5k":
+      if (side !== "p1") {
+        return null;
+      }
+      return key >= 1 && key <= 5 ? key - 1 : null;
+    case "popn-9k":
+      if (side === "p1") {
+        return key >= 1 && key <= 5 ? key - 1 : null;
+      }
+      if (side === "p2") {
+        return key >= 2 && key <= 5 ? key + 3 : null;
+      }
+      return null;
     case "10k":
       if (key === "scratch") {
         return side === "p1" ? 0 : side === "p2" ? 6 : null;

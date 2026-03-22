@@ -1,4 +1,4 @@
-const DEFAULT_PARSER_VERSION = "0.2.0";
+const DEFAULT_PARSER_VERSION = "0.3.0";
 const DEFAULT_SCORE_BASE_URL = "/score";
 const PRODUCTION_SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
 const PRESET_CURRENT = "current";

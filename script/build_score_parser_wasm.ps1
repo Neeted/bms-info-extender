@@ -4,7 +4,6 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $runtimeDir = Join-Path $repoRoot "web\\score-parser-runtime"
 $runtimeSourceDir = Join-Path $runtimeDir "src"
-$loaderSourceDir = Join-Path $repoRoot "web\\score-parser-wasm\\js"
 $outRootDir = Join-Path $repoRoot "site\\wasm\\score-parser"
 $packageJsonPath = Join-Path $runtimeDir "package.json"
 
@@ -70,7 +69,6 @@ foreach ($legacyRootFile in @(
 }
 
 Copy-TreeWithTokenReplacement -SourceDir $runtimeSourceDir -DestinationDir $versionOutDir -TokenReplacements $tokenReplacements
-Copy-TreeWithTokenReplacement -SourceDir $loaderSourceDir -DestinationDir $versionOutDir -TokenReplacements $tokenReplacements
 
 [ordered]@{
     version = $parserVersion

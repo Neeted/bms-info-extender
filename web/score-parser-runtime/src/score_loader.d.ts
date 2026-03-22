@@ -1,5 +1,5 @@
 export type ScoreFormat = "bms" | "bmson";
-export type ScoreMode = "5k" | "7k" | "9k" | "10k" | "14k" | "unknown";
+export type ScoreMode = "5k" | "7k" | "9k" | "10k" | "14k" | "popn-5k" | "popn-9k" | "unknown";
 export type ParsedNoteKind = "normal" | "long" | "mine" | "invisible";
 export type ParsedSide = "p1" | "p2";
 export type ParsedWarningType = "parse_warning" | "decode_warning";

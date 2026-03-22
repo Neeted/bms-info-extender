@@ -81,6 +81,104 @@ test("BMS ignores 00 tokens in direct BPM lanes", () => {
   assert.ok(Number.isFinite(result.score.totalDurationSec));
 });
 
+test("BMS auto-detects popn-9k and normalizes PMS lanes", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#00111:01",
+    "#00115:01",
+    "#00122:01",
+    "#00125:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "6".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.mode, "popn-9k");
+  assert.equal(result.score.laneCount, 9);
+  assert.deepEqual(
+    result.score.notes.map((note) => note.lane),
+    [0, 4, 5, 8],
+  );
+  assert.ok(result.score.notes.every((note) => note.side === undefined));
+});
+
+test("BMS does not auto-detect popn-9k when scratch, p2 key1, or key6/7 are present", () => {
+  const cases = [
+    {
+      chart: [
+        "#PLAYER 1",
+        "#BPM 120",
+        "#00111:01",
+        "#00116:01",
+        "#00122:01",
+      ].join("\n"),
+      expectedMode: "10k",
+    },
+    {
+      chart: [
+        "#PLAYER 1",
+        "#BPM 120",
+        "#00111:01",
+        "#00121:01",
+        "#00122:01",
+      ].join("\n"),
+      expectedMode: "10k",
+    },
+    {
+      chart: [
+        "#PLAYER 1",
+        "#BPM 120",
+        "#00111:01",
+        "#00118:01",
+        "#00122:01",
+      ].join("\n"),
+      expectedMode: "14k",
+    },
+  ];
+
+  cases.forEach(({ chart, expectedMode }, index) => {
+    const result = parseScoreBytes(new TextEncoder().encode(chart), {
+      formatHint: "bms",
+      textEncoding: "utf-8",
+      sha256: `${7 + index}`.repeat(64),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.score.mode, expectedMode);
+  });
+});
+
+test("BMS popn-9k keeps invisible and mine notes separate from visible note count", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#00112:01",
+    "#00122:01",
+    "#00131:01",
+    "#001D1:01",
+    "#00151:01",
+    "#00251:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "a".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.mode, "popn-9k");
+  assert.equal(result.score.noteCounts.visible, 3);
+  assert.equal(result.score.noteCounts.normal, 2);
+  assert.equal(result.score.noteCounts.long, 1);
+  assert.equal(result.score.noteCounts.invisible, 1);
+  assert.equal(result.score.noteCounts.mine, 1);
+  assert.equal(result.score.noteCounts.all, 5);
+  const longNote = result.score.notes.find((note) => note.kind === "long");
+  assert.ok(longNote);
+  assert.ok(longNote.endTimeSec > longNote.timeSec);
+});
+
 test("BMS RANDOM selection is deterministic for the same sha256", () => {
   const chart = [
     "#PLAYER 1",
@@ -145,6 +243,87 @@ test("BMSON exposes separate playable and timeline durations", () => {
   assert.equal(result.score.noteCounts.mine, 0);
 });
 
+test("BMSON supports explicit popn mode hints and keeps generic 9 lanes distinct", () => {
+  const popn9k = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "popn-9k",
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 1, y: 0, l: 0, c: false }, { x: 9, y: 240, l: 0, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const popn5k = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "popn-5k",
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 1, y: 0, l: 0, c: false }, { x: 5, y: 240, l: 0, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const generic9k = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 1, y: 0, l: 0, c: false }, { x: 9, y: 240, l: 0, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+
+  const popn9kResult = parseScoreBytes(new TextEncoder().encode(JSON.stringify(popn9k)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "b".repeat(64),
+  });
+  assert.equal(popn9kResult.ok, true);
+  assert.equal(popn9kResult.score.mode, "popn-9k");
+  assert.equal(popn9kResult.score.laneCount, 9);
+  assert.ok(popn9kResult.score.notes.every((note) => note.side === undefined));
+
+  const popn5kResult = parseScoreBytes(new TextEncoder().encode(JSON.stringify(popn5k)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "c".repeat(64),
+  });
+  assert.equal(popn5kResult.ok, true);
+  assert.equal(popn5kResult.score.mode, "popn-5k");
+  assert.equal(popn5kResult.score.laneCount, 5);
+
+  const generic9kResult = parseScoreBytes(new TextEncoder().encode(JSON.stringify(generic9k)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "d".repeat(64),
+  });
+  assert.equal(generic9kResult.ok, true);
+  assert.equal(generic9kResult.score.mode, "9k");
+  assert.equal(generic9kResult.score.laneCount, 9);
+});
+
 test("oracle regression: invisible notes are excluded from visible note count", { skip: !scoreFileExists("9984e8e84895de265c025ce257900e04397e66ac701a4b3a151638a384fbe462") }, () => {
   const sha256 = "9984e8e84895de265c025ce257900e04397e66ac701a4b3a151638a384fbe462";
   const gzipPath = path.join(REPO_ROOT, "site", "score", sha256.slice(0, 2), `${sha256}.gz`);
@@ -187,15 +366,22 @@ for (const fileName of readdirSync(FIXTURE_DIR, { withFileTypes: true })
     assert.equal(result.score.mode, fixture.mode);
     assert.equal(result.score.laneCount, fixture.laneCount);
     assert.equal(result.score.noteCounts.visible, fixture.noteCount);
+    if (fixture.noteCounts) {
+      assert.deepEqual(result.score.noteCounts, fixture.noteCounts);
+    }
     assert.equal(result.score.bpmChanges.length, fixture.bpmChangesCount);
     assert.equal(result.score.stops.length, fixture.stopsCount);
     assertApprox(result.score.lastPlayableTimeSec, fixture.lastPlayableTimeSec.approx, fixture.lastPlayableTimeSec.toleranceSec);
     assertApprox(result.score.lastTimelineTimeSec, fixture.lastTimelineTimeSec.approx, fixture.lastTimelineTimeSec.toleranceSec);
+    const visibleNotes = result.score.notes.filter((note) => note.kind === "normal" || note.kind === "long");
     fixture.sampleNotes.forEach((expectedNote, index) => {
-      const actualNote = result.score.notes[index];
+      const actualNote = visibleNotes[index];
       assert.equal(actualNote.lane, expectedNote.lane);
       assert.equal(actualNote.kind, expectedNote.kind);
-      assertApprox(actualNote.timeSec, expectedNote.timeSec, 0.000001);
+      assertApprox(actualNote.timeSec, expectedNote.timeSec, 0.001);
+      if ("endTimeSec" in expectedNote) {
+        assertApprox(actualNote.endTimeSec, expectedNote.endTimeSec, 0.001);
+      }
     });
   });
 }

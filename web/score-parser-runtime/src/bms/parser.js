@@ -100,22 +100,33 @@ function buildTiming(chart, warnings) {
 function buildBpmChanges(chart, warnings) {
   const changes = [];
   const timing = buildTiming(chart, []);
+  let currentBpm = Number.parseFloat(chart.headers.get("BPM") ?? "60");
+  if (!Number.isFinite(currentBpm) || currentBpm <= 0) {
+    currentBpm = 60;
+  }
+
   for (const object of chart.objects) {
     const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
+    let nextBpm = null;
     if (object.channel === "03") {
       const bpm = Number.parseInt(object.value, 16);
       if (Number.isFinite(bpm) && bpm > 0) {
-        changes.push({ timeSec: timing.beatToSeconds(beat), bpm });
+        nextBpm = bpm;
       }
-      continue;
-    }
-    if (object.channel === "08") {
+    } else if (object.channel === "08") {
       const bpm = Number.parseFloat(chart.headers.get(`BPM${object.value}`) ?? "");
       if (Number.isFinite(bpm) && bpm > 0) {
-        changes.push({ timeSec: timing.beatToSeconds(beat), bpm });
+        nextBpm = bpm;
       } else {
         warnings.push(createWarning("parse_warning", `Ignored invalid BPM change reference BPM${object.value}.`));
       }
+    }
+
+    if (nextBpm !== null && nextBpm !== currentBpm) {
+      changes.push({ timeSec: timing.beatToSeconds(beat), bpm: nextBpm });
+      currentBpm = nextBpm;
+    } else if (nextBpm !== null) {
+      currentBpm = nextBpm;
     }
   }
   changes.sort((left, right) => left.timeSec - right.timeSec || left.bpm - right.bpm);
@@ -194,10 +205,11 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
       continue;
     }
 
+    const parsedSide = parsedSideForMode(mode, descriptor.side);
     const noteBase = {
       lane,
       timeSec: object.timeSec,
-      side: descriptor.side,
+      ...(parsedSide ? { side: parsedSide } : {}),
     };
 
     if (descriptor.family === "invisible") {
@@ -214,14 +226,14 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
       if (!longGroups.has(groupKey)) {
         longGroups.set(groupKey, []);
       }
-      longGroups.get(groupKey).push({ ...object, lane, side: descriptor.side });
+      longGroups.get(groupKey).push({ ...object, lane, side: parsedSide });
       continue;
     }
 
     if (!playableGroups.has(groupKey)) {
       playableGroups.set(groupKey, []);
     }
-    playableGroups.get(groupKey).push({ ...object, lane, side: descriptor.side });
+    playableGroups.get(groupKey).push({ ...object, lane, side: parsedSide });
   }
 
   for (const group of longGroups.values()) {
@@ -307,6 +319,18 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
   });
 
   return { notes, lastPlayableTimeSec };
+}
+
+function parsedSideForMode(mode, side) {
+  switch (mode) {
+    case "5k":
+    case "7k":
+    case "10k":
+    case "14k":
+      return side;
+    default:
+      return undefined;
+  }
 }
 
 function compareTimelineObject(left, right) {

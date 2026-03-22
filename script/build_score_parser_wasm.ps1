@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $runtimeDir = Join-Path $repoRoot "web\\score-parser-runtime"
 $runtimeSourceDir = Join-Path $runtimeDir "src"
-$outRootDir = Join-Path $repoRoot "site\\wasm\\score-parser"
+$outRootDir = Join-Path $repoRoot "site\\score-parser"
 $packageJsonPath = Join-Path $runtimeDir "package.json"
 
 function Get-ParserVersion {
@@ -72,7 +72,7 @@ Copy-TreeWithTokenReplacement -SourceDir $runtimeSourceDir -DestinationDir $vers
 
 [ordered]@{
     version = $parserVersion
-    moduleUrl = "/wasm/score-parser/$versionDirName/score_loader.js"
+    moduleUrl = "/score-parser/$versionDirName/score_loader.js"
 } | ConvertTo-Json | Set-Content $manifestPath -Encoding utf8
 
 Write-Host "Generated score parser runtime $parserVersion at $versionOutDir"

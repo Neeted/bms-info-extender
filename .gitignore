@@ -3,7 +3,7 @@
 /.netlify
 /docs-internal/
 /site/score/
-/site/wasm/score-parser/
+/site/score-parser/
 node_modules/
 __pycache__/
 /.vscode

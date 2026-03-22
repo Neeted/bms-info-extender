@@ -230,7 +230,7 @@ function setSelectedTimeSec(nextValue) {
 }
 
 function getLoaderModuleUrl(parserVersion) {
-  return new URL(`/wasm/score-parser/v${parserVersion}/score_loader.js`, location.origin).href;
+  return new URL(`/score-parser/v${parserVersion}/score_loader.js`, location.origin).href;
 }
 
 async function getLoaderContext(parserVersion, scoreBaseUrl) {

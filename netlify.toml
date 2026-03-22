@@ -1,2 +1,16 @@
 [build]
 publish = "site"
+
+[[headers]]
+for = "/score/*"
+
+[headers.values]
+Access-Control-Allow-Origin = "*"
+Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "/wasm/score-parser/v*/*"
+
+[headers.values]
+Access-Control-Allow-Origin = "*"
+Cache-Control = "public, max-age=31536000, immutable"

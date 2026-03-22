@@ -2,61 +2,79 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$crateDir = Join-Path $repoRoot "web\\score-parser-wasm"
+$runtimeDir = Join-Path $repoRoot "web\\score-parser-runtime"
+$runtimeSourceDir = Join-Path $runtimeDir "src"
+$loaderSourceDir = Join-Path $repoRoot "web\\score-parser-wasm\\js"
 $outRootDir = Join-Path $repoRoot "site\\wasm\\score-parser"
-$targetDir = Join-Path $crateDir "target\\wasm32-unknown-unknown\\release"
-$wasmName = "score_parser_wasm"
-$wasmPath = Join-Path $targetDir "$wasmName.wasm"
-$crateName = "score-parser-wasm"
+$packageJsonPath = Join-Path $runtimeDir "package.json"
 
-function Get-CrateVersion {
-    $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
-    $package = $metadata.packages | Where-Object { $_.name -eq $crateName } | Select-Object -First 1
-    if ($null -eq $package) {
-        throw "Failed to find crate metadata for $crateName."
+function Get-ParserVersion {
+    $packageJson = Get-Content -Raw $packageJsonPath | ConvertFrom-Json
+    if ($null -eq $packageJson.version -or [string]::IsNullOrWhiteSpace([string]$packageJson.version)) {
+        throw "Failed to read score parser runtime version from $packageJsonPath."
     }
-    return [string]$package.version
+    return [string]$packageJson.version
 }
 
-Push-Location $crateDir
-try {
-    $wasmVersion = Get-CrateVersion
-    $versionDirName = "v$wasmVersion"
-    $versionOutDir = Join-Path $outRootDir $versionDirName
-    $versionManifestPath = Join-Path $versionOutDir "manifest.json"
-    $moduleUrl = "/wasm/score-parser/$versionDirName/$wasmName.js"
+function Copy-TreeWithTokenReplacement {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceDir,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationDir,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$TokenReplacements
+    )
 
-    cargo build --release --target wasm32-unknown-unknown
+    Get-ChildItem -Path $SourceDir -Recurse -File | ForEach-Object {
+        $relativePath = [System.IO.Path]::GetRelativePath($SourceDir, $_.FullName)
+        $destinationPath = Join-Path $DestinationDir $relativePath
+        $destinationParent = Split-Path $destinationPath -Parent
+        New-Item -ItemType Directory -Force $destinationParent | Out-Null
 
-    New-Item -ItemType Directory -Force $outRootDir | Out-Null
-    New-Item -ItemType Directory -Force $versionOutDir | Out-Null
-
-    foreach ($rootGeneratedFile in @(
-        "$wasmName.js",
-        "$wasmName.d.ts",
-        "${wasmName}_bg.wasm",
-        "${wasmName}_bg.wasm.d.ts",
-        "manifest.json"
-    )) {
-        $rootGeneratedPath = Join-Path $outRootDir $rootGeneratedFile
-        if (Test-Path $rootGeneratedPath) {
-            Remove-Item $rootGeneratedPath -Force
+        $content = Get-Content -Raw $_.FullName
+        foreach ($token in $TokenReplacements.Keys) {
+            $content = $content.Replace($token, $TokenReplacements[$token])
         }
+        Set-Content -Path $destinationPath -Value $content -Encoding utf8
     }
-
-    wasm-bindgen `
-        --target web `
-        --out-dir $versionOutDir `
-        --out-name $wasmName `
-        $wasmPath
-
-    [ordered]@{
-        version = $wasmVersion
-        moduleUrl = $moduleUrl
-    } | ConvertTo-Json | Set-Content $versionManifestPath -Encoding utf8
-
-    Write-Host "Generated score parser wasm $wasmVersion at $versionOutDir"
 }
-finally {
-    Pop-Location
+
+$parserVersion = Get-ParserVersion
+$versionDirName = "v$parserVersion"
+$versionOutDir = Join-Path $outRootDir $versionDirName
+$manifestPath = Join-Path $versionOutDir "manifest.json"
+$tokenReplacements = @{
+    "__PARSER_VERSION__" = $parserVersion
 }
+
+New-Item -ItemType Directory -Force $outRootDir | Out-Null
+if (Test-Path $versionOutDir) {
+    Remove-Item -Recurse -Force $versionOutDir
+}
+New-Item -ItemType Directory -Force $versionOutDir | Out-Null
+
+foreach ($legacyRootFile in @(
+    "score_parser_wasm.js",
+    "score_parser_wasm.d.ts",
+    "score_parser_wasm_bg.wasm",
+    "score_parser_wasm_bg.wasm.d.ts",
+    "score_loader.js",
+    "score_loader.d.ts",
+    "manifest.json"
+)) {
+    $legacyPath = Join-Path $outRootDir $legacyRootFile
+    if (Test-Path $legacyPath) {
+        Remove-Item $legacyPath -Force
+    }
+}
+
+Copy-TreeWithTokenReplacement -SourceDir $runtimeSourceDir -DestinationDir $versionOutDir -TokenReplacements $tokenReplacements
+Copy-TreeWithTokenReplacement -SourceDir $loaderSourceDir -DestinationDir $versionOutDir -TokenReplacements $tokenReplacements
+
+[ordered]@{
+    version = $parserVersion
+    moduleUrl = "/wasm/score-parser/$versionDirName/score_loader.js"
+} | ConvertTo-Json | Set-Content $manifestPath -Encoding utf8
+
+Write-Host "Generated score parser runtime $parserVersion at $versionOutDir"

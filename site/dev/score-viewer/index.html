@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Score Viewer Dev</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero-panel">
+      <div class="hero-copy">
+        <p class="eyebrow">Phase 3 Validation</p>
+        <h1>Score Viewer Dev Console</h1>
+        <p class="hero-text">
+          sha256 から gzip 譜面を取得し、JS parser runtime と時刻操作を確認するための単独検証ページです。
+        </p>
+      </div>
+      <div class="hero-badges">
+        <span class="hero-badge">gzip</span>
+        <span class="hero-badge">IndexedDB</span>
+        <span class="hero-badge">Parser Runtime</span>
+      </div>
+    </section>
+
+    <section class="toolbar-panel">
+      <form id="control-form" class="control-grid" autocomplete="off">
+        <label class="field field-span-2">
+          <span class="field-label">sha256</span>
+          <input id="sha256-input" name="sha256" type="text" inputmode="latin" spellcheck="false" placeholder="64 hex characters">
+        </label>
+
+        <label class="field">
+          <span class="field-label">Parser version</span>
+          <input id="parser-version-input" name="parserVersion" type="text" spellcheck="false">
+        </label>
+
+        <label class="field">
+          <span class="field-label">Score source preset</span>
+          <select id="score-source-select" name="scoreSourcePreset">
+            <option value="current">Current origin (/score)</option>
+            <option value="production">Production (https://bms-info-extender.netlify.app/score)</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+
+        <label class="field field-span-2">
+          <span class="field-label">Custom score base URL</span>
+          <input id="custom-score-base-url-input" name="customScoreBaseUrl" type="text" spellcheck="false" placeholder="https://example.com/score">
+        </label>
+
+        <label class="field">
+          <span class="field-label">Selected time (sec)</span>
+          <input id="time-number-input" name="timeSec" type="number" min="0" step="0.001">
+        </label>
+
+        <label class="field field-span-2">
+          <span class="field-label">Selected time slider</span>
+          <input id="time-range-input" name="timeRange" type="range" min="0" max="10" step="0.001" value="0">
+        </label>
+
+        <div class="button-row field-span-3">
+          <button id="load-button" type="submit" class="primary-button">Load</button>
+          <button id="prefetch-button" type="button">Prefetch</button>
+          <button id="clear-memory-button" type="button">Clear memory cache</button>
+          <button id="clear-idb-button" type="button">Clear IndexedDB cache</button>
+          <button id="reload-button" type="button">Clear all caches and reload</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="workspace-grid">
+      <section class="panel diagnostics-panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Diagnostics</p>
+            <h2>Loader / Parse Status</h2>
+          </div>
+          <div id="status-pill" class="status-pill status-idle">idle</div>
+        </div>
+
+        <div id="message-banner" class="message-banner" hidden></div>
+
+        <div class="definition-grid">
+          <div class="definition-item">
+            <span class="definition-label">Resolved score URL</span>
+            <code id="resolved-score-url">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">Loader module URL</span>
+            <code id="loader-module-url">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">Parser version</span>
+            <code id="diagnostic-parser-version">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">Compressed source</span>
+            <code id="compressed-source">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">gzip byte length</span>
+            <code id="gzip-byte-length">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">Decompressed byte length</span>
+            <code id="decompressed-byte-length">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">Format / mode / lanes</span>
+            <code id="score-shape">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">lastPlayableTimeSec</span>
+            <code id="last-playable-duration">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">lastTimelineTimeSec / totalDurationSec</span>
+            <code id="total-duration">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">Event counts</span>
+            <code id="event-counts">-</code>
+          </div>
+        </div>
+
+        <div class="subpanel">
+          <div class="subpanel-header">
+            <h3>Warnings</h3>
+            <span id="warnings-count" class="subpanel-count">0</span>
+          </div>
+          <ul id="warnings-list" class="message-list empty-list">
+            <li>No warnings.</li>
+          </ul>
+        </div>
+
+        <div class="subpanel">
+          <div class="subpanel-header">
+            <h3>Error</h3>
+          </div>
+          <dl class="error-grid">
+            <div>
+              <dt>Type</dt>
+              <dd id="error-type">-</dd>
+            </div>
+            <div>
+              <dt>Message</dt>
+              <dd id="error-message">-</dd>
+            </div>
+            <div class="error-cause">
+              <dt>Cause</dt>
+              <dd id="error-cause">-</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="panel viewer-panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Stage</p>
+            <h2>Viewer Shell</h2>
+          </div>
+          <div id="viewer-summary-badge" class="summary-badge">No score loaded</div>
+        </div>
+
+        <div id="viewer-stage" class="viewer-stage">
+          <div class="viewer-grid" id="viewer-grid"></div>
+          <div class="judge-line">
+            <span class="judge-line-label">selectedTimeSec</span>
+          </div>
+          <div class="stage-readout">
+            <span class="stage-readout-label">Current time</span>
+            <strong id="stage-time-readout">0.000 s</strong>
+          </div>
+          <div class="stage-placeholder">
+            <p id="stage-meta-primary">Load a score to inspect parsed output.</p>
+            <p id="stage-meta-secondary">Phase 4 will mount the actual Canvas renderer here.</p>
+          </div>
+        </div>
+
+        <div class="subpanel">
+          <div class="subpanel-header">
+            <h3>Nearby events</h3>
+            <span class="subpanel-count" id="nearby-events-window">selectedTimeSec ± 2.0 sec</span>
+          </div>
+          <ul id="nearby-events-list" class="event-list empty-list">
+            <li>No parsed score loaded.</li>
+          </ul>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

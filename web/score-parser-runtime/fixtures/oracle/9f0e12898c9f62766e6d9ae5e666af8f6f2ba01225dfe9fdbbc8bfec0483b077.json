@@ -1,0 +1,22 @@
+{
+  "sha256": "9f0e12898c9f62766e6d9ae5e666af8f6f2ba01225dfe9fdbbc8bfec0483b077",
+  "format": "bms",
+  "mode": "7k",
+  "laneCount": 8,
+  "noteCount": 1593,
+  "bpmChangesCount": 8,
+  "stopsCount": 0,
+  "lastPlayableTimeSec": {
+    "approx": 139.69629629629628,
+    "toleranceSec": 0.000001
+  },
+  "lastTimelineTimeSec": {
+    "approx": 150.4881514999162,
+    "toleranceSec": 0.02
+  },
+  "sampleNotes": [
+    { "lane": 2, "kind": "normal", "timeSec": 1.875 },
+    { "lane": 4, "kind": "normal", "timeSec": 1.9375 },
+    { "lane": 6, "kind": "normal", "timeSec": 2.0625 }
+  ]
+}

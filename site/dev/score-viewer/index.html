@@ -10,10 +10,10 @@
   <main class="page-shell">
     <section class="hero-panel">
       <div class="hero-copy">
-        <p class="eyebrow">Phase 3 Validation</p>
+        <p class="eyebrow">Phase 4 Validation</p>
         <h1>Score Viewer Dev Console</h1>
         <p class="hero-text">
-          sha256 から gzip 譜面を取得し、JS parser runtime と時刻操作を確認するための単独検証ページです。
+          sha256 から gzip 譜面を取得し、JS parser runtime・時刻操作・Canvas 2D 譜面描画を確認するための単独検証ページです。
         </p>
       </div>
       <div class="hero-badges">
@@ -73,13 +73,81 @@
       <section class="panel diagnostics-panel">
         <div class="panel-header">
           <div>
-            <p class="panel-kicker">Diagnostics</p>
-            <h2>Loader / Parse Status</h2>
+            <p class="panel-kicker">BMS Info Extender Harness</p>
+            <h2>Info Panel / Graph / Diagnostics</h2>
           </div>
           <div id="status-pill" class="status-pill status-idle">idle</div>
         </div>
 
         <div id="message-banner" class="message-banner" hidden></div>
+
+        <div class="subpanel info-preview-panel">
+          <div class="subpanel-header">
+            <h3>BMS Info Extender Preview</h3>
+            <span id="bms-info-status" class="subpanel-count status-idle">idle</span>
+          </div>
+
+          <div class="definition-grid info-preview-grid">
+            <div class="definition-item">
+              <span class="definition-label">SHA256</span>
+              <code id="bms-info-sha256">-</code>
+            </div>
+            <div class="definition-item">
+              <span class="definition-label">MD5</span>
+              <code id="bms-info-md5">-</code>
+            </div>
+            <div class="definition-item">
+              <span class="definition-label">Mode</span>
+              <code id="bms-info-mode">-</code>
+            </div>
+            <div class="definition-item">
+              <span class="definition-label">BPM</span>
+              <code id="bms-info-bpm">-</code>
+            </div>
+            <div class="definition-item">
+              <span class="definition-label">Notes</span>
+              <code id="bms-info-notes">-</code>
+            </div>
+            <div class="definition-item">
+              <span class="definition-label">Total</span>
+              <code id="bms-info-total">-</code>
+            </div>
+            <div class="definition-item">
+              <span class="definition-label">Density</span>
+              <code id="bms-info-density">-</code>
+            </div>
+            <div class="definition-item">
+              <span class="definition-label">Duration</span>
+              <code id="bms-info-duration">-</code>
+            </div>
+            <div class="definition-item">
+              <span class="definition-label">Judge</span>
+              <code id="bms-info-judge">-</code>
+            </div>
+            <div class="definition-item field-span-2">
+              <span class="definition-label">Features</span>
+              <code id="bms-info-features">-</code>
+            </div>
+          </div>
+
+          <div class="info-lanenotes-wrap">
+            <span class="definition-label">LANENOTES</span>
+            <div id="bms-info-lanenotes" class="info-lanenotes"></div>
+          </div>
+
+          <div class="info-graph-shell">
+            <label class="info-graph-pin">
+              <input id="graph-pin-input" type="checkbox">
+              <span>Pin the score viewer</span>
+            </label>
+            <div id="bms-info-graph-scroll" class="info-graph-scroll">
+              <canvas id="bms-info-graph-canvas"></canvas>
+            </div>
+            <div id="bms-info-graph-tooltip" class="info-graph-tooltip"></div>
+          </div>
+
+          <p id="bms-info-message" class="helper-note">Load a score to fetch BMS Info Extender panel data and enable graph hover/click synchronization.</p>
+        </div>
 
         <div class="definition-grid">
           <div class="definition-item">
@@ -117,6 +185,14 @@
           <div class="definition-item">
             <span class="definition-label">lastTimelineTimeSec / totalDurationSec</span>
             <code id="total-duration">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">Combo total</span>
+            <code id="combo-total-diagnostic">-</code>
+          </div>
+          <div class="definition-item">
+            <span class="definition-label">Current combo</span>
+            <code id="current-combo-diagnostic">-</code>
           </div>
           <div class="definition-item">
             <span class="definition-label">Event counts</span>
@@ -159,25 +235,29 @@
         <div class="panel-header">
           <div>
             <p class="panel-kicker">Stage</p>
-            <h2>Viewer Shell</h2>
+            <h2>Canvas Viewer</h2>
           </div>
           <div id="viewer-summary-badge" class="summary-badge">No score loaded</div>
         </div>
 
-        <div id="viewer-stage" class="viewer-stage">
-          <div class="viewer-grid" id="viewer-grid"></div>
-          <div class="judge-line">
-            <span class="judge-line-label">selectedTimeSec</span>
-          </div>
-          <div class="stage-readout">
-            <span class="stage-readout-label">Current time</span>
-            <strong id="stage-time-readout">0.000 s</strong>
-          </div>
-          <div class="stage-placeholder">
-            <p id="stage-meta-primary">Load a score to inspect parsed output.</p>
-            <p id="stage-meta-secondary">Phase 4 will mount the actual Canvas renderer here.</p>
+        <div class="viewer-toolbar">
+          <div class="viewer-stats">
+            <div class="viewer-stat">
+              <span class="viewer-stat-label">Measure</span>
+              <strong id="current-measure">-</strong>
+            </div>
+            <div class="viewer-stat">
+              <span class="viewer-stat-label">Current combo</span>
+              <strong id="current-combo">-</strong>
+            </div>
+            <div class="viewer-stat">
+              <span class="viewer-stat-label">Combo total</span>
+              <strong id="combo-total">-</strong>
+            </div>
           </div>
         </div>
+
+        <div id="viewer-stage" class="viewer-stage"></div>
 
         <div class="subpanel">
           <div class="subpanel-header">

@@ -1,0 +1,70 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  VIEWER_PIXELS_PER_SECOND,
+  createScoreViewerModel,
+  getComboCountAtTime,
+  getContentHeightPx,
+  getMeasureIndexAtTime,
+  getScrollTopForTimeSec,
+  getTimeSecForScrollTop,
+  getViewerCursor,
+} from "./score-viewer-model.js";
+
+test("viewer model resolves measure and combo positions from comboEvents and bar lines", () => {
+  const model = createScoreViewerModel({
+    mode: "7k",
+    laneCount: 8,
+    lastPlayableTimeSec: 10,
+    lastTimelineTimeSec: 12,
+    noteCounts: { visible: 3, normal: 2, long: 1, invisible: 0, mine: 0, all: 3 },
+    notes: [
+      { lane: 1, timeSec: 1, kind: "normal" },
+      { lane: 2, timeSec: 2, endTimeSec: 3, kind: "long" },
+    ],
+    comboEvents: [
+      { lane: 1, timeSec: 1, kind: "normal" },
+      { lane: 2, timeSec: 2, kind: "long-start" },
+      { lane: 2, timeSec: 3, kind: "long-end" },
+    ],
+    barLines: [{ timeSec: 0 }, { timeSec: 2.5 }, { timeSec: 5 }],
+    bpmChanges: [],
+    stops: [],
+    warnings: [],
+  });
+
+  assert.equal(getMeasureIndexAtTime(model, 0), 0);
+  assert.equal(getMeasureIndexAtTime(model, 2.49), 0);
+  assert.equal(getMeasureIndexAtTime(model, 2.5), 1);
+  assert.equal(getComboCountAtTime(model, 0.99), 0);
+  assert.equal(getComboCountAtTime(model, 2.5), 2);
+  assert.equal(getComboCountAtTime(model, 3), 3);
+
+  const cursor = getViewerCursor(model, 3);
+  assert.equal(cursor.measureIndex, 1);
+  assert.equal(cursor.comboCount, 3);
+  assert.equal(cursor.totalCombo, 3);
+});
+
+test("viewer model scroll mapping keeps selectedTimeSec centered", () => {
+  const model = createScoreViewerModel({
+    mode: "popn-9k",
+    laneCount: 9,
+    lastPlayableTimeSec: 20,
+    lastTimelineTimeSec: 20,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ timeSec: 0 }],
+    bpmChanges: [],
+    stops: [],
+    warnings: [],
+  });
+
+  const viewportHeight = 480;
+  const scrollTop = getScrollTopForTimeSec(model, 4.25, viewportHeight);
+  assert.equal(scrollTop, 4.25 * VIEWER_PIXELS_PER_SECOND);
+  assert.equal(getTimeSecForScrollTop(model, scrollTop), 4.25);
+  assert.ok(getContentHeightPx(model, viewportHeight) >= viewportHeight);
+});

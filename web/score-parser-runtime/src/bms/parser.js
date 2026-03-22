@@ -35,7 +35,7 @@ export function parseBmsText(text, options) {
   });
 
   const noteWarnings = [];
-  const { notes, lastPlayableTimeSec } = buildNotes(timelineObjects, mode, chart.headers, noteWarnings);
+  const { notes, comboEvents, lastPlayableTimeSec } = buildNotes(timelineObjects, mode, chart.headers, noteWarnings);
   const barLines = buildBarLines(chart.timeSignatures, timing, timelineObjects);
   const bpmChanges = buildBpmChanges(chart, timingWarnings);
   const stops = buildStops(chart, timingWarnings, timing);
@@ -47,6 +47,7 @@ export function parseBmsText(text, options) {
     mode,
     laneCount: laneCountForMode(mode),
     notes,
+    comboEvents,
     barLines,
     bpmChanges,
     stops,
@@ -189,10 +190,12 @@ function effectiveBpmAtBeat(chart, beat) {
 
 function buildNotes(timelineObjects, mode, headers, warnings) {
   const notes = [];
+  const comboEvents = [];
   const longGroups = new Map();
   const playableGroups = new Map();
   let lastPlayableTimeSec = 0;
   const lnobj = headers.get("LNOBJ")?.toUpperCase();
+  const longNoteType = readLongNoteType(headers);
 
   for (const object of timelineObjects) {
     const descriptor = object.descriptor;
@@ -248,6 +251,10 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
         kind: "long",
         side: start.side,
       });
+      comboEvents.push(createComboEvent(start, "long-start"));
+      if (shouldCountLongEnd(longNoteType)) {
+        comboEvents.push(createComboEvent(end, "long-end"));
+      }
       lastPlayableTimeSec = Math.max(lastPlayableTimeSec, end.timeSec);
     }
     if (group.length % 2 === 1) {
@@ -269,6 +276,10 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
               kind: "long",
               side: pendingStart.side,
             });
+            comboEvents.push(createComboEvent(pendingStart, "long-start"));
+            if (shouldCountLongEnd(longNoteType)) {
+              comboEvents.push(createComboEvent(object, "long-end"));
+            }
             lastPlayableTimeSec = Math.max(lastPlayableTimeSec, object.timeSec);
             pendingStart = null;
           }
@@ -281,6 +292,7 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
             kind: "normal",
             side: pendingStart.side,
           });
+          comboEvents.push(createComboEvent(pendingStart, "normal"));
           lastPlayableTimeSec = Math.max(lastPlayableTimeSec, pendingStart.timeSec);
         }
         pendingStart = object;
@@ -292,6 +304,7 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
           kind: "normal",
           side: pendingStart.side,
         });
+        comboEvents.push(createComboEvent(pendingStart, "normal"));
         lastPlayableTimeSec = Math.max(lastPlayableTimeSec, pendingStart.timeSec);
       }
       continue;
@@ -304,6 +317,7 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
         kind: "normal",
         side: object.side,
       });
+      comboEvents.push(createComboEvent(object, "normal"));
       lastPlayableTimeSec = Math.max(lastPlayableTimeSec, object.timeSec);
     }
   }
@@ -318,7 +332,9 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
     return left.lane - right.lane;
   });
 
-  return { notes, lastPlayableTimeSec };
+  comboEvents.sort(compareComboEvent);
+
+  return { notes, comboEvents, lastPlayableTimeSec };
 }
 
 function parsedSideForMode(mode, side) {
@@ -341,6 +357,51 @@ function compareTimelineObject(left, right) {
     return left.lineNumber - right.lineNumber;
   }
   return left.index - right.index;
+}
+
+function readLongNoteType(headers) {
+  const lnmode = Number.parseInt(headers.get("LNMODE") ?? "", 10);
+  return lnmode >= 1 && lnmode <= 3 ? lnmode : 0;
+}
+
+function shouldCountLongEnd(longNoteType) {
+  return longNoteType === 2 || longNoteType === 3;
+}
+
+function createComboEvent(object, kind) {
+  const event = {
+    lane: object.lane,
+    timeSec: object.timeSec,
+    kind,
+  };
+  if (object.side) {
+    event.side = object.side;
+  }
+  return event;
+}
+
+function compareComboEvent(left, right) {
+  if (left.timeSec !== right.timeSec) {
+    return left.timeSec - right.timeSec;
+  }
+  const order = comboEventOrder(left.kind) - comboEventOrder(right.kind);
+  if (order !== 0) {
+    return order;
+  }
+  return left.lane - right.lane;
+}
+
+function comboEventOrder(kind) {
+  switch (kind) {
+    case "normal":
+      return 0;
+    case "long-start":
+      return 1;
+    case "long-end":
+      return 2;
+    default:
+      return 99;
+  }
 }
 
 function buildBarLines(timeSignatures, timing, timelineObjects) {

@@ -64,6 +64,59 @@ test("BMS applies STOP timing", () => {
   assert.equal(result.score.notes[0].timeSec, 4.5);
 });
 
+test("BMS long note combo events count only the start for LNMODE 1", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#LNMODE 1",
+    "#00151:01",
+    "#00251:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "8".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start"]);
+});
+
+test("BMS long note combo events count the end for LNMODE 2", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#LNMODE 2",
+    "#00151:01",
+    "#00251:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "9".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start", "long-end"]);
+  assert.ok(result.score.comboEvents[1].timeSec > result.score.comboEvents[0].timeSec);
+});
+
+test("BMS LNOBJ long notes inherit combo behavior from LNMODE", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#LNMODE 3",
+    "#LNOBJ AA",
+    "#00111:01AA",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "f".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.notes[0].kind, "long");
+  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start", "long-end"]);
+});
+
 test("BMS ignores 00 tokens in direct BPM lanes", () => {
   const chart = [
     "#PLAYER 1",
@@ -241,6 +294,7 @@ test("BMSON exposes separate playable and timeline durations", () => {
   assert.equal(result.score.noteCounts.long, 1);
   assert.equal(result.score.noteCounts.invisible, 0);
   assert.equal(result.score.noteCounts.mine, 0);
+  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["normal", "long-start"]);
 });
 
 test("BMSON supports explicit popn mode hints and keeps generic 9 lanes distinct", () => {
@@ -322,6 +376,33 @@ test("BMSON supports explicit popn mode hints and keeps generic 9 lanes distinct
   assert.equal(generic9kResult.ok, true);
   assert.equal(generic9kResult.score.mode, "9k");
   assert.equal(generic9kResult.score.laneCount, 9);
+});
+
+test("BMSON charge notes add a long-end combo event", () => {
+  const bmson = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "beat-7k",
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 1, y: 240, l: 240, c: false, t: 2 }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const result = parseScoreBytes(new TextEncoder().encode(JSON.stringify(bmson)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "e".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start", "long-end"]);
 });
 
 test("oracle regression: invisible notes are excluded from visible note count", { skip: !scoreFileExists("9984e8e84895de265c025ce257900e04397e66ac701a4b3a151638a384fbe462") }, () => {

@@ -1,14 +1,27 @@
-const DEFAULT_PARSER_VERSION = "0.3.0";
+import { createScoreViewerController } from "./lib/score-viewer-controller.js";
+import {
+  createScoreViewerModel,
+  getClampedSelectedTimeSec,
+  getViewerCursor,
+} from "./lib/score-viewer-model.js";
+import {
+  fetchBmsInfoRecord,
+  getLaneChipColor,
+  getLaneChipTextColor,
+} from "./lib/bms-info-data.js";
+import { createBmsInfoGraph } from "./lib/bms-info-graph.js";
+
+const DEFAULT_PARSER_VERSION = "0.4.0";
 const DEFAULT_SCORE_BASE_URL = "/score";
 const PRODUCTION_SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
 const PRESET_CURRENT = "current";
 const PRESET_PRODUCTION = "production";
 const PRESET_CUSTOM = "custom";
 const LOAD_STATES = new Set(["idle", "loading", "ready", "error"]);
+const PANEL_STATES = new Set(["idle", "loading", "ready", "error"]);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 const NEARBY_EVENT_WINDOW_SEC = 2.0;
 const MAX_NEARBY_EVENTS = 50;
-const DEFAULT_STAGE_LANE_COUNT = 8;
 
 const elements = {
   form: document.getElementById("control-form"),
@@ -25,6 +38,23 @@ const elements = {
   reloadButton: document.getElementById("reload-button"),
   statusPill: document.getElementById("status-pill"),
   messageBanner: document.getElementById("message-banner"),
+  bmsInfoStatus: document.getElementById("bms-info-status"),
+  bmsInfoSha256: document.getElementById("bms-info-sha256"),
+  bmsInfoMd5: document.getElementById("bms-info-md5"),
+  bmsInfoMode: document.getElementById("bms-info-mode"),
+  bmsInfoBpm: document.getElementById("bms-info-bpm"),
+  bmsInfoNotes: document.getElementById("bms-info-notes"),
+  bmsInfoTotal: document.getElementById("bms-info-total"),
+  bmsInfoDensity: document.getElementById("bms-info-density"),
+  bmsInfoDuration: document.getElementById("bms-info-duration"),
+  bmsInfoJudge: document.getElementById("bms-info-judge"),
+  bmsInfoFeatures: document.getElementById("bms-info-features"),
+  bmsInfoLaneNotes: document.getElementById("bms-info-lanenotes"),
+  bmsInfoGraphScroll: document.getElementById("bms-info-graph-scroll"),
+  bmsInfoGraphCanvas: document.getElementById("bms-info-graph-canvas"),
+  bmsInfoGraphTooltip: document.getElementById("bms-info-graph-tooltip"),
+  bmsInfoMessage: document.getElementById("bms-info-message"),
+  graphPinInput: document.getElementById("graph-pin-input"),
   resolvedScoreUrl: document.getElementById("resolved-score-url"),
   loaderModuleUrl: document.getElementById("loader-module-url"),
   diagnosticParserVersion: document.getElementById("diagnostic-parser-version"),
@@ -34,6 +64,8 @@ const elements = {
   scoreShape: document.getElementById("score-shape"),
   lastPlayableDuration: document.getElementById("last-playable-duration"),
   totalDuration: document.getElementById("total-duration"),
+  comboTotalDiagnostic: document.getElementById("combo-total-diagnostic"),
+  currentComboDiagnostic: document.getElementById("current-combo-diagnostic"),
   eventCounts: document.getElementById("event-counts"),
   warningsCount: document.getElementById("warnings-count"),
   warningsList: document.getElementById("warnings-list"),
@@ -41,10 +73,10 @@ const elements = {
   errorMessage: document.getElementById("error-message"),
   errorCause: document.getElementById("error-cause"),
   viewerSummaryBadge: document.getElementById("viewer-summary-badge"),
-  viewerGrid: document.getElementById("viewer-grid"),
-  stageTimeReadout: document.getElementById("stage-time-readout"),
-  stageMetaPrimary: document.getElementById("stage-meta-primary"),
-  stageMetaSecondary: document.getElementById("stage-meta-secondary"),
+  currentMeasure: document.getElementById("current-measure"),
+  currentCombo: document.getElementById("current-combo"),
+  comboTotal: document.getElementById("combo-total"),
+  viewerStage: document.getElementById("viewer-stage"),
   nearbyEventsWindow: document.getElementById("nearby-events-window"),
   nearbyEventsList: document.getElementById("nearby-events-list"),
 };
@@ -58,10 +90,17 @@ const state = {
   scoreSourcePreset: PRESET_CURRENT,
   customScoreBaseUrl: "",
   selectedTimeSec: 0,
+  isPinned: false,
+  isViewerOpen: false,
+  isGraphHovered: false,
   loadState: "idle",
+  panelLoadState: "idle",
   compressedSource: null,
   parsedScore: null,
+  viewerModel: null,
+  bmsDataRecord: null,
   lastError: null,
+  panelError: null,
   message: null,
   autoloadEnabled: false,
   resolvedScoreUrl: null,
@@ -72,6 +111,44 @@ const state = {
 
 let busyOperation = null;
 let activeRequestId = 0;
+
+const viewerController = createScoreViewerController({
+  root: elements.viewerStage,
+  onTimeChange: (nextTimeSec) => {
+    setSelectedTimeSec(nextTimeSec, { openViewer: true });
+  },
+});
+
+const bmsInfoGraph = createBmsInfoGraph({
+  scrollHost: elements.bmsInfoGraphScroll,
+  canvas: elements.bmsInfoGraphCanvas,
+  tooltip: elements.bmsInfoGraphTooltip,
+  pinInput: elements.graphPinInput,
+  onHoverTime: (nextTimeSec) => {
+    state.isGraphHovered = true;
+    setSelectedTimeSec(nextTimeSec, { openViewer: true });
+  },
+  onHoverLeave: () => {
+    state.isGraphHovered = false;
+    if (!state.isPinned) {
+      state.isViewerOpen = false;
+      render();
+    }
+  },
+  onSelectTime: (nextTimeSec) => {
+    state.isPinned = true;
+    setSelectedTimeSec(nextTimeSec, { openViewer: true });
+  },
+  onPinChange: (nextPinned) => {
+    state.isPinned = Boolean(nextPinned);
+    if (state.isPinned) {
+      state.isViewerOpen = true;
+    } else if (!state.isGraphHovered) {
+      state.isViewerOpen = false;
+    }
+    render();
+  },
+});
 
 function formatSeconds(value) {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -85,6 +162,13 @@ function formatInteger(value) {
     return "-";
   }
   return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatCompactNumber(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  return Number.isInteger(value) ? String(Math.trunc(value)) : value.toFixed(3);
 }
 
 function parseOptionalNumber(value, fallbackValue = 0) {
@@ -207,6 +291,7 @@ function syncFormFromState() {
   elements.customScoreBaseUrlInput.value =
     state.scoreSourcePreset === PRESET_CUSTOM ? state.customScoreBaseUrl : state.scoreBaseUrl;
   elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
+  elements.graphPinInput.checked = state.isPinned;
   elements.customScoreBaseUrlInput.disabled = state.scoreSourcePreset !== PRESET_CUSTOM;
 }
 
@@ -216,17 +301,39 @@ function updateStateFromControls() {
   state.scoreSourcePreset = elements.scoreSourceSelect.value;
   state.customScoreBaseUrl = elements.customScoreBaseUrlInput.value.trim();
   state.scoreBaseUrl = getPresetScoreBaseUrl(state.scoreSourcePreset, state.customScoreBaseUrl);
-  state.selectedTimeSec = Math.max(0, parseOptionalNumber(elements.timeNumberInput.value, state.selectedTimeSec));
+  state.selectedTimeSec = getNormalizedSelectedTimeSec(parseOptionalNumber(elements.timeNumberInput.value, state.selectedTimeSec));
   writeQueryState();
 }
 
-function setSelectedTimeSec(nextValue) {
-  const maxValue = state.parsedScore ? Math.max(state.parsedScore.lastPlayableTimeSec, 0) : 10;
-  state.selectedTimeSec = clamp(Number.isFinite(nextValue) ? nextValue : 0, 0, maxValue);
+function getNormalizedSelectedTimeSec(value) {
+  if (state.viewerModel) {
+    return getClampedSelectedTimeSec(state.viewerModel, value);
+  }
+  if (state.parsedScore) {
+    return clamp(value, 0, Math.max(state.parsedScore.lastPlayableTimeSec, 0));
+  }
+  return Math.max(0, value);
+}
+
+function setSelectedTimeSec(nextValue, { openViewer = false } = {}) {
+  const normalizedValue = getNormalizedSelectedTimeSec(Number.isFinite(nextValue) ? nextValue : 0);
+  const changed = Math.abs(normalizedValue - state.selectedTimeSec) >= 0.0005;
+
+  if (openViewer) {
+    state.isViewerOpen = true;
+  }
+  if (!changed) {
+    if (openViewer) {
+      render();
+    }
+    return;
+  }
+
+  state.selectedTimeSec = normalizedValue;
   elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
   elements.timeRangeInput.value = String(state.selectedTimeSec);
   writeQueryState();
-  renderViewer();
+  render();
 }
 
 function getLoaderModuleUrl(parserVersion) {
@@ -278,11 +385,17 @@ function setMessage(kind, text) {
 function resetDiagnosticsForNewTarget() {
   state.compressedSource = null;
   state.parsedScore = null;
+  state.viewerModel = null;
   state.resolvedScoreUrl = null;
   state.loaderModuleUrl = null;
   state.compressedByteLength = null;
   state.decompressedByteLength = null;
   state.lastError = null;
+  state.bmsDataRecord = null;
+  state.panelLoadState = "idle";
+  state.panelError = null;
+  state.isViewerOpen = false;
+  state.isGraphHovered = false;
 }
 
 function buildUiErrorFromUnknown(error) {
@@ -293,6 +406,14 @@ function buildUiErrorFromUnknown(error) {
     return createUiError("unexpected_error", error.message, error.cause ?? null);
   }
   return createUiError("unexpected_error", String(error));
+}
+
+function buildPanelError(error) {
+  const normalized = buildUiErrorFromUnknown(error);
+  return {
+    ...normalized,
+    type: normalized.type === "unexpected_error" ? "panel_fetch_failure" : normalized.type,
+  };
 }
 
 function getAbsoluteScoreUrl(scoreUrl) {
@@ -316,7 +437,7 @@ function getEventCountsLabel(score) {
     all: score.notes.length,
   };
   return [
-    `notes ${formatInteger(noteCounts.visible)}`,
+    `visible ${formatInteger(noteCounts.visible)}`,
     `normal ${formatInteger(noteCounts.normal)}`,
     `long ${formatInteger(noteCounts.long)}`,
     `invisible ${formatInteger(noteCounts.invisible)}`,
@@ -324,25 +445,11 @@ function getEventCountsLabel(score) {
     `barLines ${formatInteger(score.barLines.length)}`,
     `bpmChanges ${formatInteger(score.bpmChanges.length)}`,
     `stops ${formatInteger(score.stops.length)}`,
-    `warnings ${formatInteger(score.warnings.length)}`,
   ].join(" / ");
 }
 
-function createStageLane() {
-  const lane = document.createElement("div");
-  lane.className = "viewer-lane";
-  lane.setAttribute("aria-hidden", "true");
-  return lane;
-}
-
-function renderStageGrid(laneCount) {
-  const normalizedLaneCount = Math.max(1, laneCount);
-  elements.viewerGrid.replaceChildren();
-  elements.viewerGrid.style.gridTemplateColumns = `repeat(${normalizedLaneCount}, minmax(0, 1fr))`;
-
-  for (let index = 0; index < normalizedLaneCount; index += 1) {
-    elements.viewerGrid.appendChild(createStageLane());
-  }
+function getCurrentCursor() {
+  return state.viewerModel ? getViewerCursor(state.viewerModel, state.selectedTimeSec) : null;
 }
 
 function renderMessageBanner() {
@@ -365,6 +472,8 @@ function renderStatusPill() {
 }
 
 function renderDiagnostics() {
+  const cursor = getCurrentCursor();
+
   renderStatusPill();
   renderMessageBanner();
   elements.resolvedScoreUrl.textContent = state.resolvedScoreUrl ?? "-";
@@ -378,6 +487,8 @@ function renderDiagnostics() {
     : "-";
   elements.lastPlayableDuration.textContent = state.parsedScore ? formatSeconds(state.parsedScore.lastPlayableTimeSec) : "-";
   elements.totalDuration.textContent = state.parsedScore ? formatSeconds(state.parsedScore.lastTimelineTimeSec) : "-";
+  elements.comboTotalDiagnostic.textContent = cursor ? formatInteger(cursor.totalCombo) : "-";
+  elements.currentComboDiagnostic.textContent = cursor ? formatInteger(cursor.comboCount) : "-";
   elements.eventCounts.textContent = getEventCountsLabel(state.parsedScore);
 
   const warnings = state.parsedScore?.warnings ?? [];
@@ -409,6 +520,61 @@ function renderDiagnostics() {
   elements.errorType.textContent = state.lastError?.type ?? "-";
   elements.errorMessage.textContent = state.lastError?.message ?? "-";
   elements.errorCause.textContent = summarizeErrorCause(state.lastError?.cause);
+}
+
+function renderBmsInfoPanel() {
+  const record = state.bmsDataRecord;
+  elements.bmsInfoStatus.textContent = state.panelLoadState;
+  elements.bmsInfoStatus.className = `subpanel-count status-${PANEL_STATES.has(state.panelLoadState) ? state.panelLoadState : "idle"}`;
+
+  elements.bmsInfoSha256.textContent = record?.sha256 ?? "-";
+  elements.bmsInfoMd5.textContent = record?.md5 ?? "-";
+  elements.bmsInfoMode.textContent = record ? String(record.mode) : "-";
+  elements.bmsInfoBpm.textContent = record
+    ? `MAIN ${formatCompactNumber(record.mainbpm)} / MIN ${formatCompactNumber(record.minbpm)} / MAX ${formatCompactNumber(record.maxbpm)}`
+    : "-";
+  elements.bmsInfoNotes.textContent = record?.notesStr ?? "-";
+  elements.bmsInfoTotal.textContent = record?.totalStr ?? "-";
+  elements.bmsInfoDensity.textContent = record
+    ? `AVG ${record.density.toFixed(3)} / PEAK ${formatCompactNumber(record.peakdensity)} / END ${formatCompactNumber(record.enddensity)}`
+    : "-";
+  elements.bmsInfoDuration.textContent = record?.durationStr ?? "-";
+  elements.bmsInfoJudge.textContent = record ? String(record.judge) : "-";
+  elements.bmsInfoFeatures.textContent = record?.featureNames?.length > 0 ? record.featureNames.join(", ") : "-";
+
+  renderLaneNotes(record);
+
+  if (state.panelLoadState === "loading") {
+    elements.bmsInfoMessage.textContent = "Fetching BMS Info Extender panel data and preparing graph hover synchronization.";
+  } else if (state.panelLoadState === "error") {
+    elements.bmsInfoMessage.textContent = state.panelError?.message ?? "Failed to load BMS Info Extender panel data.";
+  } else if (record) {
+    elements.bmsInfoMessage.textContent = state.isPinned
+      ? "Pinned. Scroll the score viewer or hover/click the graph to keep both red lines synchronized."
+      : "Hover the graph to open the score viewer. Click the graph or use the checkbox to pin it.";
+  } else {
+    elements.bmsInfoMessage.textContent = "Load a score to fetch BMS Info Extender panel data and enable graph hover/click synchronization.";
+  }
+
+  bmsInfoGraph.setPinned(state.isPinned);
+  bmsInfoGraph.setSelectedTimeSec(state.selectedTimeSec);
+  bmsInfoGraph.setRecord(record);
+}
+
+function renderLaneNotes(record) {
+  elements.bmsInfoLaneNotes.replaceChildren();
+  if (!record) {
+    return;
+  }
+
+  record.lanenotesArr.forEach((laneNotes, index) => {
+    const chip = document.createElement("span");
+    chip.className = "info-lane-chip";
+    chip.textContent = String(laneNotes[3]);
+    chip.style.backgroundColor = getLaneChipColor(record.mode, index);
+    chip.style.color = getLaneChipTextColor(record.mode, index);
+    elements.bmsInfoLaneNotes.appendChild(chip);
+  });
 }
 
 function buildNearbyEvents(score, selectedTimeSec) {
@@ -527,30 +693,54 @@ function renderNearbyEvents() {
 }
 
 function renderViewer() {
-  const laneCount = state.parsedScore?.laneCount ?? DEFAULT_STAGE_LANE_COUNT;
-  renderStageGrid(laneCount);
+  const cursor = getCurrentCursor();
+  const hasScore = Boolean(state.parsedScore && state.viewerModel);
 
-  elements.stageTimeReadout.textContent = formatSeconds(state.selectedTimeSec);
-  if (!state.parsedScore) {
+  if (!hasScore) {
     elements.viewerSummaryBadge.textContent = "No score loaded";
-    elements.stageMetaPrimary.textContent = "Load a score to inspect parsed output.";
-    elements.stageMetaSecondary.textContent = "Phase 4 will mount the actual Canvas renderer here.";
-  } else {
-    elements.viewerSummaryBadge.textContent = `${state.parsedScore.mode} / ${state.parsedScore.laneCount} lanes`;
-    elements.stageMetaPrimary.textContent =
-      `${state.parsedScore.format} / ${state.parsedScore.mode} / playable ${formatSeconds(state.parsedScore.lastPlayableTimeSec)} / timeline ${formatSeconds(state.parsedScore.lastTimelineTimeSec)}`;
-    elements.stageMetaSecondary.textContent =
-      "selectedTimeSec is centered on the red guide. Slider uses lastPlayableTimeSec while diagnostics also expose lastTimelineTimeSec.";
+    elements.currentMeasure.textContent = "-";
+    elements.currentCombo.textContent = "-";
+    elements.comboTotal.textContent = "-";
+    viewerController.setPinned(state.isPinned);
+    viewerController.setEmptyState("Canvas Viewer", "Load a score to draw the actual chart in this stage.");
+    viewerController.setOpen(false);
+    viewerController.setModel(null);
+    viewerController.setSelectedTimeSec(0);
+    return;
   }
 
-  renderNearbyEvents();
+  elements.viewerSummaryBadge.textContent = `${state.parsedScore.mode} / ${state.parsedScore.laneCount} lanes`;
+  elements.currentMeasure.textContent = String(cursor.measureIndex);
+  elements.currentCombo.textContent = formatInteger(cursor.comboCount);
+  elements.comboTotal.textContent = formatInteger(cursor.totalCombo);
+
+  viewerController.setPinned(state.isPinned);
+  viewerController.setModel(state.viewerModel);
+  viewerController.setSelectedTimeSec(state.selectedTimeSec);
+
+  if (!state.isViewerOpen) {
+    viewerController.setEmptyState(
+      "Score Viewer Ready",
+      "Hover the graph, click the graph, or move selectedTimeSec to open the synchronized score viewer.",
+    );
+    viewerController.setOpen(false);
+    return;
+  }
+
+  viewerController.setOpen(true);
 }
 
 function renderSliderBounds() {
   const maxValue = state.parsedScore ? Math.max(state.parsedScore.lastPlayableTimeSec, 0) : 10;
   elements.timeRangeInput.max = String(maxValue);
   elements.timeNumberInput.min = "0";
-  setSelectedTimeSec(state.selectedTimeSec);
+  if (state.parsedScore) {
+    state.selectedTimeSec = getClampedSelectedTimeSec(state.viewerModel, state.selectedTimeSec);
+  } else {
+    state.selectedTimeSec = clamp(state.selectedTimeSec, 0, maxValue);
+  }
+  elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
+  elements.timeRangeInput.value = String(state.selectedTimeSec);
 }
 
 function renderControls() {
@@ -561,12 +751,15 @@ function renderControls() {
   elements.clearMemoryButton.disabled = isBusy;
   elements.clearIdbButton.disabled = isBusy;
   elements.reloadButton.disabled = isBusy;
+  elements.graphPinInput.disabled = isBusy || !state.bmsDataRecord;
 }
 
 function render() {
   renderControls();
   renderDiagnostics();
+  renderBmsInfoPanel();
   renderViewer();
+  renderNearbyEvents();
 }
 
 async function handleLoad({ clearCachesFirst = false } = {}) {
@@ -579,7 +772,13 @@ async function handleLoad({ clearCachesFirst = false } = {}) {
   state.autoloadEnabled = true;
   writeQueryState();
   resetDiagnosticsForNewTarget();
-  setMessage("info", clearCachesFirst ? "Clearing caches, then loading score." : "Loading compressed score, decompressing, and parsing.");
+  state.panelLoadState = "loading";
+  setMessage(
+    "info",
+    clearCachesFirst
+      ? "Clearing caches, then loading score and BMS Info Extender panel data."
+      : "Loading compressed score, decompressing, parsing, and fetching BMS Info Extender panel data.",
+  );
   setBusyState(clearCachesFirst ? "reload" : "load");
 
   try {
@@ -601,9 +800,15 @@ async function handleLoad({ clearCachesFirst = false } = {}) {
       await loaderContext.loader.clearIndexedDbCache();
     }
 
-    const compressedResult = await loaderContext.loader.loadCompressedScore(normalizedSha256);
-    const decompressedResult = await loaderContext.loader.loadDecompressedScoreBytes(normalizedSha256);
-    const parsedResult = await loaderContext.loader.loadParsedScore(normalizedSha256);
+    const scorePromise = (async () => {
+      const compressedResult = await loaderContext.loader.loadCompressedScore(normalizedSha256);
+      const decompressedResult = await loaderContext.loader.loadDecompressedScoreBytes(normalizedSha256);
+      const parsedResult = await loaderContext.loader.loadParsedScore(normalizedSha256);
+      return { compressedResult, decompressedResult, parsedResult };
+    })();
+
+    const panelPromise = fetchBmsInfoRecord(normalizedSha256);
+    const [scoreResult, panelResult] = await Promise.allSettled([scorePromise, panelPromise]);
 
     if (requestId !== activeRequestId) {
       return;
@@ -612,14 +817,49 @@ async function handleLoad({ clearCachesFirst = false } = {}) {
     state.sha256 = normalizedSha256;
     state.parserVersion = parserVersion;
     state.scoreBaseUrl = scoreBaseUrl;
-    state.compressedSource = compressedResult.source;
-    state.resolvedScoreUrl = getAbsoluteScoreUrl(compressedResult.url);
-    state.compressedByteLength = compressedResult.byteLength;
-    state.decompressedByteLength = decompressedResult.byteLength;
-    state.parsedScore = parsedResult.score;
+
+    if (panelResult.status === "fulfilled") {
+      state.bmsDataRecord = panelResult.value;
+      state.panelLoadState = "ready";
+      state.panelError = null;
+    } else {
+      state.bmsDataRecord = null;
+      state.panelLoadState = "error";
+      state.panelError = buildPanelError(panelResult.reason);
+    }
+
+    if (scoreResult.status !== "fulfilled") {
+      state.parsedScore = null;
+      state.viewerModel = null;
+      state.compressedSource = null;
+      state.compressedByteLength = null;
+      state.decompressedByteLength = null;
+      state.resolvedScoreUrl = null;
+      state.lastError = buildUiErrorFromUnknown(scoreResult.reason);
+      setMessage("error", state.lastError.message);
+      clearBusyState("error");
+      renderSliderBounds();
+      syncFormFromState();
+      writeQueryState();
+      render();
+      return;
+    }
+
+    state.compressedSource = scoreResult.value.compressedResult.source;
+    state.resolvedScoreUrl = getAbsoluteScoreUrl(scoreResult.value.compressedResult.url);
+    state.compressedByteLength = scoreResult.value.compressedResult.byteLength;
+    state.decompressedByteLength = scoreResult.value.decompressedResult.byteLength;
+    state.parsedScore = scoreResult.value.parsedResult.score;
+    state.viewerModel = createScoreViewerModel(scoreResult.value.parsedResult.score);
     state.lastError = null;
-    state.selectedTimeSec = clamp(state.selectedTimeSec, 0, Math.max(parsedResult.score.lastPlayableTimeSec, 0));
-    setMessage("info", `Loaded score via ${compressedResult.source}.`);
+    state.isViewerOpen = false;
+    state.selectedTimeSec = getClampedSelectedTimeSec(state.viewerModel, state.selectedTimeSec);
+
+    if (state.panelError) {
+      setMessage("warning", `Loaded score via ${state.compressedSource}, but BMS Info Extender panel fetch failed.`);
+    } else {
+      setMessage("info", `Loaded score via ${state.compressedSource}. Hover or click the graph to drive the viewer.`);
+    }
 
     clearBusyState("ready");
     renderSliderBounds();
@@ -631,10 +871,14 @@ async function handleLoad({ clearCachesFirst = false } = {}) {
       return;
     }
     state.parsedScore = null;
+    state.viewerModel = null;
     state.compressedSource = null;
     state.compressedByteLength = null;
     state.decompressedByteLength = null;
     state.resolvedScoreUrl = null;
+    state.bmsDataRecord = null;
+    state.panelLoadState = "error";
+    state.panelError = buildPanelError(error);
     state.lastError = buildUiErrorFromUnknown(error);
     setMessage("error", state.lastError.message);
     clearBusyState("error");
@@ -799,11 +1043,11 @@ function attachEventListeners() {
   });
 
   elements.timeNumberInput.addEventListener("input", () => {
-    setSelectedTimeSec(parseOptionalNumber(elements.timeNumberInput.value, state.selectedTimeSec));
+    setSelectedTimeSec(parseOptionalNumber(elements.timeNumberInput.value, state.selectedTimeSec), { openViewer: true });
   });
 
   elements.timeRangeInput.addEventListener("input", () => {
-    setSelectedTimeSec(parseOptionalNumber(elements.timeRangeInput.value, state.selectedTimeSec));
+    setSelectedTimeSec(parseOptionalNumber(elements.timeRangeInput.value, state.selectedTimeSec), { openViewer: true });
   });
 }
 

@@ -52,6 +52,7 @@ export function parseBmsonText(text, options) {
 
   const timing = new Timing(initialBpm, actions);
   const notes = [];
+  const comboEvents = [];
   let lastPlayableTimeSec = 0;
   for (const channel of bmson.sound_channels ?? []) {
     for (const note of channel.notes ?? []) {
@@ -72,6 +73,14 @@ export function parseBmsonText(text, options) {
         kind: endTimeSec === undefined ? "normal" : "long",
         side: mapping.side,
       });
+      if (endTimeSec === undefined) {
+        comboEvents.push(createComboEvent(mapping, timeSec, "normal"));
+      } else {
+        comboEvents.push(createComboEvent(mapping, timeSec, "long-start"));
+        if (shouldCountBmsonLongEnd(note)) {
+          comboEvents.push(createComboEvent(mapping, endTimeSec, "long-end"));
+        }
+      }
       lastPlayableTimeSec = Math.max(lastPlayableTimeSec, endTimeSec ?? timeSec);
     }
   }
@@ -82,6 +91,16 @@ export function parseBmsonText(text, options) {
     }
     if ((left.endTimeSec ?? left.timeSec) !== (right.endTimeSec ?? right.timeSec)) {
       return (left.endTimeSec ?? left.timeSec) - (right.endTimeSec ?? right.timeSec);
+    }
+    return left.lane - right.lane;
+  });
+  comboEvents.sort((left, right) => {
+    if (left.timeSec !== right.timeSec) {
+      return left.timeSec - right.timeSec;
+    }
+    const order = comboEventOrder(left.kind) - comboEventOrder(right.kind);
+    if (order !== 0) {
+      return order;
     }
     return left.lane - right.lane;
   });
@@ -132,6 +151,7 @@ export function parseBmsonText(text, options) {
     mode,
     laneCount,
     notes,
+    comboEvents,
     barLines,
     bpmChanges,
     stops,
@@ -283,4 +303,33 @@ function effectiveBmsonBpmAtBeat(initialBpm, bpmEvents, beat, resolution) {
     }
   }
   return bpm;
+}
+
+function shouldCountBmsonLongEnd(note) {
+  return note?.t === 2 || note?.t === 3;
+}
+
+function createComboEvent(mapping, timeSec, kind) {
+  const event = {
+    lane: mapping.lane,
+    timeSec,
+    kind,
+  };
+  if (mapping.side) {
+    event.side = mapping.side;
+  }
+  return event;
+}
+
+function comboEventOrder(kind) {
+  switch (kind) {
+    case "normal":
+      return 0;
+    case "long-start":
+      return 1;
+    case "long-end":
+      return 2;
+    default:
+      return 99;
+  }
 }

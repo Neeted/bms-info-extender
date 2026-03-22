@@ -1,4 +1,4 @@
-export const VIEWER_PIXELS_PER_SECOND = 160;
+export const DEFAULT_VIEWER_PIXELS_PER_SECOND = 160;
 
 export function createScoreViewerModel(score) {
   if (!score) {
@@ -44,38 +44,43 @@ export function getClampedSelectedTimeSec(model, timeSec) {
   return clamp(numericValue, 0, model.score.lastPlayableTimeSec);
 }
 
-export function getContentHeightPx(model, viewportHeight) {
+export function getContentHeightPx(model, viewportHeight, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
   if (!model) {
     return Math.max(1, viewportHeight);
   }
   return Math.max(
     Math.max(1, viewportHeight),
-    Math.ceil(model.score.lastPlayableTimeSec * VIEWER_PIXELS_PER_SECOND + viewportHeight),
+    Math.ceil(model.score.lastPlayableTimeSec * pixelsPerSecond + viewportHeight),
   );
 }
 
-export function getTimeSecForScrollTop(model, scrollTop) {
+export function getTimeSecForScrollTop(model, scrollTop, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
   if (!model) {
     return 0;
   }
-  return getClampedSelectedTimeSec(model, scrollTop / VIEWER_PIXELS_PER_SECOND);
+  return getClampedSelectedTimeSec(model, scrollTop / pixelsPerSecond);
 }
 
-export function getScrollTopForTimeSec(model, timeSec, viewportHeight) {
+export function getScrollTopForTimeSec(model, timeSec, viewportHeight, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
   if (!model) {
     return 0;
   }
   const clampedTimeSec = getClampedSelectedTimeSec(model, timeSec);
-  const maxScrollTop = Math.max(0, getContentHeightPx(model, viewportHeight) - viewportHeight);
-  return clamp(clampedTimeSec * VIEWER_PIXELS_PER_SECOND, 0, maxScrollTop);
+  const maxScrollTop = Math.max(0, getContentHeightPx(model, viewportHeight, pixelsPerSecond) - viewportHeight);
+  return clamp(clampedTimeSec * pixelsPerSecond, 0, maxScrollTop);
 }
 
-export function getVisibleTimeRange(model, selectedTimeSec, viewportHeight) {
+export function getVisibleTimeRange(
+  model,
+  selectedTimeSec,
+  viewportHeight,
+  pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND,
+) {
   if (!model) {
     return { startTimeSec: 0, endTimeSec: 0 };
   }
   const clampedTimeSec = getClampedSelectedTimeSec(model, selectedTimeSec);
-  const halfViewportSec = viewportHeight / VIEWER_PIXELS_PER_SECOND / 2;
+  const halfViewportSec = viewportHeight / pixelsPerSecond / 2;
   const overscanSec = Math.max(halfViewportSec * 0.35, 0.75);
   return {
     startTimeSec: Math.max(0, clampedTimeSec - halfViewportSec - overscanSec),

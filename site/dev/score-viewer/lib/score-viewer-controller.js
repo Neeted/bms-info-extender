@@ -1,4 +1,5 @@
 import {
+  DEFAULT_VIEWER_PIXELS_PER_SECOND,
   getClampedSelectedTimeSec,
   getContentHeightPx,
   getScrollTopForTimeSec,
@@ -8,6 +9,10 @@ import {
 import { createScoreViewerRenderer } from "./score-viewer-renderer.js";
 
 const SCROLL_MULTIPLIER = 2;
+const MIN_SPACING_SCALE = 0.5;
+const MAX_SPACING_SCALE = 8.0;
+const SPACING_STEP = 0.01;
+const DEFAULT_SPACING_SCALE = 1.0;
 
 export function createScoreViewerController({ root, onTimeChange = () => {} }) {
   const scrollHost = document.createElement("div");
@@ -45,6 +50,27 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
 
   overlay.append(primaryChip, secondaryChip, tertiaryChip);
 
+  const spacingPanel = document.createElement("div");
+  spacingPanel.className = "score-viewer-spacing-panel";
+
+  const spacingLabel = document.createElement("label");
+  spacingLabel.className = "score-viewer-spacing-label";
+  spacingLabel.textContent = "Spacing";
+
+  const spacingValue = document.createElement("span");
+  spacingValue.className = "score-viewer-spacing-value";
+  spacingLabel.appendChild(spacingValue);
+
+  const spacingInput = document.createElement("input");
+  spacingInput.className = "score-viewer-spacing-input";
+  spacingInput.type = "range";
+  spacingInput.min = String(MIN_SPACING_SCALE);
+  spacingInput.max = String(MAX_SPACING_SCALE);
+  spacingInput.step = String(SPACING_STEP);
+  spacingInput.value = String(DEFAULT_SPACING_SCALE);
+
+  spacingPanel.append(spacingLabel, spacingInput);
+
   const judgeLine = document.createElement("div");
   judgeLine.className = "score-viewer-judge-line";
   const judgeLabel = document.createElement("span");
@@ -56,7 +82,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
   emptyState.className = "score-viewer-empty";
   emptyState.innerHTML = "<strong>Canvas Viewer</strong><span>Load a score to draw the actual chart in this stage.</span>";
 
-  root.replaceChildren(scrollHost, canvas, overlay, markerOverlay, judgeLine, emptyState);
+  root.replaceChildren(scrollHost, canvas, overlay, markerOverlay, spacingPanel, judgeLine, emptyState);
 
   const renderer = createScoreViewerRenderer(canvas);
   const state = {
@@ -64,6 +90,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     selectedTimeSec: 0,
     isPinned: false,
     isOpen: false,
+    spacingScale: DEFAULT_SPACING_SCALE,
     emptyTitle: "Canvas Viewer",
     emptyMessage: "Load a score to draw the actual chart in this stage.",
   };
@@ -76,7 +103,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     if (!state.model || !state.isOpen || !state.isPinned || ignoreScrollUntilNextFrame) {
       return;
     }
-    const nextTimeSec = getTimeSecForScrollTop(state.model, scrollHost.scrollTop);
+    const nextTimeSec = getTimeSecForScrollTop(state.model, scrollHost.scrollTop, getPixelsPerSecond());
     if (Math.abs(nextTimeSec - state.selectedTimeSec) < 0.0005) {
       return;
     }
@@ -121,6 +148,17 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
   scrollHost.addEventListener("pointerup", handlePointerRelease);
   scrollHost.addEventListener("pointercancel", handlePointerRelease);
   scrollHost.addEventListener("lostpointercapture", handlePointerRelease);
+
+  spacingInput.addEventListener("input", () => {
+    const nextScale = clampScale(Number.parseFloat(spacingInput.value));
+    if (Math.abs(nextScale - state.spacingScale) < 0.0005) {
+      spacingValue.textContent = formatSpacingScale(state.spacingScale);
+      return;
+    }
+    state.spacingScale = nextScale;
+    spacingValue.textContent = formatSpacingScale(state.spacingScale);
+    refreshLayout();
+  });
 
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(() => {
@@ -180,7 +218,12 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
       return;
     }
     ignoreScrollUntilNextFrame = true;
-    scrollHost.scrollTop = getScrollTopForTimeSec(state.model, state.selectedTimeSec, root.clientHeight || 0);
+    scrollHost.scrollTop = getScrollTopForTimeSec(
+      state.model,
+      state.selectedTimeSec,
+      root.clientHeight || 0,
+      getPixelsPerSecond(),
+    );
     requestAnimationFrame(() => {
       ignoreScrollUntilNextFrame = false;
     });
@@ -190,7 +233,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     const width = Math.max(1, root.clientWidth);
     const height = Math.max(260, root.clientHeight);
     renderer.resize(width, height);
-    spacer.style.height = `${getContentHeightPx(state.model, height)}px`;
+    spacer.style.height = `${getContentHeightPx(state.model, height, getPixelsPerSecond())}px`;
     syncScrollPosition();
     renderScene();
   }
@@ -202,6 +245,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     canvas.hidden = !showScene;
     overlay.hidden = !showScene;
     markerOverlay.hidden = !showScene;
+    spacingPanel.hidden = !showScene;
     judgeLine.hidden = !showScene;
 
     emptyState.innerHTML = `<strong>${escapeHtml(state.emptyTitle)}</strong><span>${escapeHtml(state.emptyMessage)}</span>`;
@@ -211,8 +255,10 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
     tertiaryChip.textContent = state.model
       ? `${state.model.score.mode} / ${state.model.score.laneCount} lanes / ${state.isPinned ? "Pinned" : "Follow"}`
       : "No parsed score";
+    spacingValue.textContent = formatSpacingScale(state.spacingScale);
+    spacingInput.value = String(state.spacingScale);
 
-    const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec);
+    const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec, getPixelsPerSecond());
     renderMarkerLabels(showScene ? renderResult.markers : []);
   }
 
@@ -245,6 +291,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
   }
 
   setPinned(false);
+  spacingValue.textContent = formatSpacingScale(state.spacingScale);
   refreshLayout();
 
   return {
@@ -286,6 +333,10 @@ export function createScoreViewerController({ root, onTimeChange = () => {} }) {
         && (event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen"),
     );
   }
+
+  function getPixelsPerSecond() {
+    return DEFAULT_VIEWER_PIXELS_PER_SECOND * state.spacingScale;
+  }
 }
 
 function createMarkerLabel(marker, side) {
@@ -316,4 +367,15 @@ function escapeHtml(value) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function clampScale(value) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_SPACING_SCALE;
+  }
+  return Math.min(Math.max(value, MIN_SPACING_SCALE), MAX_SPACING_SCALE);
+}
+
+function formatSpacingScale(value) {
+  return `${clampScale(value).toFixed(2)}x`;
 }

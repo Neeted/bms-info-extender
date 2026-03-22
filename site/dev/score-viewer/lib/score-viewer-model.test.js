@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  VIEWER_PIXELS_PER_SECOND,
+  DEFAULT_VIEWER_PIXELS_PER_SECOND,
   createScoreViewerModel,
   getComboCountAtTime,
   getContentHeightPx,
@@ -63,8 +63,31 @@ test("viewer model scroll mapping keeps selectedTimeSec centered", () => {
   });
 
   const viewportHeight = 480;
-  const scrollTop = getScrollTopForTimeSec(model, 4.25, viewportHeight);
-  assert.equal(scrollTop, 4.25 * VIEWER_PIXELS_PER_SECOND);
-  assert.equal(getTimeSecForScrollTop(model, scrollTop), 4.25);
-  assert.ok(getContentHeightPx(model, viewportHeight) >= viewportHeight);
+  const scrollTop = getScrollTopForTimeSec(model, 4.25, viewportHeight, DEFAULT_VIEWER_PIXELS_PER_SECOND);
+  assert.equal(scrollTop, 4.25 * DEFAULT_VIEWER_PIXELS_PER_SECOND);
+  assert.equal(getTimeSecForScrollTop(model, scrollTop, DEFAULT_VIEWER_PIXELS_PER_SECOND), 4.25);
+  assert.ok(getContentHeightPx(model, viewportHeight, DEFAULT_VIEWER_PIXELS_PER_SECOND) >= viewportHeight);
+});
+
+test("viewer model scroll mapping respects custom pixelsPerSecond", () => {
+  const model = createScoreViewerModel({
+    mode: "7k",
+    laneCount: 8,
+    lastPlayableTimeSec: 20,
+    lastTimelineTimeSec: 20,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ timeSec: 0 }],
+    bpmChanges: [],
+    stops: [],
+    warnings: [],
+  });
+
+  const pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND * 3;
+  const viewportHeight = 320;
+  const scrollTop = getScrollTopForTimeSec(model, 2, viewportHeight, pixelsPerSecond);
+  assert.equal(scrollTop, 2 * pixelsPerSecond);
+  assert.equal(getTimeSecForScrollTop(model, scrollTop, pixelsPerSecond), 2);
+  assert.ok(getContentHeightPx(model, viewportHeight, pixelsPerSecond) >= viewportHeight);
 });

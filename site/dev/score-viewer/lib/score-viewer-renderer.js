@@ -1,5 +1,5 @@
 import {
-  VIEWER_PIXELS_PER_SECOND,
+  DEFAULT_VIEWER_PIXELS_PER_SECOND,
   getVisibleTimeRange,
   shouldDrawLongEndCap,
 } from "./score-viewer-model.js";
@@ -77,7 +77,7 @@ export function createScoreViewerRenderer(canvas) {
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  function render(model, selectedTimeSec) {
+  function render(model, selectedTimeSec, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
     context.clearRect(0, 0, width, height);
     context.fillStyle = BACKGROUND_FILL;
     context.fillRect(0, 0, width, height);
@@ -87,11 +87,11 @@ export function createScoreViewerRenderer(canvas) {
     }
 
     const lanes = createLaneLayout(model.score.mode, model.score.laneCount, width);
-    const { startTimeSec, endTimeSec } = getVisibleTimeRange(model, selectedTimeSec, height);
+    const { startTimeSec, endTimeSec } = getVisibleTimeRange(model, selectedTimeSec, height, pixelsPerSecond);
 
-    drawBarLines(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height);
-    drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height);
-    drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height);
+    drawBarLines(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
     drawLaneSeparators(context, lanes, height);
     const markers = drawTempoMarkers(
       context,
@@ -102,6 +102,7 @@ export function createScoreViewerRenderer(canvas) {
       startTimeSec,
       endTimeSec,
       height,
+      pixelsPerSecond,
     );
 
     return {
@@ -113,7 +114,7 @@ export function createScoreViewerRenderer(canvas) {
   return { resize, render };
 }
 
-function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight) {
+function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
   if (lanes.length === 0) {
     return;
   }
@@ -126,7 +127,7 @@ function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, e
     if (barLine.timeSec < startTimeSec || barLine.timeSec > endTimeSec) {
       continue;
     }
-    const y = timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight);
+    const y = timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
     context.beginPath();
     context.moveTo(leftX, y + 0.5);
     context.lineTo(rightX, y + 0.5);
@@ -135,7 +136,17 @@ function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, e
   context.restore();
 }
 
-function drawTempoMarkers(context, bpmChanges, stops, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight) {
+function drawTempoMarkers(
+  context,
+  bpmChanges,
+  stops,
+  lanes,
+  selectedTimeSec,
+  startTimeSec,
+  endTimeSec,
+  viewportHeight,
+  pixelsPerSecond,
+) {
   if (lanes.length === 0) {
     return [];
   }
@@ -149,7 +160,7 @@ function drawTempoMarkers(context, bpmChanges, stops, lanes, selectedTimeSec, st
     if (bpmChange.timeSec < startTimeSec || bpmChange.timeSec > endTimeSec) {
       continue;
     }
-    const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight);
+    const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
     context.fillRect(
       rightLane.x,
       Math.round(y - TEMPO_MARKER_HEIGHT / 2),
@@ -172,7 +183,7 @@ function drawTempoMarkers(context, bpmChanges, stops, lanes, selectedTimeSec, st
     if (stop.timeSec < startTimeSec || stop.timeSec > endTimeSec) {
       continue;
     }
-    const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight);
+    const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
     context.fillRect(
       leftLane.x,
       Math.round(y - TEMPO_MARKER_HEIGHT / 2),
@@ -194,7 +205,7 @@ function drawTempoMarkers(context, bpmChanges, stops, lanes, selectedTimeSec, st
   return markers;
 }
 
-function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight) {
+function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
   context.save();
   for (const note of model.notes) {
     if (note.kind !== "long" || !Number.isFinite(note.endTimeSec)) {
@@ -207,8 +218,8 @@ function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, en
     if (!lane) {
       continue;
     }
-    const startY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight);
-    const endY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight);
+    const startY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const endY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
     const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
     const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
     const bodyHeight = Math.max(bottomY - topY, 2);
@@ -218,7 +229,7 @@ function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, en
   context.restore();
 }
 
-function drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight) {
+function drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
   context.save();
   for (const note of model.notes) {
     const noteEndTimeSec = note.endTimeSec ?? note.timeSec;
@@ -230,11 +241,11 @@ function drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, end
       continue;
     }
 
-    const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight);
+    const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
     drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
 
     if (note.kind === "long" && Number.isFinite(note.endTimeSec) && shouldDrawLongEndCap(model, note)) {
-      const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight);
+      const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
       drawRectNote(context, lane, endHeadY, lane.note);
     }
   }
@@ -371,8 +382,8 @@ function getPopnNoteColor(slotIndex) {
   return POPN_LANE_COLORS.get(`p${slotIndex}`) ?? "#c4c4c4";
 }
 
-function timeToViewportY(eventTimeSec, selectedTimeSec, viewportHeight) {
-  return viewportHeight / 2 - (eventTimeSec - selectedTimeSec) * VIEWER_PIXELS_PER_SECOND;
+function timeToViewportY(eventTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond) {
+  return viewportHeight / 2 - (eventTimeSec - selectedTimeSec) * pixelsPerSecond;
 }
 
 function formatBpmMarkerLabel(bpm) {

@@ -64,6 +64,65 @@ test("BMS applies STOP timing", () => {
   assert.equal(result.score.notes[0].timeSec, 4.5);
 });
 
+test("BMS auto detects UTF-8 BOM charts", () => {
+  const chart = `\uFEFF#PLAYER 1\n#BPM 120\n#TITLE てすと\n#00111:01`;
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "auto",
+    sha256: "c".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.notes.length, 1);
+});
+
+test("BMS auto detects UTF-8 charts without BOM", () => {
+  const chart = "#PLAYER 1\n#BPM 120\n#TITLE てすと\n#00111:01";
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "auto",
+    sha256: "d".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.notes.length, 1);
+});
+
+test("BMS auto keeps Shift_JIS fallback", () => {
+  const chart = [
+    0x23, 0x50, 0x4c, 0x41, 0x59, 0x45, 0x52, 0x20, 0x31, 0x0a,
+    0x23, 0x42, 0x50, 0x4d, 0x20, 0x31, 0x32, 0x30, 0x0a,
+    0x23, 0x54, 0x49, 0x54, 0x4c, 0x45, 0x20, 0x82, 0xa0, 0x0a,
+    0x23, 0x30, 0x30, 0x31, 0x31, 0x31, 0x3a, 0x30, 0x31,
+  ];
+  const result = parseScoreBytes(new Uint8Array(chart), {
+    formatHint: "bms",
+    textEncoding: "auto",
+    sha256: "e".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.notes.length, 1);
+});
+
+test("BMS shift_jis explicit mode does not rescue UTF-8 BOM charts", () => {
+  const chart = `\uFEFF#PLAYER 1\n#BPM 120\n#00111:01`;
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "shift_jis",
+    sha256: "1".repeat(64),
+  });
+  assert.equal(result.ok, false);
+});
+
+test("BMS utf-8 explicit mode reads UTF-8 BOM charts", () => {
+  const chart = `\uFEFF#PLAYER 1\n#BPM 120\n#00111:01`;
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "2".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.notes.length, 1);
+});
+
 test("BMS parses dense repeated STOP objects without exploding timing cost", () => {
   const stopPayload = "01".repeat(192);
   const stopMeasures = Array.from(

@@ -1,7 +1,12 @@
 import { failure, normalizeParseOptions } from "./dto.js";
 import { parseBmsText } from "./bms/parser.js";
 import { parseBmsonText } from "./bmson/parser.js";
-import { decodeText, looksLikeBmsonText } from "./shared/encoding.js";
+import {
+  decodeText,
+  decodeTextWithoutUtf8Bom,
+  hasUtf8Bom,
+  looksLikeBmsonText,
+} from "./shared/encoding.js";
 import { createDeterministicRandomSelector } from "./shared/random.js";
 
 export function parseScoreBytes(bytes, options = {}) {
@@ -46,12 +51,12 @@ export function parseScoreBytes(bytes, options = {}) {
 }
 
 function decodeBmson(bytes) {
-  return decodeText(bytes, "utf-8");
+  return decodeTextWithoutUtf8Bom(bytes, "utf-8");
 }
 
 function decodeBms(bytes, textEncoding) {
   if (textEncoding === "utf-8") {
-    return decodeText(bytes, "utf-8");
+    return decodeTextWithoutUtf8Bom(bytes, "utf-8");
   }
   if (textEncoding !== "auto" && textEncoding !== "shift_jis") {
     return {
@@ -59,5 +64,18 @@ function decodeBms(bytes, textEncoding) {
       error: failure("invalid_options", `Unsupported BMS textEncoding: ${textEncoding}`).error,
     };
   }
-  return decodeText(bytes, "shift_jis");
+  if (textEncoding === "shift_jis") {
+    return decodeTextWithoutUtf8Bom(bytes, "shift_jis");
+  }
+
+  if (hasUtf8Bom(bytes)) {
+    return decodeTextWithoutUtf8Bom(bytes, "utf-8");
+  }
+
+  const decodedUtf8 = decodeTextWithoutUtf8Bom(bytes, "utf-8");
+  if (decodedUtf8.ok) {
+    return decodedUtf8;
+  }
+
+  return decodeTextWithoutUtf8Bom(bytes, "shift_jis");
 }

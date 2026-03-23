@@ -1,6 +1,7 @@
 import { createWarning, failure } from "../dto.js";
 
 const UTF8_BOM = "\uFEFF";
+const UTF8_BOM_BYTES = [0xef, 0xbb, 0xbf];
 
 function toUint8Array(bytes) {
   if (bytes instanceof Uint8Array) {
@@ -36,6 +37,25 @@ export function decodeText(bytes, encoding) {
       ],
     };
   }
+}
+
+export function hasUtf8Bom(bytes) {
+  const buffer = toUint8Array(bytes);
+  if (buffer === null || buffer.length < UTF8_BOM_BYTES.length) {
+    return false;
+  }
+  return UTF8_BOM_BYTES.every((value, index) => buffer[index] === value);
+}
+
+export function decodeTextWithoutUtf8Bom(bytes, encoding) {
+  const decoded = decodeText(bytes, encoding);
+  if (!decoded.ok) {
+    return decoded;
+  }
+  return {
+    ...decoded,
+    text: stripUtf8Bom(decoded.text),
+  };
 }
 
 export function stripUtf8Bom(text) {

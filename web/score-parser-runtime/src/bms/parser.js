@@ -37,7 +37,7 @@ export function parseBmsText(text, options) {
   const noteWarnings = [];
   const { notes, comboEvents, lastPlayableTimeSec } = buildNotes(timelineObjects, mode, chart.headers, noteWarnings);
   const barLines = buildBarLines(chart.timeSignatures, timing, timelineObjects);
-  const bpmChanges = buildBpmChanges(chart, timingWarnings);
+  const bpmChanges = buildBpmChanges(chart, timingWarnings, timing);
   const stops = buildStops(chart, timingWarnings, timing);
   const lastTimelineTimeSec = computeLastTimelineTimeSec(timelineObjects, notes, lastPlayableTimeSec);
 
@@ -65,6 +65,8 @@ function buildTiming(chart, warnings) {
   }
 
   const actions = [];
+  const extendedBpmCache = new Map();
+  const stopBeatsCache = new Map();
   for (const object of chart.objects) {
     const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
     if (object.channel === "03") {
@@ -77,8 +79,8 @@ function buildTiming(chart, warnings) {
       continue;
     }
     if (object.channel === "08") {
-      const bpm = Number.parseFloat(chart.headers.get(`BPM${object.value}`) ?? "");
-      if (Number.isFinite(bpm) && bpm > 0) {
+      const bpm = resolveExtendedBpm(chart.headers, object.value, extendedBpmCache);
+      if (bpm !== null) {
         actions.push({ type: "bpm", beat, bpm });
       } else {
         warnings.push(createWarning("parse_warning", `Ignored missing or invalid extended BPM reference BPM${object.value}.`));
@@ -86,9 +88,9 @@ function buildTiming(chart, warnings) {
       continue;
     }
     if (object.channel === "09") {
-      const stopValue = Number.parseFloat(chart.headers.get(`STOP${object.value}`) ?? "");
-      if (Number.isFinite(stopValue) && stopValue > 0) {
-        actions.push({ type: "stop", beat, stopBeats: stopValue / 48 });
+      const stopBeats = resolveStopBeats(chart.headers, object.value, stopBeatsCache);
+      if (stopBeats !== null) {
+        actions.push({ type: "stop", beat, stopBeats });
       } else {
         warnings.push(createWarning("parse_warning", `Ignored missing or invalid STOP reference STOP${object.value}.`));
       }
@@ -98,14 +100,14 @@ function buildTiming(chart, warnings) {
   return new Timing(initialBpm, actions);
 }
 
-function buildBpmChanges(chart, warnings) {
+function buildBpmChanges(chart, warnings, timing) {
   const changes = [];
-  const timing = buildTiming(chart, []);
   let currentBpm = Number.parseFloat(chart.headers.get("BPM") ?? "60");
   if (!Number.isFinite(currentBpm) || currentBpm <= 0) {
     currentBpm = 60;
   }
 
+  const extendedBpmCache = new Map();
   for (const object of chart.objects) {
     const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
     let nextBpm = null;
@@ -115,8 +117,8 @@ function buildBpmChanges(chart, warnings) {
         nextBpm = bpm;
       }
     } else if (object.channel === "08") {
-      const bpm = Number.parseFloat(chart.headers.get(`BPM${object.value}`) ?? "");
-      if (Number.isFinite(bpm) && bpm > 0) {
+      const bpm = resolveExtendedBpm(chart.headers, object.value, extendedBpmCache);
+      if (bpm !== null) {
         nextBpm = bpm;
       } else {
         warnings.push(createWarning("parse_warning", `Ignored invalid BPM change reference BPM${object.value}.`));
@@ -136,56 +138,47 @@ function buildBpmChanges(chart, warnings) {
 
 function buildStops(chart, warnings, timing) {
   const stops = [];
+  const stopBeatsCache = new Map();
   for (const object of chart.objects) {
     if (object.channel !== "09") {
       continue;
     }
-    const stopValue = Number.parseFloat(chart.headers.get(`STOP${object.value}`) ?? "");
-    if (!Number.isFinite(stopValue) || stopValue <= 0) {
+    const stopBeats = resolveStopBeats(chart.headers, object.value, stopBeatsCache);
+    if (stopBeats === null) {
       warnings.push(createWarning("parse_warning", `Ignored invalid STOP reference STOP${object.value}.`));
       continue;
     }
     const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
-    const bpm = effectiveBpmAtBeat(chart, beat);
+    const bpm = timing.getBpmAtBeat(beat);
     stops.push({
       timeSec: timing.beatToSeconds(beat),
-      durationSec: (stopValue / 48) * 60 / bpm,
+      durationSec: (stopBeats * 60) / bpm,
     });
   }
   stops.sort((left, right) => left.timeSec - right.timeSec);
   return stops;
 }
 
-function effectiveBpmAtBeat(chart, beat) {
-  let bpm = Number.parseFloat(chart.headers.get("BPM") ?? "60");
-  if (!Number.isFinite(bpm) || bpm <= 0) {
-    bpm = 60;
+function resolveExtendedBpm(headers, value, cache) {
+  if (cache.has(value)) {
+    return cache.get(value);
   }
 
-  const changes = [];
-  for (const object of chart.objects) {
-    const objectBeat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
-    if (objectBeat > beat) {
-      continue;
-    }
-    if (object.channel === "03") {
-      const nextBpm = Number.parseInt(object.value, 16);
-      if (Number.isFinite(nextBpm) && nextBpm > 0) {
-        changes.push({ beat: objectBeat, bpm: nextBpm });
-      }
-    } else if (object.channel === "08") {
-      const nextBpm = Number.parseFloat(chart.headers.get(`BPM${object.value}`) ?? "");
-      if (Number.isFinite(nextBpm) && nextBpm > 0) {
-        changes.push({ beat: objectBeat, bpm: nextBpm });
-      }
-    }
-  }
-
-  changes.sort((left, right) => left.beat - right.beat);
-  for (const change of changes) {
-    bpm = change.bpm;
-  }
+  const parsedValue = Number.parseFloat(headers.get(`BPM${value}`) ?? "");
+  const bpm = Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
+  cache.set(value, bpm);
   return bpm;
+}
+
+function resolveStopBeats(headers, value, cache) {
+  if (cache.has(value)) {
+    return cache.get(value);
+  }
+
+  const parsedValue = Number.parseFloat(headers.get(`STOP${value}`) ?? "");
+  const stopBeats = Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue / 48 : null;
+  cache.set(value, stopBeats);
+  return stopBeats;
 }
 
 function buildNotes(timelineObjects, mode, headers, warnings) {

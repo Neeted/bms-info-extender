@@ -64,6 +64,32 @@ test("BMS applies STOP timing", () => {
   assert.equal(result.score.notes[0].timeSec, 4.5);
 });
 
+test("BMS parses dense repeated STOP objects without exploding timing cost", () => {
+  const stopPayload = "01".repeat(192);
+  const stopMeasures = Array.from(
+    { length: 48 },
+    (_, index) => `#${String(index + 1).padStart(3, "0")}09:${stopPayload}`,
+  );
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#STOP01 24",
+    ...stopMeasures,
+    "#04911:01",
+  ].join("\n");
+
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "b".repeat(64),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.score.stops.length, 48 * 192);
+  assert.equal(result.score.notes.length, 1);
+  assert.ok(result.score.notes[0].timeSec > 0);
+});
+
 test("BMS long note combo events count only the start for LNMODE 1", () => {
   const chart = [
     "#PLAYER 1",

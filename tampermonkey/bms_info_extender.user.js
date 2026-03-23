@@ -91,6 +91,7 @@
   const STANDALONE_NOTE_HEAD_HEIGHT = 4;
   const STANDALONE_TEMPO_MARKER_HEIGHT = 1;
   const STANDALONE_TEMPO_LABEL_GAP = 8;
+  const STANDALONE_TEMPO_LABEL_MIN_GAP = 12;
   const STANDALONE_SCROLL_MULTIPLIER = 2;
   const STANDALONE_MIN_SPACING_SCALE = 0.5;
   const STANDALONE_MAX_SPACING_SCALE = 8.0;
@@ -2669,6 +2670,8 @@
       return [];
     }
     const markers = [];
+    let lastBpmLabelY = Number.POSITIVE_INFINITY;
+    let lastStopLabelY = Number.POSITIVE_INFINITY;
 
     context.save();
     context.fillStyle = STANDALONE_BPM_MARKER;
@@ -2678,15 +2681,18 @@
       }
       const y = standaloneTimeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
       context.fillRect(rightLane.x, Math.round(y - STANDALONE_TEMPO_MARKER_HEIGHT / 2), rightLane.width, STANDALONE_TEMPO_MARKER_HEIGHT);
-      markers.push({
-        type: "bpm",
-        timeSec: bpmChange.timeSec,
-        y,
-        label: trimDecimal(Number(bpmChange.bpm).toFixed(2)),
-        side: "right",
-        color: STANDALONE_BPM_MARKER,
-        x: rightLane.x + rightLane.width + STANDALONE_TEMPO_LABEL_GAP,
-      });
+      if (shouldKeepStandaloneTempoMarkerLabel(lastBpmLabelY, y)) {
+        markers.push({
+          type: "bpm",
+          timeSec: bpmChange.timeSec,
+          y,
+          label: trimDecimal(Number(bpmChange.bpm).toFixed(2)),
+          side: "right",
+          color: STANDALONE_BPM_MARKER,
+          x: rightLane.x + rightLane.width + STANDALONE_TEMPO_LABEL_GAP,
+        });
+        lastBpmLabelY = y;
+      }
     }
 
     context.fillStyle = STANDALONE_STOP_MARKER;
@@ -2696,19 +2702,26 @@
       }
       const y = standaloneTimeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
       context.fillRect(leftLane.x, Math.round(y - STANDALONE_TEMPO_MARKER_HEIGHT / 2), leftLane.width, STANDALONE_TEMPO_MARKER_HEIGHT);
-      markers.push({
-        type: "stop",
-        timeSec: stop.timeSec,
-        y,
-        label: `${trimDecimal(Number(stop.durationSec).toFixed(3))}s`,
-        side: "left",
-        color: STANDALONE_STOP_MARKER,
-        x: leftLane.x - STANDALONE_TEMPO_LABEL_GAP,
-      });
+      if (shouldKeepStandaloneTempoMarkerLabel(lastStopLabelY, y)) {
+        markers.push({
+          type: "stop",
+          timeSec: stop.timeSec,
+          y,
+          label: `${trimDecimal(Number(stop.durationSec).toFixed(3))}s`,
+          side: "left",
+          color: STANDALONE_STOP_MARKER,
+          x: leftLane.x - STANDALONE_TEMPO_LABEL_GAP,
+        });
+        lastStopLabelY = y;
+      }
     }
 
     context.restore();
     return markers;
+  }
+
+  function shouldKeepStandaloneTempoMarkerLabel(lastAcceptedY, nextY) {
+    return !Number.isFinite(lastAcceptedY) || Math.abs(nextY - lastAcceptedY) >= STANDALONE_TEMPO_LABEL_MIN_GAP;
   }
 
   function drawStandaloneLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {

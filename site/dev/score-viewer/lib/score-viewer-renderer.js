@@ -16,6 +16,7 @@ const MINE_COLOR = "#880000";
 const NOTE_HEAD_HEIGHT = 4;
 const TEMPO_MARKER_HEIGHT = 1;
 const TEMPO_LABEL_GAP = 8;
+const TEMPO_LABEL_MIN_GAP = 12;
 const JUDGE_LINE_SIDE_OVERHANG = FIXED_LANE_WIDTH * 3;
 
 const BEAT_LANE_COLORS = new Map([
@@ -161,6 +162,8 @@ function drawTempoMarkers(
     return [];
   }
   const markers = [];
+  let lastBpmLabelY = Number.POSITIVE_INFINITY;
+  let lastStopLabelY = Number.POSITIVE_INFINITY;
 
   context.save();
   context.fillStyle = BPM_MARKER;
@@ -175,15 +178,18 @@ function drawTempoMarkers(
       rightLane.width,
       TEMPO_MARKER_HEIGHT,
     );
-    markers.push({
-      type: "bpm",
-      timeSec: bpmChange.timeSec,
-      y,
-      label: formatBpmMarkerLabel(bpmChange.bpm),
-      side: "right",
-      color: BPM_MARKER,
-      x: rightLane.x + rightLane.width + TEMPO_LABEL_GAP,
-    });
+    if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
+      markers.push({
+        type: "bpm",
+        timeSec: bpmChange.timeSec,
+        y,
+        label: formatBpmMarkerLabel(bpmChange.bpm),
+        side: "right",
+        color: BPM_MARKER,
+        x: rightLane.x + rightLane.width + TEMPO_LABEL_GAP,
+      });
+      lastBpmLabelY = y;
+    }
   }
 
   context.fillStyle = STOP_MARKER;
@@ -198,19 +204,26 @@ function drawTempoMarkers(
       leftLane.width,
       TEMPO_MARKER_HEIGHT,
     );
-    markers.push({
-      type: "stop",
-      timeSec: stop.timeSec,
-      y,
-      label: formatStopMarkerLabel(stop.durationSec),
-      side: "left",
-      color: STOP_MARKER,
-      x: leftLane.x - TEMPO_LABEL_GAP,
-    });
+    if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
+      markers.push({
+        type: "stop",
+        timeSec: stop.timeSec,
+        y,
+        label: formatStopMarkerLabel(stop.durationSec),
+        side: "left",
+        color: STOP_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP,
+      });
+      lastStopLabelY = y;
+    }
   }
 
   context.restore();
   return markers;
+}
+
+function shouldKeepTempoMarkerLabel(lastAcceptedY, nextY) {
+  return !Number.isFinite(lastAcceptedY) || Math.abs(nextY - lastAcceptedY) >= TEMPO_LABEL_MIN_GAP;
 }
 
 function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {

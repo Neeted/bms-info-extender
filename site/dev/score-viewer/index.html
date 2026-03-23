@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Score Viewer Dev</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inconsolata&family=Noto+Sans+JP&display=swap">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -73,81 +74,13 @@
       <section class="panel diagnostics-panel">
         <div class="panel-header">
           <div>
-            <p class="panel-kicker">BMS Info Extender Harness</p>
-            <h2>Info Panel / Graph / Diagnostics</h2>
+            <p class="panel-kicker">Debug</p>
+            <h2>Parser Diagnostics</h2>
           </div>
           <div id="status-pill" class="status-pill status-idle">idle</div>
         </div>
 
         <div id="message-banner" class="message-banner" hidden></div>
-
-        <div class="subpanel info-preview-panel">
-          <div class="subpanel-header">
-            <h3>BMS Info Extender Preview</h3>
-            <span id="bms-info-status" class="subpanel-count status-idle">idle</span>
-          </div>
-
-          <div class="definition-grid info-preview-grid">
-            <div class="definition-item">
-              <span class="definition-label">SHA256</span>
-              <code id="bms-info-sha256">-</code>
-            </div>
-            <div class="definition-item">
-              <span class="definition-label">MD5</span>
-              <code id="bms-info-md5">-</code>
-            </div>
-            <div class="definition-item">
-              <span class="definition-label">Mode</span>
-              <code id="bms-info-mode">-</code>
-            </div>
-            <div class="definition-item">
-              <span class="definition-label">BPM</span>
-              <code id="bms-info-bpm">-</code>
-            </div>
-            <div class="definition-item">
-              <span class="definition-label">Notes</span>
-              <code id="bms-info-notes">-</code>
-            </div>
-            <div class="definition-item">
-              <span class="definition-label">Total</span>
-              <code id="bms-info-total">-</code>
-            </div>
-            <div class="definition-item">
-              <span class="definition-label">Density</span>
-              <code id="bms-info-density">-</code>
-            </div>
-            <div class="definition-item">
-              <span class="definition-label">Duration</span>
-              <code id="bms-info-duration">-</code>
-            </div>
-            <div class="definition-item">
-              <span class="definition-label">Judge</span>
-              <code id="bms-info-judge">-</code>
-            </div>
-            <div class="definition-item field-span-2">
-              <span class="definition-label">Features</span>
-              <code id="bms-info-features">-</code>
-            </div>
-          </div>
-
-          <div class="info-lanenotes-wrap">
-            <span class="definition-label">LANENOTES</span>
-            <div id="bms-info-lanenotes" class="info-lanenotes"></div>
-          </div>
-
-          <div class="info-graph-shell">
-            <label class="info-graph-pin">
-              <input id="graph-pin-input" type="checkbox">
-              <span>Pin the score viewer</span>
-            </label>
-            <div id="bms-info-graph-scroll" class="info-graph-scroll">
-              <canvas id="bms-info-graph-canvas"></canvas>
-            </div>
-            <div id="bms-info-graph-tooltip" class="info-graph-tooltip"></div>
-          </div>
-
-          <p id="bms-info-message" class="helper-note">Load a score to fetch BMS Info Extender panel data and enable graph hover/click synchronization.</p>
-        </div>
 
         <div class="definition-grid">
           <div class="definition-item">
@@ -234,12 +167,15 @@
       <section class="panel viewer-panel">
         <div class="panel-header">
           <div>
-            <p class="panel-kicker">Stage</p>
-            <h2>Canvas Viewer</h2>
+            <p class="panel-kicker">Preview</p>
+            <h2>Userscript Preview</h2>
           </div>
         </div>
 
-        <div id="viewer-stage" class="viewer-stage"></div>
+        <p class="helper-note preview-note">
+          この領域は userscript と同一 source から生成した preview runtime をそのまま mount します。上段 diagnostics と独立して、下半分の挙動一致を確認するための領域です。
+        </p>
+        <div id="preview-root" class="preview-root"></div>
 
         <div class="subpanel">
           <div class="subpanel-header">

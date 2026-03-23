@@ -23,6 +23,13 @@
 - 明示的に版番号を指定したときのみ `/score-parser/vx.x.x/` を参照する。
 - userscript や本番向け参照先は版固定を維持する。
 
+## preview runtime の共通化ルール
+- dev page の下半分 preview と userscript の preview は実装差を出さない。
+- preview の見た目・graph・hover/click/pin・score viewer 連携は共通 preview source を source of truth とする。
+- `site/dev/score-viewer/lib/generated/preview-runtime.generated.js` と userscript へ埋め込まれる generated preview runtime は手編集しない。
+- preview 挙動の修正は共通 preview source を直し、`script/build_preview_runtime.mjs` を実行して両出力を同期する。
+- preview を変更したら、少なくとも dev page と userscript の両方で同じ挙動になっているか確認する。
+
 ## リリース運用
 - `site/score-parser/vx.x.x/` の生成はリリース作業としてのみ行う。
 - 既存の `v*` snapshot は凍結扱いとし、通常の不具合修正では更新しない。

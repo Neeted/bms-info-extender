@@ -1,16 +1,14 @@
-import { createScoreViewerController } from "./lib/score-viewer-controller.js";
+import {
+  createBmsDataContainer,
+  createBmsInfoPreview,
+  fetchBmsInfoRecordByIdentifiers,
+} from "./lib/generated/preview-runtime.generated.js";
 import {
   createScoreViewerModel,
   getClampedSelectedTimeSec,
   getScoreTotalDurationSec,
   getViewerCursor,
 } from "./lib/score-viewer-model.js";
-import {
-  fetchBmsInfoRecord,
-  getLaneChipColor,
-  getLaneChipTextColor,
-} from "./lib/bms-info-data.js";
-import { createBmsInfoGraph } from "./lib/bms-info-graph.js";
 
 const DEFAULT_PARSER_VERSION = "current";
 const DEFAULT_SCORE_BASE_URL = "/score";
@@ -23,7 +21,6 @@ const PANEL_STATES = new Set(["idle", "loading", "ready", "error"]);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 const NEARBY_EVENT_WINDOW_SEC = 2.0;
 const MAX_NEARBY_EVENTS = 50;
-const MAX_PLAYBACK_DELTA_MS = 250;
 
 const elements = {
   form: document.getElementById("control-form"),
@@ -40,23 +37,6 @@ const elements = {
   reloadButton: document.getElementById("reload-button"),
   statusPill: document.getElementById("status-pill"),
   messageBanner: document.getElementById("message-banner"),
-  bmsInfoStatus: document.getElementById("bms-info-status"),
-  bmsInfoSha256: document.getElementById("bms-info-sha256"),
-  bmsInfoMd5: document.getElementById("bms-info-md5"),
-  bmsInfoMode: document.getElementById("bms-info-mode"),
-  bmsInfoBpm: document.getElementById("bms-info-bpm"),
-  bmsInfoNotes: document.getElementById("bms-info-notes"),
-  bmsInfoTotal: document.getElementById("bms-info-total"),
-  bmsInfoDensity: document.getElementById("bms-info-density"),
-  bmsInfoDuration: document.getElementById("bms-info-duration"),
-  bmsInfoJudge: document.getElementById("bms-info-judge"),
-  bmsInfoFeatures: document.getElementById("bms-info-features"),
-  bmsInfoLaneNotes: document.getElementById("bms-info-lanenotes"),
-  bmsInfoGraphScroll: document.getElementById("bms-info-graph-scroll"),
-  bmsInfoGraphCanvas: document.getElementById("bms-info-graph-canvas"),
-  bmsInfoGraphTooltip: document.getElementById("bms-info-graph-tooltip"),
-  bmsInfoMessage: document.getElementById("bms-info-message"),
-  graphPinInput: document.getElementById("graph-pin-input"),
   resolvedScoreUrl: document.getElementById("resolved-score-url"),
   loaderModuleUrl: document.getElementById("loader-module-url"),
   diagnosticParserVersion: document.getElementById("diagnostic-parser-version"),
@@ -74,7 +54,7 @@ const elements = {
   errorType: document.getElementById("error-type"),
   errorMessage: document.getElementById("error-message"),
   errorCause: document.getElementById("error-cause"),
-  viewerStage: document.getElementById("viewer-stage"),
+  previewRoot: document.getElementById("preview-root"),
   nearbyEventsWindow: document.getElementById("nearby-events-window"),
   nearbyEventsList: document.getElementById("nearby-events-list"),
 };
@@ -98,6 +78,8 @@ const state = {
   parsedScore: null,
   viewerModel: null,
   bmsDataRecord: null,
+  previewRuntime: null,
+  previewContainer: null,
   lastError: null,
   panelError: null,
   message: null,
@@ -110,52 +92,6 @@ const state = {
 
 let busyOperation = null;
 let activeRequestId = 0;
-let playbackFrameId = null;
-let lastPlaybackTimestamp = null;
-
-const viewerController = createScoreViewerController({
-  root: elements.viewerStage,
-  onTimeChange: (nextTimeSec) => {
-    setSelectedTimeSec(nextTimeSec, { openViewer: true });
-  },
-  onPlaybackToggle: (nextPlaying) => {
-    setPlaybackState(nextPlaying);
-  },
-});
-
-const bmsInfoGraph = createBmsInfoGraph({
-  scrollHost: elements.bmsInfoGraphScroll,
-  canvas: elements.bmsInfoGraphCanvas,
-  tooltip: elements.bmsInfoGraphTooltip,
-  pinInput: elements.graphPinInput,
-  onHoverTime: (nextTimeSec) => {
-    state.isGraphHovered = true;
-    if (state.isPlaying) {
-      return;
-    }
-    setSelectedTimeSec(nextTimeSec, { openViewer: true });
-  },
-  onHoverLeave: () => {
-    state.isGraphHovered = false;
-    if (!state.isPinned && !state.isPlaying) {
-      state.isViewerOpen = false;
-      render();
-    }
-  },
-  onSelectTime: (nextTimeSec) => {
-    state.isPinned = true;
-    setSelectedTimeSec(nextTimeSec, { openViewer: true });
-  },
-  onPinChange: (nextPinned) => {
-    state.isPinned = Boolean(nextPinned);
-    if (state.isPinned) {
-      state.isViewerOpen = true;
-    } else if (!state.isGraphHovered && !state.isPlaying) {
-      state.isViewerOpen = false;
-    }
-    render();
-  },
-});
 
 function formatSeconds(value) {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -298,7 +234,6 @@ function syncFormFromState() {
   elements.customScoreBaseUrlInput.value =
     state.scoreSourcePreset === PRESET_CUSTOM ? state.customScoreBaseUrl : state.scoreBaseUrl;
   elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
-  elements.graphPinInput.checked = state.isPinned;
   elements.customScoreBaseUrlInput.disabled = state.scoreSourcePreset !== PRESET_CUSTOM;
 }
 
@@ -339,6 +274,9 @@ function setSelectedTimeSec(nextValue, { openViewer = false, syncUrl = true } = 
   state.selectedTimeSec = normalizedValue;
   elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
   elements.timeRangeInput.value = String(state.selectedTimeSec);
+  if (state.previewRuntime) {
+    state.previewRuntime.setSelectedTimeSec(state.selectedTimeSec, { openViewer });
+  }
   if (syncUrl) {
     writeQueryState();
   }
@@ -346,87 +284,15 @@ function setSelectedTimeSec(nextValue, { openViewer = false, syncUrl = true } = 
 }
 
 function setPlaybackState(nextPlaying) {
-  if (!state.viewerModel || !state.parsedScore) {
-    stopPlayback({ renderAfter: false, syncUrl: false });
+  if (!state.previewRuntime || !state.viewerModel || !state.parsedScore) {
     state.isPlaying = false;
     render();
     return;
   }
-
-  if (nextPlaying) {
-    startPlayback();
-    return;
-  }
-
-  stopPlayback();
-}
-
-function startPlayback() {
-  if (!state.viewerModel || !state.parsedScore) {
-    return;
-  }
-
-  const maxTimeSec = getScoreTotalDurationSec(state.parsedScore);
-  if (maxTimeSec <= 0) {
-    return;
-  }
-
-  if (state.selectedTimeSec >= maxTimeSec - 0.0005) {
-    setSelectedTimeSec(0, { openViewer: true, syncUrl: false });
-  }
-
-  state.isPlaying = true;
-  state.isViewerOpen = true;
-  lastPlaybackTimestamp = null;
-  if (playbackFrameId !== null) {
-    cancelAnimationFrame(playbackFrameId);
-  }
+  state.isPlaying = Boolean(nextPlaying);
+  state.previewRuntime.setPlaybackState(state.isPlaying);
+  writeQueryState();
   render();
-  playbackFrameId = requestAnimationFrame(stepPlayback);
-}
-
-function stopPlayback({ renderAfter = true, syncUrl = true } = {}) {
-  if (playbackFrameId !== null) {
-    cancelAnimationFrame(playbackFrameId);
-    playbackFrameId = null;
-  }
-  lastPlaybackTimestamp = null;
-  const wasPlaying = state.isPlaying;
-  state.isPlaying = false;
-  if (syncUrl) {
-    writeQueryState();
-  }
-  if (renderAfter && wasPlaying) {
-    render();
-  }
-}
-
-function stepPlayback(timestamp) {
-  if (!state.isPlaying || !state.viewerModel || !state.parsedScore) {
-    playbackFrameId = null;
-    lastPlaybackTimestamp = null;
-    return;
-  }
-
-  if (lastPlaybackTimestamp === null || timestamp - lastPlaybackTimestamp > MAX_PLAYBACK_DELTA_MS) {
-    lastPlaybackTimestamp = timestamp;
-    playbackFrameId = requestAnimationFrame(stepPlayback);
-    return;
-  }
-
-  const deltaSec = (timestamp - lastPlaybackTimestamp) / 1000;
-  lastPlaybackTimestamp = timestamp;
-  const maxTimeSec = getScoreTotalDurationSec(state.parsedScore);
-  const nextTimeSec = Math.min(state.selectedTimeSec + deltaSec, maxTimeSec);
-  setSelectedTimeSec(nextTimeSec, { openViewer: true, syncUrl: false });
-
-  if (nextTimeSec >= maxTimeSec - 0.0005) {
-    stopPlayback({ renderAfter: false, syncUrl: true });
-    render();
-    return;
-  }
-
-  playbackFrameId = requestAnimationFrame(stepPlayback);
 }
 
 function getLoaderModuleUrl(parserVersion) {
@@ -479,7 +345,10 @@ function setMessage(kind, text) {
 }
 
 function resetDiagnosticsForNewTarget() {
-  stopPlayback({ renderAfter: false, syncUrl: false });
+  if (state.previewRuntime) {
+    state.previewRuntime.setPlaybackState(false);
+    state.previewRuntime.setRecord(null);
+  }
   state.compressedSource = null;
   state.parsedScore = null;
   state.viewerModel = null;
@@ -621,59 +490,100 @@ function renderDiagnostics() {
   elements.errorCause.textContent = summarizeErrorCause(state.lastError?.cause);
 }
 
-function renderBmsInfoPanel() {
-  const record = state.bmsDataRecord;
-  elements.bmsInfoStatus.textContent = state.panelLoadState;
-  elements.bmsInfoStatus.className = `subpanel-count status-${PANEL_STATES.has(state.panelLoadState) ? state.panelLoadState : "idle"}`;
-
-  elements.bmsInfoSha256.textContent = record?.sha256 ?? "-";
-  elements.bmsInfoMd5.textContent = record?.md5 ?? "-";
-  elements.bmsInfoMode.textContent = record ? String(record.mode) : "-";
-  elements.bmsInfoBpm.textContent = record
-    ? `MAIN ${formatCompactNumber(record.mainbpm)} / MIN ${formatCompactNumber(record.minbpm)} / MAX ${formatCompactNumber(record.maxbpm)}`
-    : "-";
-  elements.bmsInfoNotes.textContent = record?.notesStr ?? "-";
-  elements.bmsInfoTotal.textContent = record?.totalStr ?? "-";
-  elements.bmsInfoDensity.textContent = record
-    ? `AVG ${record.density.toFixed(3)} / PEAK ${formatCompactNumber(record.peakdensity)} / END ${formatCompactNumber(record.enddensity)}`
-    : "-";
-  elements.bmsInfoDuration.textContent = record?.durationStr ?? "-";
-  elements.bmsInfoJudge.textContent = record ? String(record.judge) : "-";
-  elements.bmsInfoFeatures.textContent = record?.featureNames?.length > 0 ? record.featureNames.join(", ") : "-";
-
-  renderLaneNotes(record);
-
-  if (state.panelLoadState === "loading") {
-    elements.bmsInfoMessage.textContent = "Fetching BMS Info Extender panel data and preparing graph hover synchronization.";
-  } else if (state.panelLoadState === "error") {
-    elements.bmsInfoMessage.textContent = state.panelError?.message ?? "Failed to load BMS Info Extender panel data.";
-  } else if (record) {
-    elements.bmsInfoMessage.textContent = state.isPinned
-      ? "Pinned. Scroll the score viewer or hover/click the graph to keep both red lines synchronized."
-      : "Hover the graph to open the score viewer. Click the graph or use the checkbox to pin it.";
-  } else {
-    elements.bmsInfoMessage.textContent = "Load a score to fetch BMS Info Extender panel data and enable graph hover/click synchronization.";
+function ensurePreviewRuntime() {
+  if (state.previewRuntime && state.previewContainer) {
+    return state.previewRuntime;
   }
 
-  bmsInfoGraph.setPinned(state.isPinned);
-  bmsInfoGraph.setSelectedTimeSec(state.selectedTimeSec);
-  bmsInfoGraph.setRecord(record);
+  elements.previewRoot.replaceChildren();
+  const previewContainer = createBmsDataContainer({
+    documentRef: document,
+    theme: { dctx: "#333", dcbk: "#fff", hdtx: "#eef", hdbk: "#669" },
+  });
+  elements.previewRoot.appendChild(previewContainer);
+
+  state.previewContainer = previewContainer;
+  state.previewRuntime = createBmsInfoPreview({
+    container: previewContainer,
+    documentRef: document,
+    loadParsedScore: async (record) => {
+      if (state.parsedScore && state.sha256 === record.sha256) {
+        return state.parsedScore;
+      }
+      const loaderContext = await getLoaderContext(state.parserVersion, state.scoreBaseUrl);
+      const parsedResult = await loaderContext.loader.loadParsedScore(record.sha256.toLowerCase());
+      return parsedResult.score;
+    },
+    prefetchParsedScore: async (record) => {
+      if (!record?.sha256) {
+        return;
+      }
+      const loaderContext = await getLoaderContext(state.parserVersion, state.scoreBaseUrl);
+      await loaderContext.loader.prefetchScore(record.sha256.toLowerCase());
+    },
+    onSelectedTimeChange: (nextTimeSec) => {
+      const changed = Math.abs(nextTimeSec - state.selectedTimeSec) >= 0.0005;
+      state.selectedTimeSec = nextTimeSec;
+      elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
+      elements.timeRangeInput.value = String(state.selectedTimeSec);
+      if (changed) {
+        writeQueryState();
+      }
+      renderDiagnostics();
+      renderNearbyEvents();
+    },
+    onPinChange: (nextPinned) => {
+      state.isPinned = Boolean(nextPinned);
+      writeQueryState();
+      renderDiagnostics();
+      renderControls();
+    },
+    onPlaybackChange: (nextPlaying) => {
+      state.isPlaying = Boolean(nextPlaying);
+      writeQueryState();
+      renderDiagnostics();
+    },
+    onViewerOpenChange: (nextOpen) => {
+      state.isViewerOpen = Boolean(nextOpen);
+      renderDiagnostics();
+    },
+    onRuntimeError: (error) => {
+      console.warn("Preview runtime error:", error);
+    },
+  });
+
+  return state.previewRuntime;
 }
 
-function renderLaneNotes(record) {
-  elements.bmsInfoLaneNotes.replaceChildren();
-  if (!record) {
+function renderPreviewPanel() {
+  const previewRuntime = ensurePreviewRuntime();
+  const previewState = previewRuntime.getState();
+  if (!state.bmsDataRecord) {
+    if (state.previewContainer) {
+      state.previewContainer.style.display = "none";
+    }
+    if (previewState.record) {
+      previewRuntime.setRecord(null);
+    }
     return;
   }
 
-  record.lanenotesArr.forEach((laneNotes, index) => {
-    const chip = document.createElement("span");
-    chip.className = "info-lane-chip";
-    chip.textContent = String(laneNotes[3]);
-    chip.style.backgroundColor = getLaneChipColor(record.mode, index);
-    chip.style.color = getLaneChipTextColor(record.mode, index);
-    elements.bmsInfoLaneNotes.appendChild(chip);
+  if (state.previewContainer) {
+    state.previewContainer.style.display = "block";
+  }
+  previewRuntime.setRecord(state.bmsDataRecord, {
+    parsedScore: state.parsedScore && state.sha256 === state.bmsDataRecord.sha256 ? state.parsedScore : null,
   });
+  if (previewState.isPinned !== state.isPinned) {
+    previewRuntime.setPinned(state.isPinned);
+  }
+  const shouldOpenViewer = state.isViewerOpen && !previewState.isViewerOpen;
+  if (Math.abs(previewState.selectedTimeSec - state.selectedTimeSec) >= 0.0005 || shouldOpenViewer) {
+    previewRuntime.setSelectedTimeSec(state.selectedTimeSec, { openViewer: shouldOpenViewer });
+  }
+  if (previewState.isPlaying !== state.isPlaying) {
+    previewRuntime.setPlaybackState(state.isPlaying);
+  }
 }
 
 function buildNearbyEvents(score, selectedTimeSec) {
@@ -803,29 +713,6 @@ function renderNearbyEvents() {
   }
 }
 
-function renderViewer() {
-  const hasScore = Boolean(state.parsedScore && state.viewerModel);
-  const shouldShowViewer = hasScore && state.isViewerOpen;
-
-  elements.viewerStage.classList.toggle("is-visible", shouldShowViewer);
-
-  if (!hasScore) {
-    viewerController.setPlaybackState(false);
-    viewerController.setPinned(state.isPinned);
-    viewerController.setOpen(false);
-    viewerController.setModel(null);
-    viewerController.setSelectedTimeSec(0);
-    return;
-  }
-
-  viewerController.setPlaybackState(state.isPlaying);
-  viewerController.setPinned(state.isPinned);
-  viewerController.setModel(state.viewerModel);
-  viewerController.setSelectedTimeSec(state.selectedTimeSec);
-
-  viewerController.setOpen(shouldShowViewer);
-}
-
 function renderSliderBounds() {
   const maxValue = state.parsedScore ? getScoreTotalDurationSec(state.parsedScore) : 10;
   elements.timeRangeInput.max = String(maxValue);
@@ -847,14 +734,12 @@ function renderControls() {
   elements.clearMemoryButton.disabled = isBusy;
   elements.clearIdbButton.disabled = isBusy;
   elements.reloadButton.disabled = isBusy;
-  elements.graphPinInput.disabled = isBusy || !state.bmsDataRecord;
 }
 
 function render() {
   renderControls();
   renderDiagnostics();
-  renderBmsInfoPanel();
-  renderViewer();
+  renderPreviewPanel();
   renderNearbyEvents();
 }
 
@@ -903,7 +788,7 @@ async function handleLoad({ clearCachesFirst = false } = {}) {
       return { compressedResult, decompressedResult, parsedResult };
     })();
 
-    const panelPromise = fetchBmsInfoRecord(normalizedSha256);
+    const panelPromise = fetchBmsInfoRecordByIdentifiers({ sha256: normalizedSha256 });
     const [scoreResult, panelResult] = await Promise.allSettled([scorePromise, panelPromise]);
 
     if (requestId !== activeRequestId) {

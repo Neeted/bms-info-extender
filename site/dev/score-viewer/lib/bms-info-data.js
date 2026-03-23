@@ -100,7 +100,11 @@ const POPN_LANE_COLORS = new Map([
 ]);
 
 export async function fetchBmsInfoRecord(sha256) {
-  const response = await fetch(`https://bms.howan.jp/${sha256}`);
+  return fetchBmsInfoRecordByLookupKey(sha256);
+}
+
+export async function fetchBmsInfoRecordByLookupKey(lookupKey) {
+  const response = await fetch(`https://bms.howan.jp/${lookupKey}`);
   if (!response.ok) {
     throw new Error(`Failed to fetch BMS data: HTTP ${response.status}`);
   }
@@ -155,12 +159,21 @@ export function normalizeBmsInfoRecord(rawRecord) {
     speedchange: rawRecord.speedchange,
     speedChangePoints: parseSpeedChange(rawRecord.speedchange),
     lanenotesArr: parseLaneNotes(mode, rawRecord.lanenotes),
+    tables: parseTables(rawRecord.tables),
     bmsid: Number(rawRecord.bmsid),
     stella: Number(rawRecord.stella),
     notesStr: `${notes} (N:${n}, LN:${ln}, SCR:${s}, LNSCR:${ls})`,
     totalStr: `${total % 1 === 0 ? Math.round(total) : total} (${notes > 0 ? (total / notes).toFixed(3) : "0.000"} T/N)`,
     durationStr: `${(lengthMs / 1000).toFixed(2)} s`,
   };
+}
+
+export function parseTables(tablesRaw) {
+  try {
+    return JSON.parse(tablesRaw);
+  } catch {
+    return [];
+  }
 }
 
 export function parseLaneNotes(mode, lanenotes) {

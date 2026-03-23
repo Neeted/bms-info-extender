@@ -199,7 +199,7 @@ button:hover:not(:disabled) {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.25fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -316,6 +316,16 @@ button:hover:not(:disabled) {
   margin: 14px 0 0;
   color: var(--text-muted);
   line-height: 1.6;
+}
+
+.preview-note {
+  margin-bottom: 16px;
+}
+
+.preview-root {
+  min-height: 240px;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .info-lanenotes-wrap {
@@ -804,7 +814,7 @@ button:hover:not(:disabled) {
     grid-template-columns: 1fr;
   }
 
-  .viewer-stage {
+  .preview-root {
     min-height: 400px;
   }
 

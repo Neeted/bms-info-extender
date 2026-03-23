@@ -163,10 +163,11 @@
     .bd-table-list li { margin-bottom: 0.2rem; line-height: 1rem; font-size: 0.875rem; white-space: nowrap; list-style-type: none; }
     #bd-graph { position: relative; padding: 0px; border-width: 0px; background-color: #000; overflow-x: auto; line-height: 0; scrollbar-color: var(--bd-hdbk) black; scrollbar-width: thin; }
     #bd-graph-canvas { background-color: #000; }
-    #bd-graph-tooltip { line-height: 1rem; position: fixed; background: rgba(32, 32, 64, 0.8); color: #fff; padding: 4px 8px; font-size: 0.875rem; pointer-events: none; border-radius: 4px; display: none; z-index: 10; white-space: nowrap; }
-    .bd-scoreviewer-pin { position: absolute; top: 4px; left: 4px; display: inline-flex; align-items: center; gap: 0.35rem; padding: 4px 8px; border-radius: 4px; background: rgba(32, 32, 64, 0.8); color: #fff; font-size: 0.875rem; z-index: 2; }
+    #bd-graph-tooltip { line-height: 1.25; position: fixed; background: rgba(32, 32, 64, 0.88); color: #fff; padding: 4px 8px; font-size: 0.8125rem; pointer-events: none; border-radius: 6px; display: none; z-index: 10; white-space: nowrap; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22); }
+    .bd-scoreviewer-pin { position: absolute; top: 4px; left: 4px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-sizing: border-box; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22); z-index: 2; }
     .bd-scoreviewer-pin * { background: transparent; color: #fff; font-family: "Inconsolata", "Noto Sans JP"; }
-    .bd-scoreviewer-pin input { margin: 0; }
+    .bd-scoreviewer-pin input { width: auto; flex: 0 0 auto; min-height: auto; margin: 0; padding: 0; border: none; background: transparent; accent-color: #ffffff; }
+    .bd-scoreviewer-pin span { display: inline-block; line-height: 1.25; white-space: nowrap; }
     .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; }
     .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
     .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; }
@@ -178,17 +179,18 @@
     .score-viewer-marker-label { position: absolute; top: 0; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1; white-space: nowrap; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.72); }
     .score-viewer-marker-label.is-left { transform: translate(-100%, -50%); text-align: right; }
     .score-viewer-marker-label.is-right { transform: translate(0, -50%); text-align: left; }
-    .score-viewer-bottom-bar { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 3; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; pointer-events: none; }
-    .score-viewer-chip { display: inline-flex; align-items: center; min-height: 34px; padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.875rem; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); pointer-events: auto; }
-    .score-viewer-chip.is-primary { gap: 10px; }
-    .score-viewer-chip.is-compact { min-width: 70px; justify-content: center; }
-    .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.76rem; line-height: 1; pointer-events: auto; cursor: pointer; }
+    .score-viewer-bottom-bar { position: absolute; left: 12px; bottom: 12px; z-index: 3; pointer-events: none; }
+    .score-viewer-status-panel { display: grid; gap: 4px; min-width: 180px; padding: 8px 10px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); pointer-events: auto; }
+    .score-viewer-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .score-viewer-status-row.is-time { justify-content: flex-start; gap: 8px; }
+    .score-viewer-status-metric { font-variant-numeric: tabular-nums; }
+    .score-viewer-spacing-row { padding-top: 2px; }
+    .score-viewer-spacing-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
+    .score-viewer-spacing-value { margin-left: auto; color: #fff; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+    .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
     .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
     .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
-    .score-viewer-spacing-panel { display: grid; gap: 6px; min-width: 160px; flex: 1 1 180px; }
-    .score-viewer-spacing-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
-    .score-viewer-spacing-value { color: #fff; letter-spacing: 0.02em; }
-    .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; }
+    .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; pointer-events: auto; }
     .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: 50%; display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
     .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
     .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
@@ -2185,7 +2187,7 @@
       if (!state.viewerModel || !state.parsedScore) {
         return;
       }
-      const maxTimeSec = Math.max(state.parsedScore.lastPlayableTimeSec, 0);
+      const maxTimeSec = getStandaloneScoreTotalDurationSec(state.parsedScore);
       if (maxTimeSec <= 0) {
         return;
       }
@@ -2228,7 +2230,7 @@
       }
       const deltaSec = (timestamp - lastPlaybackTimestamp) / 1000;
       lastPlaybackTimestamp = timestamp;
-      const maxTimeSec = Math.max(state.parsedScore.lastPlayableTimeSec, 0);
+      const maxTimeSec = getStandaloneScoreTotalDurationSec(state.parsedScore);
       const nextTimeSec = Math.min(state.selectedTimeSec + deltaSec, maxTimeSec);
       state.selectedTimeSec = nextTimeSec;
       render();
@@ -2316,12 +2318,22 @@
     };
   }
 
+  function getStandaloneScoreTotalDurationSec(score) {
+    if (!score || typeof score !== "object") {
+      return 0;
+    }
+    const totalDurationSec = Number.isFinite(score.totalDurationSec) ? score.totalDurationSec : null;
+    const lastTimelineTimeSec = Number.isFinite(score.lastTimelineTimeSec) ? score.lastTimelineTimeSec : null;
+    const lastPlayableTimeSec = Number.isFinite(score.lastPlayableTimeSec) ? score.lastPlayableTimeSec : 0;
+    return Math.max(totalDurationSec ?? lastTimelineTimeSec ?? lastPlayableTimeSec, 0);
+  }
+
   function getStandaloneClampedSelectedTimeSec(model, timeSec) {
     if (!model) {
       return 0;
     }
     const numericValue = Number.isFinite(timeSec) ? timeSec : 0;
-    return clampValue(numericValue, 0, model.score.lastPlayableTimeSec);
+    return clampValue(numericValue, 0, getStandaloneScoreTotalDurationSec(model.score));
   }
 
   function getStandaloneContentHeightPx(model, viewportHeight, pixelsPerSecond = STANDALONE_DEFAULT_VIEWER_PIXELS_PER_SECOND) {
@@ -2330,7 +2342,7 @@
     }
     return Math.max(
       Math.max(1, viewportHeight),
-      Math.ceil(model.score.lastPlayableTimeSec * pixelsPerSecond + viewportHeight),
+      Math.ceil(getStandaloneScoreTotalDurationSec(model.score) * pixelsPerSecond + viewportHeight),
     );
   }
 
@@ -2364,7 +2376,7 @@
     const overscanSec = Math.max(halfViewportSec * 0.35, 0.75);
     return {
       startTimeSec: Math.max(0, clampedTimeSec - halfViewportSec - overscanSec),
-      endTimeSec: Math.min(model.score.lastPlayableTimeSec, clampedTimeSec + halfViewportSec + overscanSec),
+      endTimeSec: Math.min(getStandaloneScoreTotalDurationSec(model.score), clampedTimeSec + halfViewportSec + overscanSec),
     };
   }
 
@@ -2373,17 +2385,27 @@
       return {
         timeSec: 0,
         measureIndex: 0,
+        totalMeasureIndex: 0,
         comboCount: 0,
         totalCombo: 0,
       };
     }
     const clampedTimeSec = getStandaloneClampedSelectedTimeSec(model, selectedTimeSec);
+    const totalMeasureIndex = getStandaloneTotalMeasureIndex(model);
     return {
       timeSec: clampedTimeSec,
-      measureIndex: getMeasureIndexAtTime(model, clampedTimeSec),
+      measureIndex: Math.min(getMeasureIndexAtTime(model, clampedTimeSec), totalMeasureIndex),
+      totalMeasureIndex,
       comboCount: getComboCountAtTime(model, clampedTimeSec),
       totalCombo: model.totalCombo,
     };
+  }
+
+  function getStandaloneTotalMeasureIndex(model) {
+    if (!model || model.barLines.length === 0) {
+      return 0;
+    }
+    return Math.max(model.barLines.length - 2, 0);
   }
 
   function getMeasureIndexAtTime(model, timeSec) {
@@ -2877,8 +2899,11 @@
     const bottomBar = document.createElement("div");
     bottomBar.className = "score-viewer-bottom-bar";
 
-    const primaryChip = document.createElement("div");
-    primaryChip.className = "score-viewer-chip is-primary";
+    const statusPanel = document.createElement("div");
+    statusPanel.className = "score-viewer-status-panel";
+
+    const playbackRow = document.createElement("div");
+    playbackRow.className = "score-viewer-status-row is-time";
 
     const playbackButton = document.createElement("button");
     playbackButton.className = "score-viewer-playback-button";
@@ -2888,24 +2913,24 @@
 
     const playbackTime = document.createElement("span");
     playbackTime.className = "score-viewer-playback-time";
-    primaryChip.append(playbackButton, playbackTime);
+    playbackRow.append(playbackButton, playbackTime);
 
-    const measureChip = document.createElement("div");
-    measureChip.className = "score-viewer-chip is-compact";
+    const measureRow = document.createElement("div");
+    measureRow.className = "score-viewer-status-row score-viewer-status-metric";
 
-    const comboChip = document.createElement("div");
-    comboChip.className = "score-viewer-chip is-compact";
+    const comboRow = document.createElement("div");
+    comboRow.className = "score-viewer-status-row score-viewer-status-metric";
 
-    const spacingPanel = document.createElement("div");
-    spacingPanel.className = "score-viewer-chip score-viewer-spacing-panel";
+    const spacingRow = document.createElement("div");
+    spacingRow.className = "score-viewer-status-row score-viewer-spacing-row";
 
-    const spacingLabel = document.createElement("label");
-    spacingLabel.className = "score-viewer-spacing-label";
-    spacingLabel.textContent = "SPACING";
+    const spacingTitle = document.createElement("span");
+    spacingTitle.className = "score-viewer-spacing-title";
+    spacingTitle.textContent = "Spacing";
 
     const spacingValue = document.createElement("span");
     spacingValue.className = "score-viewer-spacing-value";
-    spacingLabel.appendChild(spacingValue);
+    spacingRow.append(spacingTitle, spacingValue);
 
     const spacingInput = document.createElement("input");
     spacingInput.className = "score-viewer-spacing-input";
@@ -2915,8 +2940,8 @@
     spacingInput.step = String(STANDALONE_SPACING_STEP);
     spacingInput.value = String(STANDALONE_DEFAULT_SPACING_SCALE);
 
-    spacingPanel.append(spacingLabel, spacingInput);
-    bottomBar.append(primaryChip, measureChip, comboChip, spacingPanel);
+    statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput);
+    bottomBar.append(statusPanel);
 
     const judgeLine = document.createElement("div");
     judgeLine.className = "score-viewer-judge-line";
@@ -3104,9 +3129,9 @@
       playbackButton.disabled = !state.model;
       playbackButton.textContent = state.isPlaying ? "❚❚" : "▶";
       playbackButton.setAttribute("aria-label", state.isPlaying ? "Pause score viewer" : "Play score viewer");
-      playbackTime.textContent = `${cursor.timeSec.toFixed(3)} s`;
-      measureChip.textContent = `M ${cursor.measureIndex}`;
-      comboChip.textContent = `C ${cursor.comboCount}/${cursor.totalCombo}`;
+      playbackTime.textContent = `${formatStandalonePlaybackTime(cursor.timeSec)} s`;
+      measureRow.textContent = `Measure: ${formatStandaloneMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`;
+      comboRow.textContent = `Combo: ${cursor.comboCount}/${cursor.totalCombo}`;
       spacingValue.textContent = formatSpacingScale(state.spacingScale);
       spacingInput.value = String(state.spacingScale);
 
@@ -3236,6 +3261,22 @@
 
   function formatSpacingScale(value) {
     return `${clampScale(value).toFixed(2)}x`;
+  }
+
+  function formatStandalonePlaybackTime(timeSec) {
+    const safeTimeSec = Number.isFinite(timeSec) ? Math.max(timeSec, 0) : 0;
+    const [secondsPart, fractionPart] = safeTimeSec.toFixed(3).split(".");
+    return `${secondsPart.padStart(2, "0")}.${fractionPart}`;
+  }
+
+  function formatStandaloneMeasureCounter(currentMeasureIndex, totalMeasureIndex) {
+    const safeTotalMeasureIndex = Math.max(0, Math.floor(Number.isFinite(totalMeasureIndex) ? totalMeasureIndex : 0));
+    const safeCurrentMeasureIndex = Math.min(
+      Math.max(0, Math.floor(Number.isFinite(currentMeasureIndex) ? currentMeasureIndex : 0)),
+      safeTotalMeasureIndex,
+    );
+    const digits = Math.max(3, String(safeTotalMeasureIndex).length);
+    return `${String(safeCurrentMeasureIndex).padStart(digits, "0")}/${String(safeTotalMeasureIndex).padStart(digits, "0")}`;
   }
 
   function clampValue(value, minValue, maxValue) {

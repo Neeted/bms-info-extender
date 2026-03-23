@@ -36,12 +36,22 @@ export function createScoreViewerModel(score) {
   };
 }
 
+export function getScoreTotalDurationSec(score) {
+  if (!score || typeof score !== "object") {
+    return 0;
+  }
+  const totalDurationSec = Number.isFinite(score.totalDurationSec) ? score.totalDurationSec : null;
+  const lastTimelineTimeSec = Number.isFinite(score.lastTimelineTimeSec) ? score.lastTimelineTimeSec : null;
+  const lastPlayableTimeSec = Number.isFinite(score.lastPlayableTimeSec) ? score.lastPlayableTimeSec : 0;
+  return Math.max(totalDurationSec ?? lastTimelineTimeSec ?? lastPlayableTimeSec, 0);
+}
+
 export function getClampedSelectedTimeSec(model, timeSec) {
   if (!model) {
     return 0;
   }
   const numericValue = Number.isFinite(timeSec) ? timeSec : 0;
-  return clamp(numericValue, 0, model.score.lastPlayableTimeSec);
+  return clamp(numericValue, 0, getScoreTotalDurationSec(model.score));
 }
 
 export function getContentHeightPx(model, viewportHeight, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
@@ -50,7 +60,7 @@ export function getContentHeightPx(model, viewportHeight, pixelsPerSecond = DEFA
   }
   return Math.max(
     Math.max(1, viewportHeight),
-    Math.ceil(model.score.lastPlayableTimeSec * pixelsPerSecond + viewportHeight),
+    Math.ceil(getScoreTotalDurationSec(model.score) * pixelsPerSecond + viewportHeight),
   );
 }
 
@@ -84,7 +94,7 @@ export function getVisibleTimeRange(
   const overscanSec = Math.max(halfViewportSec * 0.35, 0.75);
   return {
     startTimeSec: Math.max(0, clampedTimeSec - halfViewportSec - overscanSec),
-    endTimeSec: Math.min(model.score.lastPlayableTimeSec, clampedTimeSec + halfViewportSec + overscanSec),
+    endTimeSec: Math.min(getScoreTotalDurationSec(model.score), clampedTimeSec + halfViewportSec + overscanSec),
   };
 }
 
@@ -93,15 +103,18 @@ export function getViewerCursor(model, selectedTimeSec) {
     return {
       timeSec: 0,
       measureIndex: 0,
+      totalMeasureIndex: 0,
       comboCount: 0,
       totalCombo: 0,
     };
   }
 
   const clampedTimeSec = getClampedSelectedTimeSec(model, selectedTimeSec);
+  const totalMeasureIndex = getTotalMeasureIndex(model);
   return {
     timeSec: clampedTimeSec,
-    measureIndex: getMeasureIndexAtTime(model, clampedTimeSec),
+    measureIndex: Math.min(getMeasureIndexAtTime(model, clampedTimeSec), totalMeasureIndex),
+    totalMeasureIndex,
     comboCount: getComboCountAtTime(model, clampedTimeSec),
     totalCombo: model.totalCombo,
   };
@@ -113,6 +126,13 @@ export function getMeasureIndexAtTime(model, timeSec) {
   }
   const index = upperBoundByTime(model.barLines, timeSec) - 1;
   return Math.max(0, index);
+}
+
+function getTotalMeasureIndex(model) {
+  if (!model || model.barLines.length === 0) {
+    return 0;
+  }
+  return Math.max(model.barLines.length - 2, 0);
 }
 
 export function getComboCountAtTime(model, timeSec) {

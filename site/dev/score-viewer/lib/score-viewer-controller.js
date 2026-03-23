@@ -42,8 +42,11 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
   const bottomBar = document.createElement("div");
   bottomBar.className = "score-viewer-bottom-bar";
 
-  const primaryChip = document.createElement("div");
-  primaryChip.className = "score-viewer-chip is-primary";
+  const statusPanel = document.createElement("div");
+  statusPanel.className = "score-viewer-status-panel";
+
+  const playbackRow = document.createElement("div");
+  playbackRow.className = "score-viewer-status-row is-time";
 
   const playbackButton = document.createElement("button");
   playbackButton.className = "score-viewer-playback-button";
@@ -54,24 +57,24 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
   const playbackTime = document.createElement("span");
   playbackTime.className = "score-viewer-playback-time";
 
-  primaryChip.append(playbackButton, playbackTime);
+  playbackRow.append(playbackButton, playbackTime);
 
-  const measureChip = document.createElement("div");
-  measureChip.className = "score-viewer-chip is-compact";
+  const measureRow = document.createElement("div");
+  measureRow.className = "score-viewer-status-row score-viewer-status-metric";
 
-  const comboChip = document.createElement("div");
-  comboChip.className = "score-viewer-chip is-compact";
+  const comboRow = document.createElement("div");
+  comboRow.className = "score-viewer-status-row score-viewer-status-metric";
 
-  const spacingPanel = document.createElement("div");
-  spacingPanel.className = "score-viewer-chip score-viewer-spacing-panel";
+  const spacingRow = document.createElement("div");
+  spacingRow.className = "score-viewer-status-row score-viewer-spacing-row";
 
-  const spacingLabel = document.createElement("label");
-  spacingLabel.className = "score-viewer-spacing-label";
-  spacingLabel.textContent = "SPACING";
+  const spacingTitle = document.createElement("span");
+  spacingTitle.className = "score-viewer-spacing-title";
+  spacingTitle.textContent = "Spacing";
 
   const spacingValue = document.createElement("span");
   spacingValue.className = "score-viewer-spacing-value";
-  spacingLabel.appendChild(spacingValue);
+  spacingRow.append(spacingTitle, spacingValue);
 
   const spacingInput = document.createElement("input");
   spacingInput.className = "score-viewer-spacing-input";
@@ -81,8 +84,8 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
   spacingInput.step = String(SPACING_STEP);
   spacingInput.value = String(DEFAULT_SPACING_SCALE);
 
-  spacingPanel.append(spacingLabel, spacingInput);
-  bottomBar.append(primaryChip, measureChip, comboChip, spacingPanel);
+  statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput);
+  bottomBar.append(statusPanel);
 
   const judgeLine = document.createElement("div");
   judgeLine.className = "score-viewer-judge-line";
@@ -272,9 +275,9 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     playbackButton.disabled = !state.model;
     playbackButton.textContent = state.isPlaying ? "❚❚" : "▶";
     playbackButton.setAttribute("aria-label", state.isPlaying ? "Pause score viewer" : "Play score viewer");
-    playbackTime.textContent = `${cursor.timeSec.toFixed(3)} s`;
-    measureChip.textContent = `M ${cursor.measureIndex}`;
-    comboChip.textContent = `C ${cursor.comboCount}/${cursor.totalCombo}`;
+    playbackTime.textContent = `${formatPlaybackTime(cursor.timeSec)} s`;
+    measureRow.textContent = `Measure: ${formatMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`;
+    comboRow.textContent = `Combo: ${cursor.comboCount}/${cursor.totalCombo}`;
     spacingValue.textContent = formatSpacingScale(state.spacingScale);
     spacingInput.value = String(state.spacingScale);
 
@@ -416,4 +419,20 @@ function clampScale(value) {
 
 function formatSpacingScale(value) {
   return `${clampScale(value).toFixed(2)}x`;
+}
+
+function formatPlaybackTime(timeSec) {
+  const safeTimeSec = Number.isFinite(timeSec) ? Math.max(timeSec, 0) : 0;
+  const [secondsPart, fractionPart] = safeTimeSec.toFixed(3).split(".");
+  return `${secondsPart.padStart(2, "0")}.${fractionPart}`;
+}
+
+function formatMeasureCounter(currentMeasureIndex, totalMeasureIndex) {
+  const safeTotalMeasureIndex = Math.max(0, Math.floor(Number.isFinite(totalMeasureIndex) ? totalMeasureIndex : 0));
+  const safeCurrentMeasureIndex = Math.min(
+    Math.max(0, Math.floor(Number.isFinite(currentMeasureIndex) ? currentMeasureIndex : 0)),
+    safeTotalMeasureIndex,
+  );
+  const digits = Math.max(3, String(safeTotalMeasureIndex).length);
+  return `${String(safeCurrentMeasureIndex).padStart(digits, "0")}/${String(safeTotalMeasureIndex).padStart(digits, "0")}`;
 }

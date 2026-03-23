@@ -2,6 +2,7 @@ import { createScoreViewerController } from "./lib/score-viewer-controller.js";
 import {
   createScoreViewerModel,
   getClampedSelectedTimeSec,
+  getScoreTotalDurationSec,
   getViewerCursor,
 } from "./lib/score-viewer-model.js";
 import {
@@ -316,7 +317,7 @@ function getNormalizedSelectedTimeSec(value) {
     return getClampedSelectedTimeSec(state.viewerModel, value);
   }
   if (state.parsedScore) {
-    return clamp(value, 0, Math.max(state.parsedScore.lastPlayableTimeSec, 0));
+    return clamp(value, 0, getScoreTotalDurationSec(state.parsedScore));
   }
   return Math.max(0, value);
 }
@@ -365,7 +366,7 @@ function startPlayback() {
     return;
   }
 
-  const maxTimeSec = Math.max(state.parsedScore.lastPlayableTimeSec, 0);
+  const maxTimeSec = getScoreTotalDurationSec(state.parsedScore);
   if (maxTimeSec <= 0) {
     return;
   }
@@ -415,7 +416,7 @@ function stepPlayback(timestamp) {
 
   const deltaSec = (timestamp - lastPlaybackTimestamp) / 1000;
   lastPlaybackTimestamp = timestamp;
-  const maxTimeSec = Math.max(state.parsedScore.lastPlayableTimeSec, 0);
+  const maxTimeSec = getScoreTotalDurationSec(state.parsedScore);
   const nextTimeSec = Math.min(state.selectedTimeSec + deltaSec, maxTimeSec);
   setSelectedTimeSec(nextTimeSec, { openViewer: true, syncUrl: false });
 
@@ -583,7 +584,7 @@ function renderDiagnostics() {
     ? `${state.parsedScore.format} / ${state.parsedScore.mode} / ${formatInteger(state.parsedScore.laneCount)} lanes`
     : "-";
   elements.lastPlayableDuration.textContent = state.parsedScore ? formatSeconds(state.parsedScore.lastPlayableTimeSec) : "-";
-  elements.totalDuration.textContent = state.parsedScore ? formatSeconds(state.parsedScore.lastTimelineTimeSec) : "-";
+  elements.totalDuration.textContent = state.parsedScore ? formatSeconds(getScoreTotalDurationSec(state.parsedScore)) : "-";
   elements.comboTotalDiagnostic.textContent = cursor ? formatInteger(cursor.totalCombo) : "-";
   elements.currentComboDiagnostic.textContent = cursor ? formatInteger(cursor.comboCount) : "-";
   elements.eventCounts.textContent = getEventCountsLabel(state.parsedScore);
@@ -813,7 +814,7 @@ function renderViewer() {
 }
 
 function renderSliderBounds() {
-  const maxValue = state.parsedScore ? Math.max(state.parsedScore.lastPlayableTimeSec, 0) : 10;
+  const maxValue = state.parsedScore ? getScoreTotalDurationSec(state.parsedScore) : 10;
   elements.timeRangeInput.max = String(maxValue);
   elements.timeNumberInput.min = "0";
   if (state.parsedScore) {

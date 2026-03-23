@@ -4,11 +4,13 @@ import test from "node:test";
 import {
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
   createScoreViewerModel,
+  getClampedSelectedTimeSec,
   getComboCountAtTime,
   getContentHeightPx,
   getMeasureIndexAtTime,
   getScrollTopForTimeSec,
   getTimeSecForScrollTop,
+  getVisibleTimeRange,
   getViewerCursor,
 } from "./score-viewer-model.js";
 
@@ -16,6 +18,7 @@ test("viewer model resolves measure and combo positions from comboEvents and bar
   const model = createScoreViewerModel({
     mode: "7k",
     laneCount: 8,
+    totalDurationSec: 12,
     lastPlayableTimeSec: 10,
     lastTimelineTimeSec: 12,
     noteCounts: { visible: 3, normal: 2, long: 1, invisible: 0, mine: 0, all: 3 },
@@ -43,14 +46,29 @@ test("viewer model resolves measure and combo positions from comboEvents and bar
 
   const cursor = getViewerCursor(model, 3);
   assert.equal(cursor.measureIndex, 1);
+  assert.equal(cursor.totalMeasureIndex, 1);
   assert.equal(cursor.comboCount, 3);
   assert.equal(cursor.totalCombo, 3);
+
+  const endCursor = getViewerCursor(model, 10);
+  assert.equal(endCursor.measureIndex, 1);
+  assert.equal(endCursor.totalMeasureIndex, 1);
+
+  const totalDurationCursor = getViewerCursor(model, 11.75);
+  assert.equal(totalDurationCursor.timeSec, 11.75);
+  assert.equal(totalDurationCursor.measureIndex, 1);
+  assert.equal(totalDurationCursor.comboCount, 3);
+  assert.equal(getClampedSelectedTimeSec(model, 20), 12);
+  assert.equal(getVisibleTimeRange(model, 11.8, 480).endTimeSec, 12);
+  assert.equal(getContentHeightPx(model, 480, DEFAULT_VIEWER_PIXELS_PER_SECOND), 12 * DEFAULT_VIEWER_PIXELS_PER_SECOND + 480);
+  assert.equal(getScrollTopForTimeSec(model, 20, 480, DEFAULT_VIEWER_PIXELS_PER_SECOND), 12 * DEFAULT_VIEWER_PIXELS_PER_SECOND);
 });
 
 test("viewer model scroll mapping keeps selectedTimeSec centered", () => {
   const model = createScoreViewerModel({
     mode: "popn-9k",
     laneCount: 9,
+    totalDurationSec: 20,
     lastPlayableTimeSec: 20,
     lastTimelineTimeSec: 20,
     noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
@@ -73,6 +91,7 @@ test("viewer model scroll mapping respects custom pixelsPerSecond", () => {
   const model = createScoreViewerModel({
     mode: "7k",
     laneCount: 8,
+    totalDurationSec: 20,
     lastPlayableTimeSec: 20,
     lastTimelineTimeSec: 20,
     noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },

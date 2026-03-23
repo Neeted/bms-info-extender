@@ -14,3 +14,10 @@ for = "/score-parser/v*/*"
 [headers.values]
 Access-Control-Allow-Origin = "*"
 Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+for = "/score-parser/current/*"
+
+[headers.values]
+Access-Control-Allow-Origin = "*"
+Cache-Control = "public, max-age=0, must-revalidate"

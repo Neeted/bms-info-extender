@@ -11,7 +11,7 @@ import {
 } from "./lib/bms-info-data.js";
 import { createBmsInfoGraph } from "./lib/bms-info-graph.js";
 
-const DEFAULT_PARSER_VERSION = "0.4.0";
+const DEFAULT_PARSER_VERSION = "current";
 const DEFAULT_SCORE_BASE_URL = "/score";
 const PRODUCTION_SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
 const PRESET_CURRENT = "current";
@@ -429,6 +429,9 @@ function stepPlayback(timestamp) {
 }
 
 function getLoaderModuleUrl(parserVersion) {
+  if (parserVersion === "current") {
+    return new URL("/score-parser/current/score_loader.js", location.origin).href;
+  }
   return new URL(`/score-parser/v${parserVersion}/score_loader.js`, location.origin).href;
 }
 

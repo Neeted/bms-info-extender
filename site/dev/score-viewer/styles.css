@@ -389,7 +389,7 @@ button:hover:not(:disabled) {
   padding: 4px 8px;
   border-radius: 6px;
   border: 1px solid rgba(160, 160, 196, 0.22);
-  background: rgba(32, 32, 64, 0.8);
+  background: rgba(32, 32, 64, 0.5);
   color: #fff;
   font-family: "Inconsolata", "Noto Sans JP", var(--mono-font);
   font-size: 0.8125rem;
@@ -397,6 +397,7 @@ button:hover:not(:disabled) {
   white-space: nowrap;
   box-sizing: border-box;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  width: auto;
 }
 
 .info-graph-pin input {

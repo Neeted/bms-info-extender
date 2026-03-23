@@ -90,8 +90,10 @@
   const STANDALONE_MINE_COLOR = "#880000";
   const STANDALONE_NOTE_HEAD_HEIGHT = 4;
   const STANDALONE_TEMPO_MARKER_HEIGHT = 1;
+  const STANDALONE_TEMPO_MARKER_WIDTH_RATIO = 0.5;
   const STANDALONE_TEMPO_LABEL_GAP = 8;
   const STANDALONE_TEMPO_LABEL_MIN_GAP = 12;
+  const STANDALONE_LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX = 1;
   const STANDALONE_SCROLL_MULTIPLIER = 2;
   const STANDALONE_MIN_SPACING_SCALE = 0.5;
   const STANDALONE_MAX_SPACING_SCALE = 8.0;
@@ -2702,7 +2704,8 @@
         continue;
       }
       const y = standaloneTimeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
-      context.fillRect(rightLane.x, Math.round(y - STANDALONE_TEMPO_MARKER_HEIGHT / 2), rightLane.width, STANDALONE_TEMPO_MARKER_HEIGHT);
+      const markerRect = getStandaloneTempoMarkerRect(rightLane, "right");
+      context.fillRect(markerRect.x, Math.round(y - STANDALONE_TEMPO_MARKER_HEIGHT / 2), markerRect.width, STANDALONE_TEMPO_MARKER_HEIGHT);
       if (shouldKeepStandaloneTempoMarkerLabel(lastBpmLabelY, y)) {
         markers.push({
           type: "bpm",
@@ -2723,7 +2726,8 @@
         continue;
       }
       const y = standaloneTimeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
-      context.fillRect(leftLane.x, Math.round(y - STANDALONE_TEMPO_MARKER_HEIGHT / 2), leftLane.width, STANDALONE_TEMPO_MARKER_HEIGHT);
+      const markerRect = getStandaloneTempoMarkerRect(leftLane, "left");
+      context.fillRect(markerRect.x, Math.round(y - STANDALONE_TEMPO_MARKER_HEIGHT / 2), markerRect.width, STANDALONE_TEMPO_MARKER_HEIGHT);
       if (shouldKeepStandaloneTempoMarkerLabel(lastStopLabelY, y)) {
         markers.push({
           type: "stop",
@@ -2744,6 +2748,21 @@
 
   function shouldKeepStandaloneTempoMarkerLabel(lastAcceptedY, nextY) {
     return !Number.isFinite(lastAcceptedY) || Math.abs(nextY - lastAcceptedY) >= STANDALONE_TEMPO_LABEL_MIN_GAP;
+  }
+
+  function getStandaloneTempoMarkerRect(lane, side) {
+    const width = lane.width * STANDALONE_TEMPO_MARKER_WIDTH_RATIO;
+    if (side === "left") {
+      // 左側はセパレーター線と重なりすぎないように 1px だけ内側へ寄せる。
+      return {
+        x: lane.x - width + STANDALONE_LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX,
+        width,
+      };
+    }
+    return {
+      x: lane.x + lane.width,
+      width,
+    };
   }
 
   function drawStandaloneLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {

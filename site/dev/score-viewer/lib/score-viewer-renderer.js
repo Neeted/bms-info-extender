@@ -15,8 +15,10 @@ const STOP_MARKER = "#ff00ff";
 const MINE_COLOR = "#880000";
 const NOTE_HEAD_HEIGHT = 4;
 const TEMPO_MARKER_HEIGHT = 1;
+const TEMPO_MARKER_WIDTH_RATIO = 0.5;
 const TEMPO_LABEL_GAP = 8;
 const TEMPO_LABEL_MIN_GAP = 12;
+const LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX = 1;
 const JUDGE_LINE_SIDE_OVERHANG = FIXED_LANE_WIDTH * 3;
 
 const BEAT_LANE_COLORS = new Map([
@@ -172,10 +174,11 @@ function drawTempoMarkers(
       continue;
     }
     const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const markerRect = getTempoMarkerRect(rightLane, "right");
     context.fillRect(
-      rightLane.x,
+      markerRect.x,
       Math.round(y - TEMPO_MARKER_HEIGHT / 2),
-      rightLane.width,
+      markerRect.width,
       TEMPO_MARKER_HEIGHT,
     );
     if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
@@ -198,10 +201,11 @@ function drawTempoMarkers(
       continue;
     }
     const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(
-      leftLane.x,
+      markerRect.x,
       Math.round(y - TEMPO_MARKER_HEIGHT / 2),
-      leftLane.width,
+      markerRect.width,
       TEMPO_MARKER_HEIGHT,
     );
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
@@ -224,6 +228,21 @@ function drawTempoMarkers(
 
 function shouldKeepTempoMarkerLabel(lastAcceptedY, nextY) {
   return !Number.isFinite(lastAcceptedY) || Math.abs(nextY - lastAcceptedY) >= TEMPO_LABEL_MIN_GAP;
+}
+
+function getTempoMarkerRect(lane, side) {
+  const width = lane.width * TEMPO_MARKER_WIDTH_RATIO;
+  if (side === "left") {
+    // 左側はセパレーター線と重なりすぎないように 1px だけ内側へ寄せる。
+    return {
+      x: lane.x - width + LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX,
+      width,
+    };
+  }
+  return {
+    x: lane.x + lane.width,
+    width,
+  };
 }
 
 function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {

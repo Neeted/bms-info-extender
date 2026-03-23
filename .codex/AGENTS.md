@@ -11,6 +11,14 @@
 - `site/score-parser/current/` は dev viewer 用の最新版ミラーであり、Git 管理対象外とする。
 - `site/score-parser/vx.x.x/` は配布用 snapshot とし、通常作業では編集しない。
 
+## 譜面 parser の外部参照先
+- 本リポジトリの譜面ビューワおよび `web/score-parser-runtime` の parser 挙動は、beatoraja で使用実績のある `jbms-parser` を最優先の参照先とする。
+- `jbms-parser` の upstream は `https://github.com/exch-bms2/jbms-parser`、ローカル参照先は `D:\\github-clone\\jbms-parser` とする。
+- `bemuse` はブラウザ実装として非常に参考になるため、BMS/BMSON の取り回しや viewer 寄りの挙動を確認したいときの主要参照先とする。
+- `bemuse` の upstream は `https://github.com/bemusic/bemuse`、ローカル参照先は `D:\\github-clone\\bemuse\\packages\\bms` と `D:\\github-clone\\bemuse\\packages\\bmson` とする。
+- parser や timing の解釈で迷った場合は、まず `jbms-parser` を確認し、その上でブラウザ実装上の参考として `bemuse` を照合する。
+- これらはリポジトリ外の参照先なので、parser 挙動を調査・変更する際はこの節を前提知識として扱う。
+
 ## score-parser 変更時の手順
 - `web/score-parser-runtime` を編集する。
 - 関連テストを実行する。

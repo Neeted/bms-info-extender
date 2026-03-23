@@ -1,0 +1,14 @@
+{
+  "name": "bms-info-extender",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:preview-targets": "node script/build_preview_targets.mjs",
+    "build:dev-score-viewer": "node script/build_preview_targets.mjs dev",
+    "build:userscript": "node script/build_preview_targets.mjs userscript",
+    "check:generated": "node script/build_preview_targets.mjs --check"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

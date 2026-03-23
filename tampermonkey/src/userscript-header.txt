@@ -1,0 +1,19 @@
+// ==UserScript==
+// @name         BMS Info Extender
+// @namespace    https://github.com/Neeted
+// @version      1.5.0
+// @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
+// @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
+// @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
+// @match        https://stellabms.xyz/*
+// @match        https://www.gaftalk.com/minir/*
+// @match        https://mocha-repository.info/song.php*
+// @grant        GM_addStyle
+// @grant        GM_getResourceText
+// @connect      bms.howan.jp
+// @connect      bms-info-extender.netlify.app
+// @resource     googlefont https://fonts.googleapis.com/css2?family=Inconsolata&family=Noto+Sans+JP&display=swap
+// @updateURL    https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
+// @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
+// @run-at       document-start
+// ==/UserScript==

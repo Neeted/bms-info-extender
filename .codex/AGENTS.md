@@ -25,10 +25,13 @@
 
 ## preview runtime の共通化ルール
 - dev page の下半分 preview と userscript の preview は実装差を出さない。
-- preview の見た目・graph・hover/click/pin・score viewer 連携は共通 preview source を source of truth とする。
-- `site/dev/score-viewer/lib/generated/preview-runtime.generated.js` と userscript へ埋め込まれる generated preview runtime は手編集しない。
-- preview 挙動の修正は共通 preview source を直し、`script/build_preview_runtime.mjs` を実行して両出力を同期する。
+- preview の見た目・graph・hover/click/pin・score viewer 連携は `shared/preview-runtime/` を source of truth とする。
+- dev page 固有の source は `site/dev/score-viewer/src/`、userscript 固有の source は `tampermonkey/src/` に置く。
+- `site/dev/score-viewer/app.js` と `tampermonkey/bms_info_extender.user.js` は build 出力であり、手編集しない。
+- preview 挙動の修正は共通 preview source または adapter source を直し、`npm run build:preview-targets` を実行して両出力を同期する。
 - preview を変更したら、少なくとも dev page と userscript の両方で同じ挙動になっているか確認する。
+- userscript adapter のトップレベル実行文は bootstrap 周辺だけに寄せ、到達不能な実行文を残さない。
+- preview runtime の破棄責務は「SPA の URL 変化時」と「同一ページ内の remount 前 cleanup」に分けて明示する。
 
 ## リリース運用
 - `site/score-parser/vx.x.x/` の生成はリリース作業としてのみ行う。

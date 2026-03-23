@@ -12,6 +12,7 @@ const SEPARATOR_COLOR = "rgba(72, 72, 72, 0.95)";
 const BAR_LINE = "rgba(255, 255, 255, 0.92)";
 const BPM_MARKER = "#00ff00";
 const STOP_MARKER = "#ff00ff";
+const SCROLL_MARKER = "#ff0";
 const MINE_COLOR = "#880000";
 const NOTE_HEAD_HEIGHT = 4;
 const TEMPO_MARKER_HEIGHT = 1;
@@ -101,6 +102,7 @@ export function createScoreViewerRenderer(canvas) {
       context,
       model.bpmChanges,
       model.stops,
+      model.scrollChanges,
       lanes,
       selectedTimeSec,
       startTimeSec,
@@ -152,6 +154,7 @@ function drawTempoMarkers(
   context,
   bpmChanges,
   stops,
+  scrollChanges,
   lanes,
   selectedTimeSec,
   startTimeSec,
@@ -166,6 +169,7 @@ function drawTempoMarkers(
   const markers = [];
   let lastBpmLabelY = Number.POSITIVE_INFINITY;
   let lastStopLabelY = Number.POSITIVE_INFINITY;
+  let lastScrollLabelY = Number.POSITIVE_INFINITY;
 
   context.save();
   context.fillStyle = BPM_MARKER;
@@ -219,6 +223,33 @@ function drawTempoMarkers(
         x: leftLane.x - TEMPO_LABEL_GAP,
       });
       lastStopLabelY = y;
+    }
+  }
+
+  context.fillStyle = SCROLL_MARKER;
+  for (const scrollChange of scrollChanges) {
+    if (scrollChange.timeSec < startTimeSec || scrollChange.timeSec > endTimeSec) {
+      continue;
+    }
+    const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const markerRect = getTempoMarkerRect(leftLane, "left");
+    context.fillRect(
+      markerRect.x,
+      Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+      markerRect.width,
+      TEMPO_MARKER_HEIGHT,
+    );
+    if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
+      markers.push({
+        type: "scroll",
+        timeSec: scrollChange.timeSec,
+        y,
+        label: formatScrollMarkerLabel(scrollChange.rate),
+        side: "left",
+        color: SCROLL_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP,
+      });
+      lastScrollLabelY = y;
     }
   }
 
@@ -453,6 +484,10 @@ function formatBpmMarkerLabel(bpm) {
 
 function formatStopMarkerLabel(durationSec) {
   return `${trimDecimal(Number(durationSec).toFixed(3))}s`;
+}
+
+function formatScrollMarkerLabel(rate) {
+  return trimDecimal(Number(rate).toFixed(3));
 }
 
 function trimDecimal(value) {

@@ -42,6 +42,7 @@ export function createEmptyScore({
   barLines = [],
   bpmChanges = [],
   stops = [],
+  scrollChanges = [],
   warnings = [],
   lastPlayableTimeSec = 0,
   lastTimelineTimeSec = 0,
@@ -61,6 +62,7 @@ export function createEmptyScore({
     barLines,
     bpmChanges,
     stops,
+    scrollChanges,
     warnings,
   };
 }

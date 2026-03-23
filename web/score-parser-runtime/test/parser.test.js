@@ -64,6 +64,78 @@ test("BMS applies STOP timing", () => {
   assert.equal(result.score.notes[0].timeSec, 4.5);
 });
 
+test("BMS resolves SCROLL changes via SC channel references", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#SCROLL01 0.5",
+    "#00111:01",
+    "#003SC:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "a".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.scrollChanges, [{ timeSec: 6, rate: 0.5 }]);
+  assert.ok(result.score.lastTimelineTimeSec > result.score.lastPlayableTimeSec);
+});
+
+test("BMS keeps explicit beat-0 SCROLL events", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#SCROLL01 1",
+    "#000SC:01",
+    "#00111:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "f".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.scrollChanges, [{ timeSec: 0, rate: 1 }]);
+});
+
+test("BMS accepts zero and negative SCROLL rates", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#SCROLL01 0",
+    "#SCROLL02 -1",
+    "#001SC:01",
+    "#002SC:02",
+    "#00311:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "3".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.scrollChanges.map((change) => change.rate), [0, -1]);
+  assert.equal(result.score.warnings.length, 0);
+});
+
+test("BMS warns on missing SCROLL references", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#001SC:01",
+    "#00211:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "6".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.scrollChanges, []);
+  assert.match(result.score.warnings[0]?.message ?? "", /SCROLL01/);
+});
+
 test("BMS auto detects UTF-8 BOM charts", () => {
   const chart = `\uFEFF#PLAYER 1\n#BPM 120\n#TITLE てすと\n#00111:01`;
   const result = parseScoreBytes(new TextEncoder().encode(chart), {
@@ -380,6 +452,43 @@ test("BMSON exposes separate playable and timeline durations", () => {
   assert.equal(result.score.noteCounts.invisible, 0);
   assert.equal(result.score.noteCounts.mine, 0);
   assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["normal", "long-start"]);
+});
+
+test("BMSON exposes scroll_events as scrollChanges", () => {
+  const bmson = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "beat-7k",
+    },
+    scroll_events: [
+      { y: 0, rate: 1 },
+      { y: 720, rate: 0.5 },
+      { y: 960, rate: -1 },
+    ],
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 1, y: 240, l: 0, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const result = parseScoreBytes(new TextEncoder().encode(JSON.stringify(bmson)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "7".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.scrollChanges, [
+    { timeSec: 0, rate: 1 },
+    { timeSec: 1.5, rate: 0.5 },
+    { timeSec: 2, rate: -1 },
+  ]);
+  assert.ok(result.score.lastTimelineTimeSec > result.score.lastPlayableTimeSec);
 });
 
 test("BMSON supports explicit popn mode hints and keeps generic 9 lanes distinct", () => {

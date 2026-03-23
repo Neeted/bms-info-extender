@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.2.0
+// @version      1.3.0
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -18,6 +18,7 @@
 // @run-at document-start
 // ==/UserScript==
 
+// 1.3.0 譜面ビューワへ SCROLL マーカー表示を追加
 // 1.2.0 譜面ビューワを userscript 本体へ統合し、グラフ hover/click 連携を追加
 // 1.1.0 外部データ取得失敗時のフォールバック処理を追加(LR2IR、MochaでMD5や譜面ビューアへのリンクを表示)
 // 1.0.5 誤字修正
@@ -36,7 +37,7 @@
   const BMSDATA_COLUMNS = ["md5", "sha256", "maxbpm", "minbpm", "length", "mode", "judge", "feature", "notes", "n", "ln", "s", "ls", "total", "density", "peakdensity", "enddensity", "mainbpm", "distribution", "speedchange", "lanenotes", "tables", "stella", "bmsid"];
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-  const SCORE_PARSER_VERSION = "0.4.0";
+  const SCORE_PARSER_VERSION = "0.5.0";
   const BMS_FEATURE_NAMES = [
     "LN(#LNMODE undef)",
     "MINE",
@@ -87,6 +88,7 @@
   const STANDALONE_BAR_LINE = "rgba(255, 255, 255, 0.92)";
   const STANDALONE_BPM_MARKER = "#00ff00";
   const STANDALONE_STOP_MARKER = "#ff00ff";
+  const STANDALONE_SCROLL_MARKER = "#ff0";
   const STANDALONE_MINE_COLOR = "#880000";
   const STANDALONE_NOTE_HEAD_HEIGHT = 4;
   const STANDALONE_TEMPO_MARKER_HEIGHT = 1;
@@ -2317,6 +2319,7 @@
       barLines: [...score.barLines].sort(compareNoteLike),
       bpmChanges: [...score.bpmChanges].sort(compareNoteLike),
       stops: [...score.stops].sort(compareNoteLike),
+      scrollChanges: [...(score.scrollChanges ?? [])].sort(compareNoteLike),
       totalCombo: comboEvents.length,
     };
   }
@@ -2533,6 +2536,7 @@
         context,
         model.bpmChanges,
         model.stops,
+        model.scrollChanges,
         lanes,
         selectedTimeSec,
         startTimeSec,
@@ -2689,7 +2693,7 @@
     context.restore();
   }
 
-  function drawStandaloneTempoMarkers(context, bpmChanges, stops, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawStandaloneTempoMarkers(context, bpmChanges, stops, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
     const { leftLane, rightLane } = getStandaloneVisualLaneEdges(lanes);
     if (!leftLane || !rightLane) {
       return [];
@@ -2697,6 +2701,7 @@
     const markers = [];
     let lastBpmLabelY = Number.POSITIVE_INFINITY;
     let lastStopLabelY = Number.POSITIVE_INFINITY;
+    let lastScrollLabelY = Number.POSITIVE_INFINITY;
 
     context.save();
     context.fillStyle = STANDALONE_BPM_MARKER;
@@ -2740,6 +2745,28 @@
           x: leftLane.x - STANDALONE_TEMPO_LABEL_GAP,
         });
         lastStopLabelY = y;
+      }
+    }
+
+    context.fillStyle = STANDALONE_SCROLL_MARKER;
+    for (const scrollChange of scrollChanges) {
+      if (scrollChange.timeSec < startTimeSec || scrollChange.timeSec > endTimeSec) {
+        continue;
+      }
+      const y = standaloneTimeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const markerRect = getStandaloneTempoMarkerRect(leftLane, "left");
+      context.fillRect(markerRect.x, Math.round(y - STANDALONE_TEMPO_MARKER_HEIGHT / 2), markerRect.width, STANDALONE_TEMPO_MARKER_HEIGHT);
+      if (shouldKeepStandaloneTempoMarkerLabel(lastScrollLabelY, y)) {
+        markers.push({
+          type: "scroll",
+          timeSec: scrollChange.timeSec,
+          y,
+          label: formatStandaloneScrollMarkerLabel(scrollChange.rate),
+          side: "left",
+          color: STANDALONE_SCROLL_MARKER,
+          x: leftLane.x - STANDALONE_TEMPO_LABEL_GAP,
+        });
+        lastScrollLabelY = y;
       }
     }
 
@@ -3305,5 +3332,9 @@
 
   function trimDecimal(value) {
     return String(value).replace(/\.?0+$/, "");
+  }
+
+  function formatStandaloneScrollMarkerLabel(rate) {
+    return trimDecimal(Number(rate).toFixed(3));
   }
 })();

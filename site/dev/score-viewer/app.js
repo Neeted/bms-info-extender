@@ -543,6 +543,7 @@ function getEventCountsLabel(score) {
     `barLines ${formatInteger(score.barLines.length)}`,
     `bpmChanges ${formatInteger(score.bpmChanges.length)}`,
     `stops ${formatInteger(score.stops.length)}`,
+    `scrollChanges ${formatInteger((score.scrollChanges ?? []).length)}`,
   ].join(" / ");
 }
 
@@ -729,6 +730,18 @@ function buildNearbyEvents(score, selectedTimeSec) {
       timeSec: stop.timeSec,
       label: "stop",
       detailParts: [`duration ${formatSeconds(stop.durationSec)}`],
+    });
+  }
+
+  for (const scrollChange of score.scrollChanges ?? []) {
+    if (scrollChange.timeSec < minTime || scrollChange.timeSec > maxTime) {
+      continue;
+    }
+    rows.push({
+      kind: "scroll",
+      timeSec: scrollChange.timeSec,
+      label: "scroll",
+      detailParts: [`rate ${formatCompactNumber(scrollChange.rate)}`],
     });
   }
 

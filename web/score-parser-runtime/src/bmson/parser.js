@@ -49,6 +49,11 @@ export function parseBmsonText(text, options) {
       warnings.push(createWarning("parse_warning", "Ignored invalid bmson stop_event."));
     }
   }
+  for (const event of bmson.scroll_events ?? []) {
+    if (!Number.isFinite(event?.y) || !Number.isFinite(event?.rate)) {
+      warnings.push(createWarning("parse_warning", "Ignored invalid bmson scroll_event."));
+    }
+  }
 
   const timing = new Timing(initialBpm, actions);
   const notes = [];
@@ -121,6 +126,14 @@ export function parseBmsonText(text, options) {
     }))
     .sort((left, right) => left.timeSec - right.timeSec);
 
+  const scrollChanges = (bmson.scroll_events ?? [])
+    .filter((event) => Number.isFinite(event?.rate) && Number.isFinite(event?.y))
+    .map((event) => ({
+      timeSec: timing.beatToSeconds(event.y / resolution),
+      rate: event.rate,
+    }))
+    .sort((left, right) => left.timeSec - right.timeSec);
+
   const barLines = (bmson.lines ?? [])
     .filter((line) => Number.isFinite(line?.y))
     .map((line) => ({
@@ -129,6 +142,21 @@ export function parseBmsonText(text, options) {
     .sort((left, right) => left.timeSec - right.timeSec);
 
   let lastTimelineTimeSec = lastPlayableTimeSec;
+  for (const event of bmson.bpm_events ?? []) {
+    if (Number.isFinite(event?.y)) {
+      lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
+    }
+  }
+  for (const event of bmson.stop_events ?? []) {
+    if (Number.isFinite(event?.y)) {
+      lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
+    }
+  }
+  for (const event of bmson.scroll_events ?? []) {
+    if (Number.isFinite(event?.y)) {
+      lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
+    }
+  }
   for (const event of bmson.bga?.bga_events ?? []) {
     if (Number.isFinite(event?.y)) {
       lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
@@ -155,6 +183,7 @@ export function parseBmsonText(text, options) {
     barLines,
     bpmChanges,
     stops,
+    scrollChanges,
     warnings,
     lastPlayableTimeSec,
     lastTimelineTimeSec,

@@ -39,6 +39,7 @@ export function parseBmsText(text, options) {
   const barLines = buildBarLines(chart.timeSignatures, timing, timelineObjects);
   const bpmChanges = buildBpmChanges(chart, timingWarnings, timing);
   const stops = buildStops(chart, timingWarnings, timing);
+  const scrollChanges = buildScrollChanges(chart, timingWarnings, timing);
   const lastTimelineTimeSec = computeLastTimelineTimeSec(timelineObjects, notes, lastPlayableTimeSec);
 
   return success(createEmptyScore({
@@ -51,6 +52,7 @@ export function parseBmsText(text, options) {
     barLines,
     bpmChanges,
     stops,
+    scrollChanges,
     warnings: [...warnings, ...timingWarnings, ...noteWarnings],
     lastPlayableTimeSec,
     lastTimelineTimeSec,
@@ -159,6 +161,28 @@ function buildStops(chart, warnings, timing) {
   return stops;
 }
 
+function buildScrollChanges(chart, warnings, timing) {
+  const scrollChanges = [];
+  const scrollRateCache = new Map();
+  for (const object of chart.objects) {
+    if (object.channel !== "SC") {
+      continue;
+    }
+    const rate = resolveScrollRate(chart.headers, object.value, scrollRateCache);
+    if (rate === null) {
+      warnings.push(createWarning("parse_warning", `Ignored invalid SCROLL reference SCROLL${object.value}.`));
+      continue;
+    }
+    const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
+    scrollChanges.push({
+      timeSec: timing.beatToSeconds(beat),
+      rate,
+    });
+  }
+  scrollChanges.sort((left, right) => left.timeSec - right.timeSec);
+  return scrollChanges;
+}
+
 function resolveExtendedBpm(headers, value, cache) {
   if (cache.has(value)) {
     return cache.get(value);
@@ -179,6 +203,17 @@ function resolveStopBeats(headers, value, cache) {
   const stopBeats = Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue / 48 : null;
   cache.set(value, stopBeats);
   return stopBeats;
+}
+
+function resolveScrollRate(headers, value, cache) {
+  if (cache.has(value)) {
+    return cache.get(value);
+  }
+
+  const parsedValue = Number.parseFloat(headers.get(`SCROLL${value}`) ?? "");
+  const rate = Number.isFinite(parsedValue) ? parsedValue : null;
+  cache.set(value, rate);
+  return rate;
 }
 
 function buildNotes(timelineObjects, mode, headers, warnings) {
@@ -411,7 +446,7 @@ function buildBarLines(timeSignatures, timing, timelineObjects) {
 function computeLastTimelineTimeSec(timelineObjects, notes, lastPlayableTimeSec) {
   let maxTimeSec = lastPlayableTimeSec;
   for (const object of timelineObjects) {
-    if (isBackgroundChannel(object.channel) || isBgaChannel(object.channel)) {
+    if (isTimelineStateChannel(object.channel) || isBackgroundChannel(object.channel) || isBgaChannel(object.channel)) {
       maxTimeSec = Math.max(maxTimeSec, object.timeSec);
       continue;
     }
@@ -426,4 +461,8 @@ function computeLastTimelineTimeSec(timelineObjects, notes, lastPlayableTimeSec)
     }
   }
   return maxTimeSec;
+}
+
+function isTimelineStateChannel(channel) {
+  return channel === "03" || channel === "08" || channel === "09" || channel === "SC";
 }

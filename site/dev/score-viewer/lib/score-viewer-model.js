@@ -32,6 +32,7 @@ export function createScoreViewerModel(score) {
     barLines: [...score.barLines].sort(compareNoteLike),
     bpmChanges: [...score.bpmChanges].sort(compareNoteLike),
     stops: [...score.stops].sort(compareNoteLike),
+    scrollChanges: [...(score.scrollChanges ?? [])].sort(compareNoteLike),
     totalCombo: comboEvents.length,
   };
 }

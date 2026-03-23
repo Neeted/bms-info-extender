@@ -55,6 +55,11 @@ export type ParsedStop = {
     durationSec: number;
 };
 
+export type ParsedScrollChange = {
+    timeSec: number;
+    rate: number;
+};
+
 export type ParsedWarning = {
     type: ParsedWarningType;
     message: string;
@@ -88,6 +93,7 @@ export type ParsedScore = {
     barLines: ParsedBarLine[];
     bpmChanges: ParsedBpmChange[];
     stops: ParsedStop[];
+    scrollChanges: ParsedScrollChange[];
     warnings: ParsedWarning[];
 };
 

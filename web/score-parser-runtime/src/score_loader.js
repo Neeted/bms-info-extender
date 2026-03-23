@@ -3,6 +3,10 @@
 import { parseScoreBytes } from "./score_parser_runtime.js";
 
 export const SCORE_PARSER_VERSION = "__PARSER_VERSION__";
+// Persistent cache stores fetched gzip score bytes, not parsed score objects.
+// Parser-version changes only affect the in-memory parsed cache key, so this binary cache stays reusable.
+// In the userscript deployment the IndexedDB store remains origin-local by design; cross-origin binary sharing
+// is intentionally out of scope unless the project later moves to browser-extension storage.
 export const SCORE_LOADER_DB_NAME = "bms-info-extender-score-cache-v1";
 export const SCORE_LOADER_STORE_NAME = "compressed_scores";
 

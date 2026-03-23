@@ -79,24 +79,24 @@
   const GRAPH_MAX_LOG = Math.log10(GRAPH_MAX_VALUE);
   const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
   const STANDALONE_DEFAULT_VIEWER_PIXELS_PER_SECOND = 160;
-  const STANDALONE_VIEWER_HORIZONTAL_PADDING = 16;
+  const STANDALONE_LANE_SIDE_PADDING = 6;
   const STANDALONE_DP_GUTTER_UNITS = 1.2;
-  const STANDALONE_FIXED_LANE_WIDTH = 44;
-  const STANDALONE_VIEWER_MARKER_LABEL_WIDTH = 84;
+  const STANDALONE_FIXED_LANE_WIDTH = 16;
   const STANDALONE_BACKGROUND_FILL = "#000000";
   const STANDALONE_SEPARATOR_COLOR = "rgba(72, 72, 72, 0.95)";
   const STANDALONE_BAR_LINE = "rgba(255, 255, 255, 0.92)";
   const STANDALONE_BPM_MARKER = "#00ff00";
   const STANDALONE_STOP_MARKER = "#ff00ff";
   const STANDALONE_MINE_COLOR = "#880000";
-  const STANDALONE_NOTE_HEAD_HEIGHT = 8;
-  const STANDALONE_TEMPO_MARKER_HEIGHT = 3;
+  const STANDALONE_NOTE_HEAD_HEIGHT = 4;
+  const STANDALONE_TEMPO_MARKER_HEIGHT = 1;
   const STANDALONE_TEMPO_LABEL_GAP = 8;
   const STANDALONE_SCROLL_MULTIPLIER = 2;
   const STANDALONE_MIN_SPACING_SCALE = 0.5;
   const STANDALONE_MAX_SPACING_SCALE = 8.0;
   const STANDALONE_SPACING_STEP = 0.01;
   const STANDALONE_DEFAULT_SPACING_SCALE = 1.0;
+  const STANDALONE_JUDGE_LINE_SIDE_OVERHANG = STANDALONE_FIXED_LANE_WIDTH * 3;
   const STANDALONE_BEAT_LANE_COLORS = new Map([
     ["0", "#e04a4a"],
     ["1", "#bebebe"],
@@ -188,7 +188,7 @@
     .score-viewer-spacing-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
     .score-viewer-spacing-value { color: #fff; letter-spacing: 0.02em; }
     .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; }
-    .score-viewer-judge-line { position: absolute; left: 16px; right: 16px; top: 50%; display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
+    .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: 50%; display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
     .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
     .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
     .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }
@@ -2549,12 +2549,7 @@
     const layout = getStandaloneModeLayout(mode, laneCount);
     const gutterWidth = layout.splitAfter === null ? 0 : STANDALONE_FIXED_LANE_WIDTH * STANDALONE_DP_GUTTER_UNITS;
     const contentWidth = layout.display.length * STANDALONE_FIXED_LANE_WIDTH + gutterWidth;
-    return Math.ceil(
-      STANDALONE_VIEWER_HORIZONTAL_PADDING * 2
-      + contentWidth
-      + STANDALONE_VIEWER_MARKER_LABEL_WIDTH * 2
-      + STANDALONE_TEMPO_LABEL_GAP * 2,
-    );
+    return Math.ceil(contentWidth + STANDALONE_JUDGE_LINE_SIDE_OVERHANG * 2);
   }
 
   function getDisplayLaneCount(mode) {
@@ -2586,7 +2581,7 @@
     const layout = getStandaloneModeLayout(mode, laneCount);
     const gutterWidth = layout.splitAfter === null ? 0 : STANDALONE_FIXED_LANE_WIDTH * STANDALONE_DP_GUTTER_UNITS;
     const contentWidth = layout.display.length * STANDALONE_FIXED_LANE_WIDTH + gutterWidth;
-    const startX = Math.max(STANDALONE_VIEWER_HORIZONTAL_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
+    const startX = Math.max(STANDALONE_LANE_SIDE_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
     const lanes = new Array(Math.max(1, laneCount));
 
     let cursorX = startX;
@@ -2646,11 +2641,12 @@
   }
 
   function drawStandaloneBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
-    if (lanes.length === 0) {
+    const { leftLane, rightLane } = getStandaloneVisualLaneEdges(lanes);
+    if (!leftLane || !rightLane) {
       return;
     }
-    const leftX = lanes[0].x;
-    const rightX = lanes[lanes.length - 1].x + lanes[lanes.length - 1].width;
+    const leftX = leftLane.x;
+    const rightX = rightLane.x + rightLane.width;
     context.save();
     context.strokeStyle = STANDALONE_BAR_LINE;
     context.lineWidth = 1;
@@ -2668,11 +2664,10 @@
   }
 
   function drawStandaloneTempoMarkers(context, bpmChanges, stops, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
-    if (lanes.length === 0) {
+    const { leftLane, rightLane } = getStandaloneVisualLaneEdges(lanes);
+    if (!leftLane || !rightLane) {
       return [];
     }
-    const leftLane = lanes[0];
-    const rightLane = lanes[lanes.length - 1];
     const markers = [];
 
     context.save();
@@ -2789,13 +2784,34 @@
   }
 
   function getStandaloneLaneBounds(lanes) {
-    if (lanes.length === 0) {
+    const { leftLane, rightLane } = getStandaloneVisualLaneEdges(lanes);
+    if (!leftLane || !rightLane) {
       return { leftX: 0, rightX: 0 };
     }
     return {
-      leftX: lanes[0].x,
-      rightX: lanes[lanes.length - 1].x + lanes[lanes.length - 1].width,
+      leftX: leftLane.x,
+      rightX: rightLane.x + rightLane.width,
     };
+  }
+
+  function getStandaloneVisualLaneEdges(lanes) {
+    const visibleLanes = lanes.filter(Boolean);
+    if (visibleLanes.length === 0) {
+      return { leftLane: null, rightLane: null };
+    }
+
+    let leftLane = visibleLanes[0];
+    let rightLane = visibleLanes[0];
+    for (const lane of visibleLanes) {
+      if (lane.x < leftLane.x) {
+        leftLane = lane;
+      }
+      if (lane.x + lane.width > rightLane.x + rightLane.width) {
+        rightLane = lane;
+      }
+    }
+
+    return { leftLane, rightLane };
   }
 
   function createEmptyRenderResult() {

@@ -4,19 +4,19 @@ import {
   shouldDrawLongEndCap,
 } from "./score-viewer-model.js";
 
-export const VIEWER_HORIZONTAL_PADDING = 16;
+export const VIEWER_LANE_SIDE_PADDING = 6;
 export const DP_GUTTER_UNITS = 1.2;
-export const FIXED_LANE_WIDTH = 44;
-export const VIEWER_MARKER_LABEL_WIDTH = 84;
+export const FIXED_LANE_WIDTH = 16;
 const BACKGROUND_FILL = "#000000";
 const SEPARATOR_COLOR = "rgba(72, 72, 72, 0.95)";
 const BAR_LINE = "rgba(255, 255, 255, 0.92)";
 const BPM_MARKER = "#00ff00";
 const STOP_MARKER = "#ff00ff";
 const MINE_COLOR = "#880000";
-const NOTE_HEAD_HEIGHT = 8;
-const TEMPO_MARKER_HEIGHT = 3;
+const NOTE_HEAD_HEIGHT = 4;
+const TEMPO_MARKER_HEIGHT = 1;
 const TEMPO_LABEL_GAP = 8;
+const JUDGE_LINE_SIDE_OVERHANG = FIXED_LANE_WIDTH * 3;
 
 const BEAT_LANE_COLORS = new Map([
   ["0", "#e04a4a"],
@@ -119,20 +119,16 @@ export function estimateViewerWidth(mode, laneCount) {
   const layout = getModeLayout(mode, laneCount);
   const gutterWidth = layout.splitAfter === null ? 0 : FIXED_LANE_WIDTH * DP_GUTTER_UNITS;
   const contentWidth = layout.display.length * FIXED_LANE_WIDTH + gutterWidth;
-  return Math.ceil(
-    VIEWER_HORIZONTAL_PADDING * 2
-      + contentWidth
-      + VIEWER_MARKER_LABEL_WIDTH * 2
-      + TEMPO_LABEL_GAP * 2,
-  );
+  return Math.ceil(contentWidth + JUDGE_LINE_SIDE_OVERHANG * 2);
 }
 
 function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
-  if (lanes.length === 0) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  if (!leftLane || !rightLane) {
     return;
   }
-  const leftX = lanes[0].x;
-  const rightX = lanes[lanes.length - 1].x + lanes[lanes.length - 1].width;
+  const leftX = leftLane.x;
+  const rightX = rightLane.x + rightLane.width;
   context.save();
   context.strokeStyle = BAR_LINE;
   context.lineWidth = 1;
@@ -160,11 +156,10 @@ function drawTempoMarkers(
   viewportHeight,
   pixelsPerSecond,
 ) {
-  if (lanes.length === 0) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  if (!leftLane || !rightLane) {
     return [];
   }
-  const leftLane = lanes[0];
-  const rightLane = lanes[lanes.length - 1];
   const markers = [];
 
   context.save();
@@ -293,16 +288,37 @@ function drawLaneSeparators(context, lanes, viewportHeight) {
 }
 
 function getLaneBounds(lanes) {
-  if (lanes.length === 0) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  if (!leftLane || !rightLane) {
     return {
       leftX: 0,
       rightX: 0,
     };
   }
   return {
-    leftX: lanes[0].x,
-    rightX: lanes[lanes.length - 1].x + lanes[lanes.length - 1].width,
+    leftX: leftLane.x,
+    rightX: rightLane.x + rightLane.width,
   };
+}
+
+function getVisualLaneEdges(lanes) {
+  const visibleLanes = lanes.filter(Boolean);
+  if (visibleLanes.length === 0) {
+    return { leftLane: null, rightLane: null };
+  }
+
+  let leftLane = visibleLanes[0];
+  let rightLane = visibleLanes[0];
+  for (const lane of visibleLanes) {
+    if (lane.x < leftLane.x) {
+      leftLane = lane;
+    }
+    if (lane.x + lane.width > rightLane.x + rightLane.width) {
+      rightLane = lane;
+    }
+  }
+
+  return { leftLane, rightLane };
 }
 
 function createEmptyRenderResult() {
@@ -319,7 +335,7 @@ function createLaneLayout(mode, laneCount, viewportWidth) {
   const layout = getModeLayout(mode, laneCount);
   const gutterWidth = layout.splitAfter === null ? 0 : FIXED_LANE_WIDTH * DP_GUTTER_UNITS;
   const contentWidth = layout.display.length * FIXED_LANE_WIDTH + gutterWidth;
-  const startX = Math.max(VIEWER_HORIZONTAL_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
+  const startX = Math.max(VIEWER_LANE_SIDE_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
   const lanes = new Array(Math.max(1, laneCount));
 
   let cursorX = startX;

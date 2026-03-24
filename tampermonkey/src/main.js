@@ -1,5 +1,6 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
+// 1.7.0 Game モードへ SCROLL 対応を追加し、beatoraja 寄りの signed displacement 描画を実装
 // 1.6.7 Editor メニュー行の select を border-box 化し、重なりとはみ出しを修正
 // 1.6.6 Editor メニュー行のドロップダウンを 2:3 配分で横並び表示に調整
 // 1.6.5 不可視ノーツ可視化の枠線座標を調整し、セパレーターへのはみ出しを修正

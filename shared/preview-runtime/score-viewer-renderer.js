@@ -2,6 +2,7 @@ import {
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
   DEFAULT_VIEWER_MODE,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
+  getGameTrackPositionAtTimeSec,
   getEditorFrameState,
   getVisibleTimeRange,
   resolveViewerModeForModel,
@@ -114,6 +115,9 @@ export function createScoreViewerRenderer(canvas) {
     if (resolvedMode === "time") {
       return renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond, showInvisibleNotes);
     }
+    if (resolvedMode === "game") {
+      return renderGameMode(model, lanes, selectedTimeSec, pixelsPerBeat, showInvisibleNotes);
+    }
 
     return renderEditorMode(
       model,
@@ -171,6 +175,24 @@ export function createScoreViewerRenderer(canvas) {
       editorFrameState,
       pixelsPerBeat,
     );
+
+    return {
+      markers,
+      laneBounds: getLaneBounds(lanes),
+    };
+  }
+
+  function renderGameMode(model, lanes, selectedTimeSec, pixelsPerBeat, showInvisibleNotes) {
+    const selectedTrackPosition = getGameTrackPositionAtTimeSec(model, selectedTimeSec);
+
+    drawBarLinesGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
+    drawLongBodiesGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
+    drawNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
+    if (showInvisibleNotes) {
+      drawInvisibleNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
+    }
+    drawLaneSeparators(context, lanes, height);
+    const markers = drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
 
     return {
       markers,
@@ -364,6 +386,226 @@ function drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, 
     drawOutlinedRectNote(context, lane, headY, INVISIBLE_NOTE_COLOR);
   }
   context.restore();
+}
+
+function drawBarLinesGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  if (!leftLane || !rightLane) {
+    return;
+  }
+  const leftX = leftLane.x;
+  const rightX = rightLane.x + rightLane.width;
+  context.save();
+  context.strokeStyle = BAR_LINE;
+  context.lineWidth = 1;
+  for (const barLine of model.barLines) {
+    if (!Number.isFinite(barLine?.beat)) {
+      continue;
+    }
+    const y = gameTrackPositionToViewportY(
+      getEventTrackPosition(barLine),
+      selectedTrackPosition,
+      viewportHeight,
+      pixelsPerBeat,
+    );
+    if (!isViewportYVisible(y, viewportHeight, 24)) {
+      continue;
+    }
+    context.beginPath();
+    context.moveTo(leftX, y + 0.5);
+    context.lineTo(rightX, y + 0.5);
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawLongBodiesGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  context.save();
+  for (const note of model.notes) {
+    if (note.kind !== "long" || !Number.isFinite(note?.beat) || !Number.isFinite(note?.endBeat)) {
+      continue;
+    }
+    const lane = lanes[note.lane];
+    if (!lane) {
+      continue;
+    }
+    const startTrackPosition = getEventTrackPosition(note);
+    const endTrackPosition = getNoteEndTrackPosition(note);
+    if (!(endTrackPosition > startTrackPosition)) {
+      continue;
+    }
+    const startY = gameTrackPositionToViewportY(startTrackPosition, selectedTrackPosition, viewportHeight, pixelsPerBeat);
+    const endY = gameTrackPositionToViewportY(endTrackPosition, selectedTrackPosition, viewportHeight, pixelsPerBeat);
+    const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
+    const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
+    if (bottomY <= topY) {
+      continue;
+    }
+    context.fillStyle = dimColor(lane.note, 0.42);
+    context.fillRect(lane.x, topY, lane.width, Math.max(bottomY - topY, 2));
+  }
+  context.restore();
+}
+
+function drawNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  context.save();
+  for (const note of model.notes) {
+    if (!Number.isFinite(note?.beat)) {
+      continue;
+    }
+    const lane = lanes[note.lane];
+    if (!lane || note.kind === "invisible") {
+      continue;
+    }
+    const headY = gameTrackPositionToViewportY(
+      getEventTrackPosition(note),
+      selectedTrackPosition,
+      viewportHeight,
+      pixelsPerBeat,
+    );
+    if (!isViewportYVisible(headY, viewportHeight)) {
+      continue;
+    }
+    drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
+
+    if (note.kind === "long" && Number.isFinite(note.endBeat) && shouldDrawLongEndCap(model, note)) {
+      const endHeadY = gameTrackPositionToViewportY(
+        getNoteEndTrackPosition(note),
+        selectedTrackPosition,
+        viewportHeight,
+        pixelsPerBeat,
+      );
+      if (isViewportYVisible(endHeadY, viewportHeight)) {
+        drawRectNote(context, lane, endHeadY, lane.note);
+      }
+    }
+  }
+  context.restore();
+}
+
+function drawInvisibleNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  context.save();
+  context.strokeStyle = INVISIBLE_NOTE_COLOR;
+  context.lineWidth = 1;
+  for (const note of model.invisibleNotes ?? []) {
+    if (!Number.isFinite(note?.beat)) {
+      continue;
+    }
+    const lane = lanes[note.lane];
+    if (!lane) {
+      continue;
+    }
+    const headY = gameTrackPositionToViewportY(
+      getEventTrackPosition(note),
+      selectedTrackPosition,
+      viewportHeight,
+      pixelsPerBeat,
+    );
+    if (!isViewportYVisible(headY, viewportHeight)) {
+      continue;
+    }
+    drawOutlinedRectNote(context, lane, headY, INVISIBLE_NOTE_COLOR);
+  }
+  context.restore();
+}
+
+function drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  if (!leftLane || !rightLane) {
+    return [];
+  }
+  const markers = [];
+  const bpmCandidates = [];
+  const stopCandidates = [];
+  const scrollCandidates = [];
+
+  context.save();
+  context.fillStyle = BPM_MARKER;
+  for (const bpmChange of model.bpmChanges) {
+    if (!Number.isFinite(bpmChange?.beat)) {
+      continue;
+    }
+    const y = gameTrackPositionToViewportY(
+      getEventTrackPosition(bpmChange),
+      selectedTrackPosition,
+      viewportHeight,
+      pixelsPerBeat,
+    );
+    if (!isViewportYVisible(y, viewportHeight, 24)) {
+      continue;
+    }
+    const markerRect = getTempoMarkerRect(rightLane, "right");
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    bpmCandidates.push({
+      type: "bpm",
+      timeSec: bpmChange.timeSec,
+      y,
+      label: formatBpmMarkerLabel(bpmChange.bpm),
+      side: "right",
+      color: BPM_MARKER,
+      x: rightLane.x + rightLane.width + TEMPO_LABEL_GAP,
+    });
+  }
+
+  context.fillStyle = STOP_MARKER;
+  for (const stop of model.stops) {
+    if (!Number.isFinite(stop?.beat)) {
+      continue;
+    }
+    const y = gameTrackPositionToViewportY(
+      getEventTrackPosition(stop),
+      selectedTrackPosition,
+      viewportHeight,
+      pixelsPerBeat,
+    );
+    if (!isViewportYVisible(y, viewportHeight, 24)) {
+      continue;
+    }
+    const markerRect = getTempoMarkerRect(leftLane, "left");
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    stopCandidates.push({
+      type: "stop",
+      timeSec: stop.timeSec,
+      y,
+      label: formatStopMarkerLabel(stop.durationSec),
+      side: "left",
+      color: STOP_MARKER,
+      x: leftLane.x - TEMPO_LABEL_GAP,
+    });
+  }
+
+  context.fillStyle = SCROLL_MARKER;
+  for (const scrollChange of model.scrollChanges) {
+    if (!Number.isFinite(scrollChange?.beat)) {
+      continue;
+    }
+    const y = gameTrackPositionToViewportY(
+      getEventTrackPosition(scrollChange),
+      selectedTrackPosition,
+      viewportHeight,
+      pixelsPerBeat,
+    );
+    if (!isViewportYVisible(y, viewportHeight, 24)) {
+      continue;
+    }
+    const markerRect = getTempoMarkerRect(leftLane, "left");
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    scrollCandidates.push({
+      type: "scroll",
+      timeSec: scrollChange.timeSec,
+      y,
+      label: formatScrollMarkerLabel(scrollChange.rate),
+      side: "left",
+      color: SCROLL_MARKER,
+      x: leftLane.x - TEMPO_LABEL_GAP,
+    });
+  }
+  context.restore();
+
+  pushSpacedTempoMarkers(markers, bpmCandidates);
+  pushSpacedTempoMarkers(markers, stopCandidates);
+  pushSpacedTempoMarkers(markers, scrollCandidates);
+  return markers;
 }
 
 function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixelsPerBeat) {
@@ -627,6 +869,17 @@ function drawOutlinedRectNote(context, lane, y, color) {
   );
 }
 
+function pushSpacedTempoMarkers(markers, candidates) {
+  let lastAcceptedY = Number.POSITIVE_INFINITY;
+  for (const candidate of [...candidates].sort((left, right) => left.y - right.y)) {
+    if (!shouldKeepTempoMarkerLabel(lastAcceptedY, candidate.y)) {
+      continue;
+    }
+    markers.push(candidate);
+    lastAcceptedY = candidate.y;
+  }
+}
+
 function drawLaneSeparators(context, lanes, viewportHeight) {
   if (lanes.length === 0) {
     return;
@@ -779,6 +1032,22 @@ function timeToViewportY(eventTimeSec, selectedTimeSec, viewportHeight, pixelsPe
 
 function beatToViewportY(eventBeat, selectedBeat, viewportHeight, pixelsPerBeat) {
   return viewportHeight / 2 - (eventBeat - selectedBeat) * pixelsPerBeat;
+}
+
+function gameTrackPositionToViewportY(eventTrackPosition, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  return viewportHeight / 2 - (eventTrackPosition - selectedTrackPosition) * pixelsPerBeat;
+}
+
+function isViewportYVisible(y, viewportHeight, margin = NOTE_HEAD_HEIGHT + 24) {
+  return y >= -margin && y <= viewportHeight + margin;
+}
+
+function getEventTrackPosition(event) {
+  return Number.isFinite(event?.trackPosition) ? event.trackPosition : 0;
+}
+
+function getNoteEndTrackPosition(note) {
+  return Number.isFinite(note?.endTrackPosition) ? note.endTrackPosition : getEventTrackPosition(note);
 }
 
 function formatBpmMarkerLabel(bpm) {

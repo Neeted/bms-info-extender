@@ -83,6 +83,56 @@ test("renderer draws invisible note outlines inset within lane separators", () =
   );
 });
 
+test("renderer positions game-mode notes and scroll markers from signed displacement", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameScrollScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, { viewerMode: "game", pixelsPerBeat: 64, showInvisibleNotes: true });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
+      .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
+    [
+      { x: 72, y: 156, fillStyle: "#bebebe" },
+      { x: 88, y: 220, fillStyle: "#5074fe" },
+    ],
+  );
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.height === 1 && call.fillStyle === "#ff0")
+      .map(({ x, y, width }) => ({ x, y, width })),
+    [
+      { x: 49, y: 160, width: 8 },
+      { x: 49, y: 160, width: 8 },
+    ],
+  );
+  assert.deepEqual(
+    context.strokeRectCalls.map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 105.5, y: 156.5, width: 14, height: 3 }],
+  );
+});
+
+test("renderer skips game-mode long bodies when scroll reversal makes net displacement negative", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createReverseLongNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, { viewerMode: "game", pixelsPerBeat: 64 });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.width === 16 && call.height > 4 && String(call.fillStyle).startsWith("rgb(")),
+    false,
+  );
+  assert.equal(
+    context.fillRectCalls.filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000").length,
+    2,
+  );
+});
+
 function createInvisibleNoteScore() {
   return {
     format: "bms",
@@ -102,6 +152,63 @@ function createInvisibleNoteScore() {
     bpmChanges: [],
     stops: [],
     scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createGameScrollScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 2, normal: 2, long: 0, invisible: 1, mine: 0, all: 3 },
+    notes: [
+      { lane: 1, beat: 5, timeSec: 2.5, kind: "normal" },
+      { lane: 2, beat: 7, timeSec: 3.5, kind: "normal" },
+      { lane: 3, beat: 5, timeSec: 2.5, kind: "invisible" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 5, timeSec: 2.5, kind: "normal" },
+      { lane: 2, beat: 7, timeSec: 3.5, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 6, timeSec: 3 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 4, timeSec: 2, rate: 0 },
+      { beat: 6, timeSec: 3, rate: -1 },
+    ],
+    warnings: [],
+  };
+}
+
+function createReverseLongNoteScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 1, normal: 0, long: 1, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 4, endBeat: 6, timeSec: 2, endTimeSec: 3, kind: "long" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 4, timeSec: 2, kind: "long-start" },
+      { lane: 1, beat: 6, timeSec: 3, kind: "long-end" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 4, timeSec: 2, rate: -1 },
+    ],
     warnings: [],
   };
 }

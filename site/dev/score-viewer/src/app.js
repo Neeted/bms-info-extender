@@ -265,7 +265,7 @@ function getNormalizedSelectedTimeSec(value) {
 }
 
 function getSelectedBeatForTime(timeSec, viewerMode = state.resolvedViewerMode) {
-  if (viewerMode !== "editor") {
+  if (viewerMode === "time") {
     return 0;
   }
   return getBeatAtTimeSec(state.viewerModel, timeSec);
@@ -581,9 +581,9 @@ function ensurePreviewRuntime() {
     onSelectedTimeChange: (selection) => {
       const nextTimeSec = typeof selection === "object" ? selection.timeSec : selection;
       const nextViewerMode = selection?.viewerMode ?? state.resolvedViewerMode;
-      const nextBeat = nextViewerMode === "editor"
-        ? (Number.isFinite(selection?.beat) ? selection.beat : getSelectedBeatForTime(nextTimeSec, nextViewerMode))
-        : 0;
+      const nextBeat = nextViewerMode === "time"
+        ? 0
+        : (Number.isFinite(selection?.beat) ? selection.beat : getSelectedBeatForTime(nextTimeSec, nextViewerMode));
       const changed = hasViewerSelectionChanged(
         state.viewerModel,
         nextViewerMode,

@@ -15,6 +15,8 @@ import {
   getEditorContentHeightPx,
   getEditorScrollTopForBeat,
   getEditorScrollTopForTimeSec,
+  getGameTrackPositionAtTimeSec,
+  getGameTrackPositionForBeat,
   hasViewerSelectionChanged,
   getMeasureIndexAtTime,
   getScrollTopForTimeSec,
@@ -23,6 +25,7 @@ import {
   getTimeSecForScrollTop,
   getVisibleTimeRange,
   getViewerCursor,
+  resolveViewerModeForModel,
 } from "./score-viewer-model.js";
 
 test("viewer model resolves measure and combo positions from comboEvents and bar lines", () => {
@@ -189,6 +192,88 @@ test("viewer model keeps invisible notes separate from visible note indexes", ()
   assert.deepEqual(model.invisibleNotesByBeat.map((note) => ({ lane: note.lane, beat: note.beat, timeSec: note.timeSec })), [
     { lane: 3, beat: 5, timeSec: 2.5 },
   ]);
+});
+
+test("viewer model builds a signed game displacement index across positive, zero, and negative scroll segments", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }, { beat: 16, timeSec: 8 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 4, timeSec: 2, rate: 0 },
+      { beat: 8, timeSec: 4, rate: -1 },
+      { beat: 12, timeSec: 6, rate: 2 },
+    ],
+    warnings: [],
+  });
+
+  assert.equal(model.supportsGameMode, true);
+  assert.equal(resolveViewerModeForModel(model, "game"), "game");
+  assert.equal(getGameTrackPositionForBeat(model, 2), 2);
+  assert.equal(getGameTrackPositionForBeat(model, 6), 4);
+  assert.equal(getGameTrackPositionForBeat(model, 10), 2);
+  assert.equal(getGameTrackPositionForBeat(model, 14), 4);
+});
+
+test("viewer model keeps game displacement fixed while playback is inside a STOP", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 6,
+    lastPlayableTimeSec: 6,
+    lastTimelineTimeSec: 6,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 5 }],
+    bpmChanges: [],
+    stops: [{ beat: 4, timeSec: 2, stopBeats: 4, durationSec: 2 }],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  assert.equal(getBeatAtTimeSec(model, 2.5), 4);
+  assert.equal(getBeatAtTimeSec(model, 3.5), 4);
+  assert.equal(getGameTrackPositionAtTimeSec(model, 2.5), 4);
+  assert.equal(getGameTrackPositionAtTimeSec(model, 3.5), 4);
+});
+
+test("viewer model applies the last same-beat scroll change to subsequent game displacement", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 4, timeSec: 2, rate: 0 },
+      { beat: 4, timeSec: 2, rate: -2 },
+    ],
+    warnings: [],
+  });
+
+  assert.equal(getGameTrackPositionForBeat(model, 4), 4);
+  assert.equal(getGameTrackPositionForBeat(model, 5), 2);
 });
 
 test("viewer model editor scroll mapping uses beat axis", () => {

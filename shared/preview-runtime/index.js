@@ -628,15 +628,14 @@ export function createBmsInfoPreview({
 
   function setViewerMode(nextViewerMode) {
     const normalizedMode = normalizeViewerMode(nextViewerMode);
-    const persistedMode = normalizedMode === "game" ? DEFAULT_VIEWER_MODE : normalizedMode;
-    if (state.viewerMode === persistedMode) {
+    if (state.viewerMode === normalizedMode) {
       scheduleRender();
       return;
     }
-    state.viewerMode = persistedMode;
+    state.viewerMode = normalizedMode;
     state.selectedBeat = getBeatAtTimeSec(state.viewerModel, state.selectedTimeSec);
     try {
-      setPersistedViewerMode(persistedMode);
+      setPersistedViewerMode(normalizedMode);
     } catch (error) {
       console.warn("Failed to persist viewer mode:", error);
     }
@@ -877,7 +876,7 @@ function getResolvedViewerMode(state) {
 }
 
 function resolveSelectedBeat(state, timeSec, beatHint = undefined, resolvedViewerMode = getResolvedViewerMode(state)) {
-  if (resolvedViewerMode !== "editor") {
+  if (resolvedViewerMode === "time") {
     return 0;
   }
   if (Number.isFinite(beatHint)) {
@@ -886,10 +885,9 @@ function resolveSelectedBeat(state, timeSec, beatHint = undefined, resolvedViewe
   return getBeatAtTimeSec(state.viewerModel, timeSec);
 }
 
-function getInitialViewerMode(getPersistedViewerMode) {
+export function getInitialViewerMode(getPersistedViewerMode) {
   try {
-    const persistedMode = normalizeViewerMode(getPersistedViewerMode?.());
-    return persistedMode === "game" ? DEFAULT_VIEWER_MODE : persistedMode;
+    return normalizeViewerMode(getPersistedViewerMode?.());
   } catch (error) {
     console.warn("Failed to read persisted viewer mode:", error);
     return DEFAULT_VIEWER_MODE;

@@ -120,7 +120,7 @@ export function createScoreViewerController({
   modeSelect.append(
     createModeOption("time", "Time"),
     createModeOption("editor", "Editor"),
-    createModeOption("game", "Game", true),
+    createModeOption("game", "Game"),
   );
 
   const invisibleNoteVisibilitySelect = document.createElement("select");
@@ -229,7 +229,7 @@ export function createScoreViewerController({
 
   modeSelect.addEventListener("change", () => {
     const nextMode = normalizeViewerMode(modeSelect.value);
-    if (nextMode === "game") {
+    if (nextMode === "game" && !state.model?.supportsGameMode) {
       modeSelect.value = getResolvedViewerMode();
       return;
     }
@@ -311,32 +311,42 @@ export function createScoreViewerController({
   }
 
   function setPinned(nextPinned) {
-    state.isPinned = Boolean(nextPinned);
+    const normalizedPinned = Boolean(nextPinned);
+    if (state.isPinned === normalizedPinned) {
+      return;
+    }
+    state.isPinned = normalizedPinned;
     updateScrollInteractivity();
     renderScene();
   }
 
   function setOpen(nextOpen) {
-    state.isOpen = Boolean(nextOpen);
+    const normalizedOpen = Boolean(nextOpen);
+    if (state.isOpen === normalizedOpen) {
+      return;
+    }
+    state.isOpen = normalizedOpen;
     root.classList.toggle("is-visible", state.isOpen && Boolean(state.model));
     syncScrollPosition();
     renderScene();
   }
 
   function setPlaybackState(nextPlaying) {
-    state.isPlaying = Boolean(nextPlaying);
+    const normalizedPlaying = Boolean(nextPlaying);
+    if (state.isPlaying === normalizedPlaying) {
+      return;
+    }
+    state.isPlaying = normalizedPlaying;
     updateScrollInteractivity();
     renderScene();
   }
 
   function setViewerMode(nextViewerMode) {
     const normalizedMode = normalizeViewerMode(nextViewerMode);
-    const resolvedInputMode = normalizedMode === "game" ? DEFAULT_VIEWER_MODE : normalizedMode;
-    if (state.viewerMode === resolvedInputMode) {
-      renderScene();
+    if (state.viewerMode === normalizedMode) {
       return;
     }
-    state.viewerMode = resolvedInputMode;
+    state.viewerMode = normalizedMode;
     state.selectedBeat = getBeatAtTimeSec(state.model, state.selectedTimeSec);
     editorFrameStateCache = null;
     refreshLayout();
@@ -345,7 +355,6 @@ export function createScoreViewerController({
   function setInvisibleNoteVisibility(nextVisibility) {
     const normalizedVisibility = normalizeInvisibleNoteVisibility(nextVisibility);
     if (state.invisibleNoteVisibility === normalizedVisibility) {
-      renderScene();
       return;
     }
     state.invisibleNoteVisibility = normalizedVisibility;

@@ -21,6 +21,9 @@ export function resolveViewerModeForModel(model, viewerMode) {
   if (normalizedMode === "editor" && model?.supportsEditorMode) {
     return "editor";
   }
+  if (normalizedMode === "game" && model?.supportsGameMode) {
+    return "game";
+  }
   return DEFAULT_VIEWER_MODE;
 }
 
@@ -33,11 +36,13 @@ export function createScoreViewerModel(score) {
     return null;
   }
 
-  const allNotes = score.notes
+  const rawAllNotes = score.notes
     .map((note) => ({ ...note }))
     .sort(compareNoteLike);
-  const notes = allNotes.filter((note) => note.kind !== "invisible");
-  const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
+  const rawBarLines = [...score.barLines].sort(compareTimedBeatLike);
+  const rawBpmChanges = [...score.bpmChanges].sort(compareTimedBeatLike);
+  const rawStops = [...score.stops].sort(compareTimedBeatLike);
+  const rawScrollChanges = [...(score.scrollChanges ?? [])].sort(compareTimedBeatLike);
 
   const comboEvents = (score.comboEvents?.length > 0 ? score.comboEvents : createFallbackComboEvents(score.notes))
     .map((event) => ({ ...event }))
@@ -54,6 +59,14 @@ export function createScoreViewerModel(score) {
   );
 
   const beatTimingIndex = createBeatTimingIndex(score);
+  const gameScrollIndex = createGameScrollIndex(rawScrollChanges);
+  const allNotes = annotateNotesWithGameTrackPosition(rawAllNotes, gameScrollIndex);
+  const notes = allNotes.filter((note) => note.kind !== "invisible");
+  const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
+  const barLines = annotateEventsWithGameTrackPosition(rawBarLines, gameScrollIndex);
+  const bpmChanges = annotateEventsWithGameTrackPosition(rawBpmChanges, gameScrollIndex);
+  const stops = annotateEventsWithGameTrackPosition(rawStops, gameScrollIndex);
+  const scrollChanges = annotateEventsWithGameTrackPosition(rawScrollChanges, gameScrollIndex);
   const totalBeat = getScoreTotalBeat(score);
   const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
   const editorInvisibleNotes = invisibleNotes.filter((note) => Number.isFinite(note.beat));
@@ -61,7 +74,7 @@ export function createScoreViewerModel(score) {
   const invisibleNotesByBeat = [...editorInvisibleNotes].sort(compareBeatNoteLike);
   const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long" && Number.isFinite(note.endBeat ?? note.beat));
   const longNotesByEndBeat = [...longNotesByBeat].sort(compareLongNoteEndBeat);
-  const measureRanges = createEditorMeasureRanges(score.barLines, totalBeat);
+  const measureRanges = createEditorMeasureRanges(barLines, totalBeat);
 
   return {
     score,
@@ -74,14 +87,16 @@ export function createScoreViewerModel(score) {
     measureRanges,
     comboEvents,
     longEndEventKeys,
-    barLines: [...score.barLines].sort(compareTimedBeatLike),
-    bpmChanges: [...score.bpmChanges].sort(compareTimedBeatLike),
-    stops: [...score.stops].sort(compareTimedBeatLike),
-    scrollChanges: [...(score.scrollChanges ?? [])].sort(compareTimedBeatLike),
+    barLines,
+    bpmChanges,
+    stops,
+    scrollChanges,
     totalCombo: comboEvents.length,
     beatTimingIndex,
+    gameScrollIndex,
     totalBeat,
     supportsEditorMode: Boolean(beatTimingIndex && Number.isFinite(totalBeat)),
+    supportsGameMode: Boolean(beatTimingIndex && gameScrollIndex && Number.isFinite(totalBeat)),
   };
 }
 
@@ -155,6 +170,20 @@ export function getTimeSecForBeat(model, beat) {
   }
   const clampedBeat = getClampedSelectedBeat(model, beat);
   return clamp(model.beatTimingIndex.beatToSeconds(clampedBeat), 0, getScoreTotalDurationSec(model.score));
+}
+
+export function getGameTrackPositionForBeat(model, beat) {
+  if (!model?.gameScrollIndex) {
+    return 0;
+  }
+  return model.gameScrollIndex.beatToDisplacement(getClampedSelectedBeat(model, beat));
+}
+
+export function getGameTrackPositionAtTimeSec(model, timeSec) {
+  if (!model?.gameScrollIndex) {
+    return 0;
+  }
+  return getGameTrackPositionForBeat(model, getBeatAtTimeSec(model, timeSec));
 }
 
 export function getContentHeightPx(model, viewportHeight, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
@@ -352,7 +381,7 @@ export function getViewerCursor(
     : getBeatAtTimeSec(model, clampedTimeSec);
   return {
     timeSec: clampedTimeSec,
-    beat: resolvedMode === "editor" ? selectedBeat : 0,
+    beat: resolvedMode === "time" ? 0 : selectedBeat,
     measureIndex: Math.min(getMeasureIndexAtTime(model, clampedTimeSec), totalMeasureIndex),
     totalMeasureIndex,
     comboCount: getComboCountAtTime(model, clampedTimeSec),
@@ -584,6 +613,80 @@ function createFallbackTimingActions(score) {
   }
 
   return actions;
+}
+
+function createGameScrollIndex(scrollChanges) {
+  const actions = [...(scrollChanges ?? [])]
+    .filter((event) => Number.isFinite(event?.beat) && Number.isFinite(event?.rate))
+    .sort(compareTimedBeatLike);
+
+  const stateBeats = new Array(actions.length);
+  const stateDisplacements = new Array(actions.length);
+  const stateRates = new Array(actions.length);
+
+  let currentBeat = 0;
+  let currentDisplacement = 0;
+  let currentRate = 1;
+
+  for (let index = 0; index < actions.length; index += 1) {
+    const action = actions[index];
+    const actionBeat = Math.max(action.beat, currentBeat);
+    if (actionBeat > currentBeat) {
+      currentDisplacement += (actionBeat - currentBeat) * currentRate;
+      currentBeat = actionBeat;
+    }
+    currentRate = action.rate;
+    stateBeats[index] = currentBeat;
+    stateDisplacements[index] = currentDisplacement;
+    stateRates[index] = currentRate;
+  }
+
+  return {
+    actions,
+    stateBeats,
+    stateDisplacements,
+    stateRates,
+    tailBeat: currentBeat,
+    tailDisplacement: currentDisplacement,
+    tailRate: currentRate,
+    beatToDisplacement(beat) {
+      const normalizedBeat = Number.isFinite(beat) ? Math.max(beat, 0) : 0;
+      const actionIndex = upperBoundActionsByBeat(actions, normalizedBeat) - 1;
+      if (actionIndex < 0) {
+        return normalizedBeat;
+      }
+      return stateDisplacements[actionIndex] + (normalizedBeat - stateBeats[actionIndex]) * stateRates[actionIndex];
+    },
+    getScrollRateAtBeat(beat) {
+      const normalizedBeat = Number.isFinite(beat) ? Math.max(beat, 0) : 0;
+      const actionIndex = upperBoundActionsByBeat(actions, normalizedBeat) - 1;
+      if (actionIndex < 0) {
+        return 1;
+      }
+      return stateRates[actionIndex];
+    },
+  };
+}
+
+function annotateEventsWithGameTrackPosition(events, gameScrollIndex) {
+  if (!gameScrollIndex) {
+    return [...events];
+  }
+  return events.map((event) => ({
+    ...event,
+    ...(Number.isFinite(event?.beat) ? { trackPosition: gameScrollIndex.beatToDisplacement(event.beat) } : {}),
+  }));
+}
+
+function annotateNotesWithGameTrackPosition(notes, gameScrollIndex) {
+  if (!gameScrollIndex) {
+    return [...notes];
+  }
+  return notes.map((note) => ({
+    ...note,
+    ...(Number.isFinite(note?.beat) ? { trackPosition: gameScrollIndex.beatToDisplacement(note.beat) } : {}),
+    ...(Number.isFinite(note?.endBeat) ? { endTrackPosition: gameScrollIndex.beatToDisplacement(note.endBeat) } : {}),
+  }));
 }
 
 function upperBoundByTime(items, timeSec) {

@@ -1,19 +1,20 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
+// 2.0.0 Gameモードを beatoraja 寄りの前方スイープ描画へ切り替え
 // 1.7.1 Game モード再生の hot path を軽量化し、graph の static/dynamic 分離と shared persistence helper を追加
 // 1.7.0 Game モードへ SCROLL 対応を追加し、beatoraja 寄りの signed displacement 描画を実装
 // 1.6.7 Editor メニュー行の select を border-box 化し、重なりとはみ出しを修正
 // 1.6.6 Editor メニュー行のドロップダウンを 2:3 配分で横並び表示に調整
 // 1.6.5 不可視ノーツ可視化の枠線座標を調整し、セパレーターへのはみ出しを修正
 // 1.6.4 不可視ノーツ可視化の左枠がセパレーターで欠ける不具合を修正
-// 1.6.3 譜面ビューワへ不可視ノーツ表示トグルを追加
+// 1.6.3 譜面ビューアへ不可視ノーツ表示トグルを追加
 // 1.6.2 LNOBJ 譜面で Editor モードにだけ出る誤ノーツや欠落ノーツを修正
 // 1.6.1 Editor モードの timing を parser 由来の正規 action に切り替え、ギミック譜面で停止する不具合を修正
-// 1.6.0 譜面ビューワへ Time / Editor / Game モード切替を追加
+// 1.6.0 譜面ビューアへ Time / Editor / Game モード切替を追加
 // 1.5.0 preview/runtime の source を shared/dev/userscript へ分離し、build 生成へ移行
 // 1.4.0 preview runtime を dev page と共通化し、graph hover 時の無駄な再描画を削減
-// 1.3.0 譜面ビューワへ SCROLL マーカー表示を追加
-// 1.2.0 譜面ビューワを userscript 本体へ統合し、グラフ hover/click 連携を追加
+// 1.3.0 譜面ビューアへ SCROLL マーカー表示を追加
+// 1.2.0 譜面ビューアを userscript 本体へ統合し、グラフ hover/click 連携を追加
 // 1.1.0 外部データ取得失敗時のフォールバック処理を追加(LR2IR、MochaでMD5や譜面ビューアへのリンクを表示)
 // 1.0.5 誤字修正
 

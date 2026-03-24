@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.7.1
-// @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
+// @version      2.0.0
+// @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
 // @match        https://stellabms.xyz/*
@@ -19,6 +19,10 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.0.0 譜面ビューアを導入、ギミック譜面を含め実用可能と判断 ※一部ギミック譜面は既知の対応不足あり
+//       TODO: 極端なBPM時のGameモードでのスクロールスピード考慮、バグ利用っぽいものをどこまで対応するか判断(負数STOP、緑数字指定でのSCROLL)
+// 1.1.0 外部データ取得失敗時のフォールバック処理を追加(LR2IR、MochaでMD5や譜面ビューアへのリンクを表示)
+// 1.0.5 誤字修正
 // このファイルは script/build_preview_targets.mjs により生成されます。手編集しないでください。
 
 (() => {

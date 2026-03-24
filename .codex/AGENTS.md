@@ -12,7 +12,7 @@
 - `site/score-parser/vx.x.x/` は配布用 snapshot とし、通常作業では編集しない。
 
 ## 譜面 parser の外部参照先
-- 本リポジトリの譜面ビューワおよび `web/score-parser-runtime` の parser 挙動は、beatoraja で使用実績のある `jbms-parser` を最優先の参照先とする。
+- 本リポジトリの譜面ビューアおよび `web/score-parser-runtime` の parser 挙動は、beatoraja で使用実績のある `jbms-parser` を最優先の参照先とする。
 - `jbms-parser` の upstream は `https://github.com/exch-bms2/jbms-parser`、ローカル参照先は `D:\\github-clone\\jbms-parser` とする。
 - `bemuse` はブラウザ実装として非常に参考になるため、BMS/BMSON の取り回しや viewer 寄りの挙動を確認したいときの主要参照先とする。
 - `bemuse` の upstream は `https://github.com/bemusic/bemuse`、ローカル参照先は `D:\\github-clone\\bemuse\\packages\\bms` と `D:\\github-clone\\bemuse\\packages\\bmson` とする。

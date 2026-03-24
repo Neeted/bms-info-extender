@@ -17,10 +17,10 @@ LR2IR、MinIR、Mocha、STELLAVERSE で BMS の詳細情報を補完表示する
 - SHA256 / MD5 / BMSID などの識別子
 - BPM、TOTAL、判定難易度、機能フラグ、レーン別ノーツ数
 - ノーツ分布グラフ、BPM / STOP / SCROLL マーカー
-- グラフと連動する譜面ビューワ
+- グラフと連動する譜面ビューア
 - LR2IR、MinIR、Mocha、STELLAVERSE、BMS SEARCH などへの補助リンク
 
-現在の実装では、userscript に組み込まれた preview runtime により、グラフと譜面ビューワが連動します。dev page 側も同じ preview runtime を使っており、下半分の preview 挙動は userscript と一致する前提で管理しています。
+現在の実装では、userscript に組み込まれた preview runtime により、グラフと譜面ビューアが連動します。dev page 側も同じ preview runtime を使っており、下半分の preview 挙動は userscript と一致する前提で管理しています。
 
 ## リポジトリについて
 
@@ -37,7 +37,7 @@ LR2IR、MinIR、Mocha、STELLAVERSE で BMS の詳細情報を補完表示する
 - `tampermonkey/`
   利用者へ配布する userscript 本体と、その build source を置いています。
 - `shared/preview-runtime/`
-  userscript と dev page で共通利用する preview runtime です。BMS 情報パネル、グラフ、譜面ビューワの挙動はここを source of truth としています。
+  userscript と dev page で共通利用する preview runtime です。BMS 情報パネル、グラフ、譜面ビューアの挙動はここを source of truth としています。
 - `site/dev/score-viewer/`
   parser と preview runtime の検証用 dev page です。上段は diagnostics、下段は userscript と共通の preview です。
 - `site/score/`

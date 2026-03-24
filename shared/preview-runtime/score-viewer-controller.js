@@ -1,4 +1,5 @@
 import {
+  DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
   DEFAULT_VIEWER_MODE,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
@@ -16,6 +17,7 @@ import {
   getScrollTopForTimeSec,
   getTimeSecForScrollTop,
   getViewerCursor,
+  normalizeInvisibleNoteVisibility,
   normalizeViewerMode,
   resolveViewerModeForModel,
 } from "./score-viewer-model.js";
@@ -35,6 +37,7 @@ export function createScoreViewerController({
   onTimeChange = () => {},
   onPlaybackToggle = () => {},
   onViewerModeChange = () => {},
+  onInvisibleNoteVisibilityChange = () => {},
 }) {
   const scrollHost = document.createElement("div");
   scrollHost.className = "score-viewer-scroll-host";
@@ -109,6 +112,9 @@ export function createScoreViewerController({
   modeTitle.className = "score-viewer-mode-title";
   modeTitle.textContent = "Mode";
 
+  const modeControls = document.createElement("div");
+  modeControls.className = "score-viewer-mode-controls";
+
   const modeSelect = document.createElement("select");
   modeSelect.className = "score-viewer-mode-select";
   modeSelect.append(
@@ -116,7 +122,16 @@ export function createScoreViewerController({
     createModeOption("editor", "Editor"),
     createModeOption("game", "Game", true),
   );
-  modeRow.append(modeTitle, modeSelect);
+
+  const invisibleNoteVisibilitySelect = document.createElement("select");
+  invisibleNoteVisibilitySelect.className = "score-viewer-mode-select score-viewer-invisible-note-select";
+  invisibleNoteVisibilitySelect.append(
+    createModeOption("hide", "INVISIBLE Hide"),
+    createModeOption("show", "INVISIBLE Show"),
+  );
+
+  modeControls.append(modeSelect, invisibleNoteVisibilitySelect);
+  modeRow.append(modeTitle, modeControls);
 
   statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput, modeRow);
   bottomBar.append(statusPanel);
@@ -136,6 +151,7 @@ export function createScoreViewerController({
     isPlaying: false,
     spacingScale: DEFAULT_SPACING_SCALE,
     viewerMode: DEFAULT_VIEWER_MODE,
+    invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   };
   const uiState = {
     playbackButtonDisabled: null,
@@ -148,6 +164,8 @@ export function createScoreViewerController({
     spacingInputValue: null,
     modeSelectValue: null,
     modeSelectDisabled: null,
+    invisibleNoteVisibilityValue: null,
+    invisibleNoteVisibilityDisabled: null,
   };
 
   let ignoreScrollUntilNextFrame = false;
@@ -225,6 +243,16 @@ export function createScoreViewerController({
     state.viewerMode = nextMode;
     onViewerModeChange(state.viewerMode);
     refreshLayout();
+  });
+
+  invisibleNoteVisibilitySelect.addEventListener("change", () => {
+    const nextVisibility = normalizeInvisibleNoteVisibility(invisibleNoteVisibilitySelect.value);
+    if (nextVisibility === state.invisibleNoteVisibility) {
+      return;
+    }
+    state.invisibleNoteVisibility = nextVisibility;
+    onInvisibleNoteVisibilityChange(state.invisibleNoteVisibility);
+    renderScene();
   });
 
   playbackButton.addEventListener("click", (event) => {
@@ -312,6 +340,16 @@ export function createScoreViewerController({
     state.selectedBeat = getBeatAtTimeSec(state.model, state.selectedTimeSec);
     editorFrameStateCache = null;
     refreshLayout();
+  }
+
+  function setInvisibleNoteVisibility(nextVisibility) {
+    const normalizedVisibility = normalizeInvisibleNoteVisibility(nextVisibility);
+    if (state.invisibleNoteVisibility === normalizedVisibility) {
+      renderScene();
+      return;
+    }
+    state.invisibleNoteVisibility = normalizedVisibility;
+    renderScene();
   }
 
   function setEmptyState(_title, _message) {}
@@ -438,12 +476,15 @@ export function createScoreViewerController({
     setValueIfChanged(spacingInput, String(state.spacingScale), "spacingInputValue");
     setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");
     setDisabledIfChanged(modeSelect, !state.model, "modeSelectDisabled");
+    setValueIfChanged(invisibleNoteVisibilitySelect, state.invisibleNoteVisibility, "invisibleNoteVisibilityValue");
+    setDisabledIfChanged(invisibleNoteVisibilitySelect, !state.model, "invisibleNoteVisibilityDisabled");
 
     const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec, {
       viewerMode: resolvedViewerMode,
       pixelsPerSecond: getPixelsPerSecond(),
       pixelsPerBeat: getPixelsPerBeat(),
       editorFrameState,
+      showInvisibleNotes: state.invisibleNoteVisibility === "show",
     });
     renderMarkerLabels(showScene ? renderResult.markers : []);
   }
@@ -479,6 +520,7 @@ export function createScoreViewerController({
   setPinned(false);
   spacingValue.textContent = formatSpacingScale(state.spacingScale);
   modeSelect.value = DEFAULT_VIEWER_MODE;
+  invisibleNoteVisibilitySelect.value = DEFAULT_INVISIBLE_NOTE_VISIBILITY;
   refreshLayout();
 
   return {
@@ -488,6 +530,7 @@ export function createScoreViewerController({
     setOpen,
     setPlaybackState,
     setViewerMode,
+    setInvisibleNoteVisibility,
     setEmptyState,
     refreshLayout,
     destroy,

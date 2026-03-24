@@ -4,6 +4,7 @@
 var DEFAULT_VIEWER_PIXELS_PER_SECOND = 160;
 var DEFAULT_EDITOR_PIXELS_PER_BEAT = 64;
 var DEFAULT_VIEWER_MODE = "time";
+var DEFAULT_INVISIBLE_NOTE_VISIBILITY = "hide";
 var TIME_SELECTION_EPSILON_SEC = 5e-4;
 var BEAT_SELECTION_EPSILON = 1e-6;
 var ACTION_PRECEDENCE = {
@@ -20,11 +21,16 @@ function resolveViewerModeForModel(model, viewerMode) {
   }
   return DEFAULT_VIEWER_MODE;
 }
+function normalizeInvisibleNoteVisibility(value) {
+  return value === "show" ? "show" : DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+}
 function createScoreViewerModel(score) {
   if (!score) {
     return null;
   }
-  const notes = score.notes.filter((note) => note.kind !== "invisible").map((note) => ({ ...note })).sort(compareNoteLike);
+  const allNotes = score.notes.map((note) => ({ ...note })).sort(compareNoteLike);
+  const notes = allNotes.filter((note) => note.kind !== "invisible");
+  const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
   const comboEvents = (score.comboEvents?.length > 0 ? score.comboEvents : createFallbackComboEvents(score.notes)).map((event) => ({ ...event })).sort(compareComboEvent).map((event, index) => ({
     ...event,
     combo: index + 1
@@ -35,14 +41,18 @@ function createScoreViewerModel(score) {
   const beatTimingIndex = createBeatTimingIndex(score);
   const totalBeat = getScoreTotalBeat(score);
   const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
+  const editorInvisibleNotes = invisibleNotes.filter((note) => Number.isFinite(note.beat));
   const notesByBeat = [...editorNotes].sort(compareBeatNoteLike);
+  const invisibleNotesByBeat = [...editorInvisibleNotes].sort(compareBeatNoteLike);
   const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long" && Number.isFinite(note.endBeat ?? note.beat));
   const longNotesByEndBeat = [...longNotesByBeat].sort(compareLongNoteEndBeat);
   const measureRanges = createEditorMeasureRanges(score.barLines, totalBeat);
   return {
     score,
     notes,
+    invisibleNotes,
     notesByBeat,
+    invisibleNotesByBeat,
     longNotesByBeat,
     longNotesByEndBeat,
     measureRanges,
@@ -584,6 +594,7 @@ var BPM_MARKER = "#00ff00";
 var STOP_MARKER = "#ff00ff";
 var SCROLL_MARKER = "#ff0";
 var MINE_COLOR = "#880000";
+var INVISIBLE_NOTE_COLOR = "#FFFF00";
 var NOTE_HEAD_HEIGHT = 4;
 var TEMPO_MARKER_HEIGHT = 1;
 var TEMPO_MARKER_WIDTH_RATIO = 0.5;
@@ -651,7 +662,8 @@ function createScoreViewerRenderer(canvas) {
     viewerMode = DEFAULT_VIEWER_MODE,
     pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND,
     pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
-    editorFrameState = null
+    editorFrameState = null,
+    showInvisibleNotes = false
   } = {}) {
     context.clearRect(0, 0, width, height);
     context.fillStyle = BACKGROUND_FILL;
@@ -662,21 +674,25 @@ function createScoreViewerRenderer(canvas) {
     const lanes = createLaneLayout(model.score.mode, model.score.laneCount, width);
     const resolvedMode = resolveViewerModeForModel(model, viewerMode);
     if (resolvedMode === "time") {
-      return renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond);
+      return renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond, showInvisibleNotes);
     }
     return renderEditorMode(
       model,
       lanes,
       editorFrameState ?? getEditorFrameState(model, selectedTimeSec, height, pixelsPerBeat),
-      pixelsPerBeat
+      pixelsPerBeat,
+      showInvisibleNotes
     );
   }
   return { resize, render: render2 };
-  function renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond) {
+  function renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond, showInvisibleNotes) {
     const { startTimeSec, endTimeSec } = getVisibleTimeRange(model, selectedTimeSec, height, pixelsPerSecond);
     drawBarLinesTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
     drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
     drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    if (showInvisibleNotes) {
+      drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    }
     drawLaneSeparators(context, lanes, height);
     const markers = drawTempoMarkersTimeMode(
       context,
@@ -695,11 +711,14 @@ function createScoreViewerRenderer(canvas) {
       laneBounds: getLaneBounds(lanes)
     };
   }
-  function renderEditorMode(model, lanes, editorFrameState, pixelsPerBeat) {
+  function renderEditorMode(model, lanes, editorFrameState, pixelsPerBeat, showInvisibleNotes) {
     drawEditorSubGrid(context, model.measureRanges, lanes, editorFrameState, pixelsPerBeat);
     drawBarLinesEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
     drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
     drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+    if (showInvisibleNotes) {
+      drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+    }
     drawLaneSeparators(context, lanes, height);
     const markers = drawTempoMarkersEditorMode(
       context,
@@ -858,6 +877,23 @@ function drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTime
       const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
       drawRectNote(context, lane, endHeadY, lane.note);
     }
+  }
+  context.restore();
+}
+function drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  context.save();
+  context.strokeStyle = INVISIBLE_NOTE_COLOR;
+  context.lineWidth = 1;
+  for (const note of model.invisibleNotes ?? []) {
+    if (note.timeSec < startTimeSec || note.timeSec > endTimeSec) {
+      continue;
+    }
+    const lane = lanes[note.lane];
+    if (!lane) {
+      continue;
+    }
+    const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    drawOutlinedRectNote(context, lane, headY, INVISIBLE_NOTE_COLOR);
   }
   context.restore();
 }
@@ -1069,9 +1105,36 @@ function drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixels
   }
   context.restore();
 }
+function drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
+  context.save();
+  context.strokeStyle = INVISIBLE_NOTE_COLOR;
+  context.lineWidth = 1;
+  const noteWindow = getBeatWindowIndices(model.invisibleNotesByBeat ?? [], editorFrameState.startBeat, editorFrameState.endBeat);
+  for (let index = noteWindow.startIndex; index < noteWindow.endIndex; index += 1) {
+    const note = model.invisibleNotesByBeat[index];
+    const lane = lanes[note.lane];
+    if (!lane) {
+      continue;
+    }
+    const headY = beatToViewportY(note.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+    drawOutlinedRectNote(context, lane, headY, INVISIBLE_NOTE_COLOR);
+  }
+  context.restore();
+}
 function drawRectNote(context, lane, y, color) {
   context.fillStyle = color;
   context.fillRect(lane.x, Math.round(y - NOTE_HEAD_HEIGHT), lane.width, NOTE_HEAD_HEIGHT);
+}
+function drawOutlinedRectNote(context, lane, y, color) {
+  const topY = Math.round(y - NOTE_HEAD_HEIGHT);
+  context.strokeStyle = color;
+  context.lineWidth = 1;
+  context.strokeRect(
+    lane.x + 1.5,
+    topY + 0.5,
+    Math.max(lane.width - 2, 1),
+    Math.max(NOTE_HEAD_HEIGHT - 1, 1)
+  );
 }
 function drawLaneSeparators(context, lanes, viewportHeight) {
   if (lanes.length === 0) {
@@ -1359,6 +1422,8 @@ function createScoreViewerController({
   onPlaybackToggle = () => {
   },
   onViewerModeChange = () => {
+  },
+  onInvisibleNoteVisibilityChange = () => {
   }
 }) {
   const scrollHost = document.createElement("div");
@@ -1413,6 +1478,8 @@ function createScoreViewerController({
   const modeTitle = document.createElement("span");
   modeTitle.className = "score-viewer-mode-title";
   modeTitle.textContent = "Mode";
+  const modeControls = document.createElement("div");
+  modeControls.className = "score-viewer-mode-controls";
   const modeSelect = document.createElement("select");
   modeSelect.className = "score-viewer-mode-select";
   modeSelect.append(
@@ -1420,7 +1487,14 @@ function createScoreViewerController({
     createModeOption("editor", "Editor"),
     createModeOption("game", "Game", true)
   );
-  modeRow.append(modeTitle, modeSelect);
+  const invisibleNoteVisibilitySelect = document.createElement("select");
+  invisibleNoteVisibilitySelect.className = "score-viewer-mode-select score-viewer-invisible-note-select";
+  invisibleNoteVisibilitySelect.append(
+    createModeOption("hide", "INVISIBLE Hide"),
+    createModeOption("show", "INVISIBLE Show")
+  );
+  modeControls.append(modeSelect, invisibleNoteVisibilitySelect);
+  modeRow.append(modeTitle, modeControls);
   statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput, modeRow);
   bottomBar.append(statusPanel);
   const judgeLine = document.createElement("div");
@@ -1435,7 +1509,8 @@ function createScoreViewerController({
     isOpen: false,
     isPlaying: false,
     spacingScale: DEFAULT_SPACING_SCALE,
-    viewerMode: DEFAULT_VIEWER_MODE
+    viewerMode: DEFAULT_VIEWER_MODE,
+    invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY
   };
   const uiState = {
     playbackButtonDisabled: null,
@@ -1447,7 +1522,9 @@ function createScoreViewerController({
     spacingText: null,
     spacingInputValue: null,
     modeSelectValue: null,
-    modeSelectDisabled: null
+    modeSelectDisabled: null,
+    invisibleNoteVisibilityValue: null,
+    invisibleNoteVisibilityDisabled: null
   };
   let ignoreScrollUntilNextFrame = false;
   let resizeObserver = null;
@@ -1517,6 +1594,15 @@ function createScoreViewerController({
     state2.viewerMode = nextMode;
     onViewerModeChange(state2.viewerMode);
     refreshLayout();
+  });
+  invisibleNoteVisibilitySelect.addEventListener("change", () => {
+    const nextVisibility = normalizeInvisibleNoteVisibility(invisibleNoteVisibilitySelect.value);
+    if (nextVisibility === state2.invisibleNoteVisibility) {
+      return;
+    }
+    state2.invisibleNoteVisibility = nextVisibility;
+    onInvisibleNoteVisibilityChange(state2.invisibleNoteVisibility);
+    renderScene();
   });
   playbackButton.addEventListener("click", (event) => {
     event.preventDefault();
@@ -1594,6 +1680,15 @@ function createScoreViewerController({
     state2.selectedBeat = getBeatAtTimeSec(state2.model, state2.selectedTimeSec);
     editorFrameStateCache = null;
     refreshLayout();
+  }
+  function setInvisibleNoteVisibility(nextVisibility) {
+    const normalizedVisibility = normalizeInvisibleNoteVisibility(nextVisibility);
+    if (state2.invisibleNoteVisibility === normalizedVisibility) {
+      renderScene();
+      return;
+    }
+    state2.invisibleNoteVisibility = normalizedVisibility;
+    renderScene();
   }
   function setEmptyState(_title, _message) {
   }
@@ -1711,11 +1806,14 @@ function createScoreViewerController({
     setValueIfChanged(spacingInput, String(state2.spacingScale), "spacingInputValue");
     setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");
     setDisabledIfChanged(modeSelect, !state2.model, "modeSelectDisabled");
+    setValueIfChanged(invisibleNoteVisibilitySelect, state2.invisibleNoteVisibility, "invisibleNoteVisibilityValue");
+    setDisabledIfChanged(invisibleNoteVisibilitySelect, !state2.model, "invisibleNoteVisibilityDisabled");
     const renderResult = renderer.render(showScene ? state2.model : null, cursor.timeSec, {
       viewerMode: resolvedViewerMode,
       pixelsPerSecond: getPixelsPerSecond(),
       pixelsPerBeat: getPixelsPerBeat(),
-      editorFrameState
+      editorFrameState,
+      showInvisibleNotes: state2.invisibleNoteVisibility === "show"
     });
     renderMarkerLabels(showScene ? renderResult.markers : []);
   }
@@ -1745,6 +1843,7 @@ function createScoreViewerController({
   setPinned(false);
   spacingValue.textContent = formatSpacingScale(state2.spacingScale);
   modeSelect.value = DEFAULT_VIEWER_MODE;
+  invisibleNoteVisibilitySelect.value = DEFAULT_INVISIBLE_NOTE_VISIBILITY;
   refreshLayout();
   return {
     setModel,
@@ -1753,6 +1852,7 @@ function createScoreViewerController({
     setOpen,
     setPlaybackState,
     setViewerMode,
+    setInvisibleNoteVisibility,
     setEmptyState,
     refreshLayout,
     destroy
@@ -2400,6 +2500,7 @@ var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha2
 var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
 var VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
+var INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibleNoteVisibility";
 var bmsSearchPatternAvailabilityCache = /* @__PURE__ */ new Map();
 var BMSDATA_CSS = `
   .bmsdata {
@@ -2450,8 +2551,10 @@ var BMSDATA_CSS = `
   .score-viewer-spacing-row { padding-top: 2px; }
   .score-viewer-spacing-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .score-viewer-spacing-value { margin-left: auto; color: #fff; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+  .score-viewer-mode-row { display: grid; gap: 4px; align-items: stretch; }
   .score-viewer-mode-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
-  .score-viewer-mode-select { margin-left: auto; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; }
+  .score-viewer-mode-controls { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; }
+  .score-viewer-mode-select { width: 100%; min-width: 0; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; box-sizing: border-box; }
   .score-viewer-mode-select:disabled { opacity: 0.55; cursor: not-allowed; }
   .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -2673,6 +2776,9 @@ function createBmsInfoPreview({
   getPersistedViewerMode = () => DEFAULT_VIEWER_MODE,
   setPersistedViewerMode = () => {
   },
+  getPersistedInvisibleNoteVisibility = () => DEFAULT_INVISIBLE_NOTE_VISIBILITY,
+  setPersistedInvisibleNoteVisibility = () => {
+  },
   onSelectedTimeChange = () => {
   },
   onPinChange = () => {
@@ -2702,6 +2808,7 @@ function createBmsInfoPreview({
     selectedTimeSec: 0,
     selectedBeat: 0,
     viewerMode: getInitialViewerMode(getPersistedViewerMode),
+    invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
     isPinned: false,
     isViewerOpen: false,
     isPlaying: false,
@@ -2731,6 +2838,9 @@ function createBmsInfoPreview({
     },
     onViewerModeChange: (nextViewerMode) => {
       setViewerMode(nextViewerMode);
+    },
+    onInvisibleNoteVisibilityChange: (nextVisibility) => {
+      setInvisibleNoteVisibility(nextVisibility);
     }
   });
   const graphController = createBmsInfoGraph({
@@ -2770,6 +2880,7 @@ function createBmsInfoPreview({
     setRecord,
     setSelectedTimeSec: setSelectedTimeSec2,
     setViewerMode,
+    setInvisibleNoteVisibility,
     setPinned,
     setPlaybackState,
     prefetch,
@@ -2967,6 +3078,20 @@ function createBmsInfoPreview({
     }
     scheduleRender();
   }
+  function setInvisibleNoteVisibility(nextVisibility) {
+    const normalizedVisibility = normalizeInvisibleNoteVisibility(nextVisibility);
+    if (state2.invisibleNoteVisibility === normalizedVisibility) {
+      scheduleRender();
+      return;
+    }
+    state2.invisibleNoteVisibility = normalizedVisibility;
+    try {
+      setPersistedInvisibleNoteVisibility(normalizedVisibility);
+    } catch (error) {
+      console.warn("Failed to persist invisible note visibility:", error);
+    }
+    scheduleRender();
+  }
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state2.isPinned === normalized) {
@@ -3091,6 +3216,7 @@ function createBmsInfoPreview({
     viewerController.setPinned(state2.isPinned);
     viewerController.setModel(state2.viewerModel);
     viewerController.setViewerMode(state2.viewerMode);
+    viewerController.setInvisibleNoteVisibility(state2.invisibleNoteVisibility);
     viewerController.setSelectedTimeSec(state2.selectedTimeSec, { beatHint: state2.selectedBeat });
     viewerController.setOpen(Boolean(state2.isViewerOpen && state2.viewerModel));
     const isActuallyOpen = Boolean(state2.isViewerOpen && state2.viewerModel);
@@ -3184,6 +3310,14 @@ function getInitialViewerMode(getPersistedViewerMode) {
   } catch (error) {
     console.warn("Failed to read persisted viewer mode:", error);
     return DEFAULT_VIEWER_MODE;
+  }
+}
+function getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility) {
+  try {
+    return normalizeInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility?.());
+  } catch (error) {
+    console.warn("Failed to read persisted invisible note visibility:", error);
+    return DEFAULT_INVISIBLE_NOTE_VISIBILITY;
   }
 }
 function estimateViewerWidthFromNumericMode(mode) {
@@ -3711,6 +3845,19 @@ function ensurePreviewRuntime() {
     setPersistedViewerMode: (nextViewerMode) => {
       try {
         localStorage.setItem(VIEWER_MODE_STORAGE_KEY, nextViewerMode);
+      } catch (_error) {
+      }
+    },
+    getPersistedInvisibleNoteVisibility: () => {
+      try {
+        return localStorage.getItem(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY);
+      } catch (_error) {
+        return null;
+      }
+    },
+    setPersistedInvisibleNoteVisibility: (nextVisibility) => {
+      try {
+        localStorage.setItem(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, nextVisibility);
       } catch (_error) {
       }
     },

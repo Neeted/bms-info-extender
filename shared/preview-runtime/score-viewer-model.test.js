@@ -158,6 +158,39 @@ test("viewer model excludes malformed beatless notes from editor indexes", () =>
   ]);
 });
 
+test("viewer model keeps invisible notes separate from visible note indexes", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 12,
+    lastPlayableTimeSec: 12,
+    lastTimelineTimeSec: 12,
+    noteCounts: { visible: 2, normal: 1, long: 1, invisible: 2, mine: 0, all: 4 },
+    notes: [
+      { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
+      { lane: 2, beat: 4, endBeat: 6, endTimeSec: 3, timeSec: 2, kind: "long" },
+      { lane: 3, beat: 5, timeSec: 2.5, kind: "invisible" },
+      { lane: 4, timeSec: 3.5, kind: "invisible" },
+    ],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  assert.equal(model.notes.length, 2);
+  assert.equal(model.invisibleNotes.length, 2);
+  assert.deepEqual(model.notes.map((note) => note.kind), ["normal", "long"]);
+  assert.deepEqual(model.invisibleNotes.map((note) => note.kind), ["invisible", "invisible"]);
+  assert.deepEqual(model.invisibleNotesByBeat.map((note) => ({ lane: note.lane, beat: note.beat, timeSec: note.timeSec })), [
+    { lane: 3, beat: 5, timeSec: 2.5 },
+  ]);
+});
+
 test("viewer model editor scroll mapping uses beat axis", () => {
   const model = createScoreViewerModel({
     format: "bms",

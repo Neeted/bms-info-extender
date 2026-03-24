@@ -1,5 +1,10 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
+// 1.6.7 Editor メニュー行の select を border-box 化し、重なりとはみ出しを修正
+// 1.6.6 Editor メニュー行のドロップダウンを 2:3 配分で横並び表示に調整
+// 1.6.5 不可視ノーツ可視化の枠線座標を調整し、セパレーターへのはみ出しを修正
+// 1.6.4 不可視ノーツ可視化の左枠がセパレーターで欠ける不具合を修正
+// 1.6.3 譜面ビューワへ不可視ノーツ表示トグルを追加
 // 1.6.2 LNOBJ 譜面で Editor モードにだけ出る誤ノーツや欠落ノーツを修正
 // 1.6.1 Editor モードの timing を parser 由来の正規 action に切り替え、ギミック譜面で停止する不具合を修正
 // 1.6.0 譜面ビューワへ Time / Editor / Game モード切替を追加
@@ -866,6 +871,27 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         try {
           if (typeof GM_setValue === "function") {
             GM_setValue(PreviewRuntime.VIEWER_MODE_STORAGE_KEY, nextViewerMode);
+          }
+        } catch (_error) {
+          // Ignore storage failures and keep runtime state only.
+        }
+      },
+      getPersistedInvisibleNoteVisibility: () => {
+        try {
+          return typeof GM_getValue === "function"
+            ? GM_getValue(
+              PreviewRuntime.INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
+              PreviewRuntime.DEFAULT_INVISIBLE_NOTE_VISIBILITY,
+            )
+            : PreviewRuntime.DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+        } catch (_error) {
+          return PreviewRuntime.DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+        }
+      },
+      setPersistedInvisibleNoteVisibility: (nextVisibility) => {
+        try {
+          if (typeof GM_setValue === "function") {
+            GM_setValue(PreviewRuntime.INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, nextVisibility);
           }
         } catch (_error) {
           // Ignore storage failures and keep runtime state only.

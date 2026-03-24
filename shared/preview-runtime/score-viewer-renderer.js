@@ -20,6 +20,7 @@ const BPM_MARKER = "#00ff00";
 const STOP_MARKER = "#ff00ff";
 const SCROLL_MARKER = "#ff0";
 const MINE_COLOR = "#880000";
+const INVISIBLE_NOTE_COLOR = "#FFFF00";
 const NOTE_HEAD_HEIGHT = 4;
 const TEMPO_MARKER_HEIGHT = 1;
 const TEMPO_MARKER_WIDTH_RATIO = 0.5;
@@ -96,6 +97,7 @@ export function createScoreViewerRenderer(canvas) {
       pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND,
       pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
       editorFrameState = null,
+      showInvisibleNotes = false,
     } = {},
   ) {
     context.clearRect(0, 0, width, height);
@@ -110,7 +112,7 @@ export function createScoreViewerRenderer(canvas) {
     const resolvedMode = resolveViewerModeForModel(model, viewerMode);
 
     if (resolvedMode === "time") {
-      return renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond);
+      return renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond, showInvisibleNotes);
     }
 
     return renderEditorMode(
@@ -118,17 +120,21 @@ export function createScoreViewerRenderer(canvas) {
       lanes,
       editorFrameState ?? getEditorFrameState(model, selectedTimeSec, height, pixelsPerBeat),
       pixelsPerBeat,
+      showInvisibleNotes,
     );
   }
 
   return { resize, render };
 
-  function renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond) {
+  function renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond, showInvisibleNotes) {
     const { startTimeSec, endTimeSec } = getVisibleTimeRange(model, selectedTimeSec, height, pixelsPerSecond);
 
     drawBarLinesTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
     drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
     drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    if (showInvisibleNotes) {
+      drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    }
     drawLaneSeparators(context, lanes, height);
     const markers = drawTempoMarkersTimeMode(
       context,
@@ -149,11 +155,14 @@ export function createScoreViewerRenderer(canvas) {
     };
   }
 
-  function renderEditorMode(model, lanes, editorFrameState, pixelsPerBeat) {
+  function renderEditorMode(model, lanes, editorFrameState, pixelsPerBeat, showInvisibleNotes) {
     drawEditorSubGrid(context, model.measureRanges, lanes, editorFrameState, pixelsPerBeat);
     drawBarLinesEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
     drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
     drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+    if (showInvisibleNotes) {
+      drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+    }
     drawLaneSeparators(context, lanes, height);
     const markers = drawTempoMarkersEditorMode(
       context,
@@ -335,6 +344,24 @@ function drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTime
       const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
       drawRectNote(context, lane, endHeadY, lane.note);
     }
+  }
+  context.restore();
+}
+
+function drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  context.save();
+  context.strokeStyle = INVISIBLE_NOTE_COLOR;
+  context.lineWidth = 1;
+  for (const note of model.invisibleNotes ?? []) {
+    if (note.timeSec < startTimeSec || note.timeSec > endTimeSec) {
+      continue;
+    }
+    const lane = lanes[note.lane];
+    if (!lane) {
+      continue;
+    }
+    const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    drawOutlinedRectNote(context, lane, headY, INVISIBLE_NOTE_COLOR);
   }
   context.restore();
 }
@@ -566,9 +593,38 @@ function drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixels
   context.restore();
 }
 
+function drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
+  context.save();
+  context.strokeStyle = INVISIBLE_NOTE_COLOR;
+  context.lineWidth = 1;
+  const noteWindow = getBeatWindowIndices(model.invisibleNotesByBeat ?? [], editorFrameState.startBeat, editorFrameState.endBeat);
+  for (let index = noteWindow.startIndex; index < noteWindow.endIndex; index += 1) {
+    const note = model.invisibleNotesByBeat[index];
+    const lane = lanes[note.lane];
+    if (!lane) {
+      continue;
+    }
+    const headY = beatToViewportY(note.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+    drawOutlinedRectNote(context, lane, headY, INVISIBLE_NOTE_COLOR);
+  }
+  context.restore();
+}
+
 function drawRectNote(context, lane, y, color) {
   context.fillStyle = color;
   context.fillRect(lane.x, Math.round(y - NOTE_HEAD_HEIGHT), lane.width, NOTE_HEAD_HEIGHT);
+}
+
+function drawOutlinedRectNote(context, lane, y, color) {
+  const topY = Math.round(y - NOTE_HEAD_HEIGHT);
+  context.strokeStyle = color;
+  context.lineWidth = 1;
+  context.strokeRect(
+    lane.x + 1.5,
+    topY + 0.5,
+    Math.max(lane.width - 2, 1),
+    Math.max(NOTE_HEAD_HEIGHT - 1, 1),
+  );
 }
 
 function drawLaneSeparators(context, lanes, viewportHeight) {

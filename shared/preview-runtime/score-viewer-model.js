@@ -1,6 +1,7 @@
 export const DEFAULT_VIEWER_PIXELS_PER_SECOND = 160;
 export const DEFAULT_EDITOR_PIXELS_PER_BEAT = 64;
 export const DEFAULT_VIEWER_MODE = "time";
+export const DEFAULT_INVISIBLE_NOTE_VISIBILITY = "hide";
 export const TIME_SELECTION_EPSILON_SEC = 0.0005;
 export const BEAT_SELECTION_EPSILON = 0.000001;
 
@@ -23,15 +24,20 @@ export function resolveViewerModeForModel(model, viewerMode) {
   return DEFAULT_VIEWER_MODE;
 }
 
+export function normalizeInvisibleNoteVisibility(value) {
+  return value === "show" ? "show" : DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+}
+
 export function createScoreViewerModel(score) {
   if (!score) {
     return null;
   }
 
-  const notes = score.notes
-    .filter((note) => note.kind !== "invisible")
+  const allNotes = score.notes
     .map((note) => ({ ...note }))
     .sort(compareNoteLike);
+  const notes = allNotes.filter((note) => note.kind !== "invisible");
+  const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
 
   const comboEvents = (score.comboEvents?.length > 0 ? score.comboEvents : createFallbackComboEvents(score.notes))
     .map((event) => ({ ...event }))
@@ -50,7 +56,9 @@ export function createScoreViewerModel(score) {
   const beatTimingIndex = createBeatTimingIndex(score);
   const totalBeat = getScoreTotalBeat(score);
   const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
+  const editorInvisibleNotes = invisibleNotes.filter((note) => Number.isFinite(note.beat));
   const notesByBeat = [...editorNotes].sort(compareBeatNoteLike);
+  const invisibleNotesByBeat = [...editorInvisibleNotes].sort(compareBeatNoteLike);
   const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long" && Number.isFinite(note.endBeat ?? note.beat));
   const longNotesByEndBeat = [...longNotesByBeat].sort(compareLongNoteEndBeat);
   const measureRanges = createEditorMeasureRanges(score.barLines, totalBeat);
@@ -58,7 +66,9 @@ export function createScoreViewerModel(score) {
   return {
     score,
     notes,
+    invisibleNotes,
     notesByBeat,
+    invisibleNotesByBeat,
     longNotesByBeat,
     longNotesByEndBeat,
     measureRanges,

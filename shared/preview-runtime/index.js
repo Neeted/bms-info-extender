@@ -1,11 +1,13 @@
 import {
   createScoreViewerModel,
+  DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   DEFAULT_VIEWER_MODE,
   getBeatAtTimeSec,
   getClampedSelectedBeat,
   getClampedSelectedTimeSec,
   getScoreTotalDurationSec,
   hasViewerSelectionChanged,
+  normalizeInvisibleNoteVisibility,
   normalizeViewerMode,
   resolveViewerModeForModel,
 } from "./score-viewer-model.js";
@@ -22,7 +24,9 @@ const BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sh
 const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
 export const VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
+export const INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibleNoteVisibility";
 export { DEFAULT_VIEWER_MODE };
+export { DEFAULT_INVISIBLE_NOTE_VISIBILITY };
 
 const bmsSearchPatternAvailabilityCache = new Map();
 
@@ -75,8 +79,10 @@ export const BMSDATA_CSS = `
   .score-viewer-spacing-row { padding-top: 2px; }
   .score-viewer-spacing-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .score-viewer-spacing-value { margin-left: auto; color: #fff; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+  .score-viewer-mode-row { display: grid; gap: 4px; align-items: stretch; }
   .score-viewer-mode-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
-  .score-viewer-mode-select { margin-left: auto; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; }
+  .score-viewer-mode-controls { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; }
+  .score-viewer-mode-select { width: 100%; min-width: 0; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; box-sizing: border-box; }
   .score-viewer-mode-select:disabled { opacity: 0.55; cursor: not-allowed; }
   .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -314,6 +320,8 @@ export function createBmsInfoPreview({
   prefetchParsedScore = async () => {},
   getPersistedViewerMode = () => DEFAULT_VIEWER_MODE,
   setPersistedViewerMode = () => {},
+  getPersistedInvisibleNoteVisibility = () => DEFAULT_INVISIBLE_NOTE_VISIBILITY,
+  setPersistedInvisibleNoteVisibility = () => {},
   onSelectedTimeChange = () => {},
   onPinChange = () => {},
   onPlaybackChange = () => {},
@@ -341,6 +349,7 @@ export function createBmsInfoPreview({
     selectedTimeSec: 0,
     selectedBeat: 0,
     viewerMode: getInitialViewerMode(getPersistedViewerMode),
+    invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
     isPinned: false,
     isViewerOpen: false,
     isPlaying: false,
@@ -371,6 +380,9 @@ export function createBmsInfoPreview({
     },
     onViewerModeChange: (nextViewerMode) => {
       setViewerMode(nextViewerMode);
+    },
+    onInvisibleNoteVisibilityChange: (nextVisibility) => {
+      setInvisibleNoteVisibility(nextVisibility);
     },
   });
 
@@ -412,6 +424,7 @@ export function createBmsInfoPreview({
     setRecord,
     setSelectedTimeSec,
     setViewerMode,
+    setInvisibleNoteVisibility,
     setPinned,
     setPlaybackState,
     prefetch,
@@ -630,6 +643,21 @@ export function createBmsInfoPreview({
     scheduleRender();
   }
 
+  function setInvisibleNoteVisibility(nextVisibility) {
+    const normalizedVisibility = normalizeInvisibleNoteVisibility(nextVisibility);
+    if (state.invisibleNoteVisibility === normalizedVisibility) {
+      scheduleRender();
+      return;
+    }
+    state.invisibleNoteVisibility = normalizedVisibility;
+    try {
+      setPersistedInvisibleNoteVisibility(normalizedVisibility);
+    } catch (error) {
+      console.warn("Failed to persist invisible note visibility:", error);
+    }
+    scheduleRender();
+  }
+
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state.isPinned === normalized) {
@@ -760,6 +788,7 @@ export function createBmsInfoPreview({
     viewerController.setPinned(state.isPinned);
     viewerController.setModel(state.viewerModel);
     viewerController.setViewerMode(state.viewerMode);
+    viewerController.setInvisibleNoteVisibility(state.invisibleNoteVisibility);
     viewerController.setSelectedTimeSec(state.selectedTimeSec, { beatHint: state.selectedBeat });
     viewerController.setOpen(Boolean(state.isViewerOpen && state.viewerModel));
 
@@ -864,6 +893,15 @@ function getInitialViewerMode(getPersistedViewerMode) {
   } catch (error) {
     console.warn("Failed to read persisted viewer mode:", error);
     return DEFAULT_VIEWER_MODE;
+  }
+}
+
+export function getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility) {
+  try {
+    return normalizeInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility?.());
+  } catch (error) {
+    console.warn("Failed to read persisted invisible note visibility:", error);
+    return DEFAULT_INVISIBLE_NOTE_VISIBILITY;
   }
 }
 

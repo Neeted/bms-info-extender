@@ -2,6 +2,7 @@ import {
   createBmsDataContainer,
   createBmsInfoPreview,
   fetchBmsInfoRecordByIdentifiers,
+  INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
   VIEWER_MODE_STORAGE_KEY,
 } from "../../../../shared/preview-runtime/index.js";
 import {
@@ -559,6 +560,20 @@ function ensurePreviewRuntime() {
     setPersistedViewerMode: (nextViewerMode) => {
       try {
         localStorage.setItem(VIEWER_MODE_STORAGE_KEY, nextViewerMode);
+      } catch (_error) {
+        // Ignore storage failures in private mode or restricted contexts.
+      }
+    },
+    getPersistedInvisibleNoteVisibility: () => {
+      try {
+        return localStorage.getItem(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY);
+      } catch (_error) {
+        return null;
+      }
+    },
+    setPersistedInvisibleNoteVisibility: (nextVisibility) => {
+      try {
+        localStorage.setItem(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, nextVisibility);
       } catch (_error) {
         // Ignore storage failures in private mode or restricted contexts.
       }

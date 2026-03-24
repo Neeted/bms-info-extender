@@ -279,6 +279,55 @@ test("viewer model applies the last same-beat scroll change to subsequent game d
   assert.equal(getGameTrackPositionForBeat(model, 5), 2);
 });
 
+test("viewer model builds a grouped game timeline with stop and long-note endpoint metadata", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 5,
+    lastPlayableTimeSec: 5,
+    lastTimelineTimeSec: 5,
+    noteCounts: { visible: 2, normal: 1, long: 1, invisible: 1, mine: 0, all: 3 },
+    notes: [
+      { lane: 1, beat: 4, endBeat: 8, timeSec: 2, endTimeSec: 5, kind: "long" },
+      { lane: 2, beat: 4, timeSec: 2, kind: "invisible" },
+      { lane: 3, beat: 8, timeSec: 5, kind: "normal" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 4, timeSec: 2, kind: "long-start" },
+      { lane: 1, beat: 8, timeSec: 5, kind: "long-end" },
+      { lane: 3, beat: 8, timeSec: 5, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 5 }],
+    bpmChanges: [{ beat: 4, timeSec: 2, bpm: 240 }],
+    stops: [{ beat: 4, timeSec: 2, stopBeats: 4, durationSec: 1 }],
+    scrollChanges: [
+      { beat: 4, timeSec: 2, rate: 0 },
+      { beat: 4, timeSec: 2, rate: -2 },
+    ],
+    warnings: [],
+  });
+
+  const pointAtFour = model.gameTimeline.find((point) => point.beat === 4 && point.timeSec === 2);
+  const pointAtEight = model.gameTimeline.find((point) => point.beat === 8 && point.timeSec === 5);
+  const longNote = model.notes.find((note) => note.kind === "long");
+
+  assert.ok(pointAtFour);
+  assert.ok(pointAtEight);
+  assert.ok(longNote);
+  assert.deepEqual(pointAtFour.scrollChanges.map((change) => change.rate), [0, -2]);
+  assert.equal(pointAtFour.barLines.length, 1);
+  assert.equal(pointAtFour.bpmChanges.length, 1);
+  assert.equal(pointAtFour.stops.length, 1);
+  assert.equal(pointAtFour.notes.length, 2);
+  assert.equal(pointAtFour.stopDurationSec, 1);
+  assert.equal(pointAtFour.outgoingScrollRate, -2);
+  assert.equal(longNote.gameTimelineIndex, pointAtFour.index);
+  assert.equal(longNote.gameTimelineEndIndex, pointAtEight.index);
+  assert.deepEqual(pointAtEight.longEndNotes, [longNote]);
+});
+
 test("viewer model exposes game-mode visible slices by track position", () => {
   const model = createScoreViewerModel({
     format: "bms",

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { createScoreViewerModel } from "./score-viewer-model.js";
 import {
+  collectGameProjection,
   collectVisibleEditorGridLines,
   createScoreViewerRenderer,
 } from "./score-viewer-renderer.js";
@@ -83,10 +84,17 @@ test("renderer draws invisible note outlines inset within lane separators", () =
   );
 });
 
-test("renderer positions game-mode notes and scroll markers from signed displacement", () => {
+test("renderer game projection stops before drawing reentry notes that come back after leaving the viewport", () => {
   const { canvas, context } = createMockCanvas();
   const renderer = createScoreViewerRenderer(canvas);
-  const model = createScoreViewerModel(createGameScrollScore());
+  const model = createScoreViewerModel(createGameProjectionReentryScore());
+
+  const projection = collectGameProjection(model, 2, 320, 64);
+  assert.equal(projection.exitPoint?.point.beat, 4.5);
+  assert.deepEqual(
+    projection.points.flatMap((projected) => projected.point.notes.map((note) => note.beat)),
+    [4.25],
+  );
 
   renderer.resize(240, 320);
   renderer.render(model, 2, { viewerMode: "game", pixelsPerBeat: 64, showInvisibleNotes: true });
@@ -94,25 +102,10 @@ test("renderer positions game-mode notes and scroll markers from signed displace
   assert.deepEqual(
     context.fillRectCalls
       .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
-      .sort((left, right) => left.y - right.y)
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
       { x: 72, y: 156, fillStyle: "#bebebe" },
-      { x: 88, y: 220, fillStyle: "#5074fe" },
     ],
-  );
-  assert.deepEqual(
-    context.fillRectCalls
-      .filter((call) => call.height === 1 && call.fillStyle === "#ff0")
-      .map(({ x, y, width }) => ({ x, y, width })),
-    [
-      { x: 49, y: 160, width: 8 },
-      { x: 49, y: 160, width: 8 },
-    ],
-  );
-  assert.deepEqual(
-    context.strokeRectCalls.map(({ x, y, width, height }) => ({ x, y, width, height })),
-    [{ x: 105.5, y: 156.5, width: 14, height: 3 }],
   );
 });
 
@@ -131,6 +124,35 @@ test("renderer skips game-mode long bodies when scroll reversal makes net displa
   assert.equal(
     context.fillRectCalls.filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000").length,
     2,
+  );
+});
+
+test("renderer keeps game-mode projection frozen while playback remains inside a STOP", () => {
+  const model = createScoreViewerModel(createGameStopProjectionScore());
+
+  const left = collectGameProjection(model, 2.25, 320, 64);
+  const right = collectGameProjection(model, 2.75, 320, 64);
+  const leftNote = left.points.find((projected) => projected.point.notes.some((note) => note.beat === 6));
+  const rightNote = right.points.find((projected) => projected.point.notes.some((note) => note.beat === 6));
+
+  assert.ok(leftNote);
+  assert.ok(rightNote);
+  assert.equal(leftNote.y, rightNote.y);
+  assert.equal(left.selectedTrackPosition, right.selectedTrackPosition);
+});
+
+test("renderer game projection stops drawing notes after they become past objects", () => {
+  const model = createScoreViewerModel(createGameProjectionReentryScore());
+  const before = collectGameProjection(model, 2, 320, 64);
+  const after = collectGameProjection(model, 2.13, 320, 64);
+
+  assert.deepEqual(
+    before.points.flatMap((projected) => projected.point.notes.map((note) => note.beat)),
+    [4.25],
+  );
+  assert.deepEqual(
+    after.points.flatMap((projected) => projected.point.notes.map((note) => note.beat)),
+    [],
   );
 });
 
@@ -157,31 +179,32 @@ function createInvisibleNoteScore() {
   };
 }
 
-function createGameScrollScore() {
+function createGameProjectionReentryScore() {
   return {
     format: "bms",
     mode: "7k",
     laneCount: 8,
     initialBpm: 120,
-    totalDurationSec: 8,
-    lastPlayableTimeSec: 8,
-    lastTimelineTimeSec: 8,
-    noteCounts: { visible: 2, normal: 2, long: 0, invisible: 1, mine: 0, all: 3 },
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 2, normal: 2, long: 0, invisible: 0, mine: 0, all: 2 },
     notes: [
-      { lane: 1, beat: 5, timeSec: 2.5, kind: "normal" },
-      { lane: 2, beat: 7, timeSec: 3.5, kind: "normal" },
-      { lane: 3, beat: 5, timeSec: 2.5, kind: "invisible" },
+      { lane: 1, beat: 4.25, timeSec: 2.125, kind: "normal" },
+      { lane: 2, beat: 4.75, timeSec: 2.375, kind: "normal" },
     ],
     comboEvents: [
-      { lane: 1, beat: 5, timeSec: 2.5, kind: "normal" },
-      { lane: 2, beat: 7, timeSec: 3.5, kind: "normal" },
+      { lane: 1, beat: 4.25, timeSec: 2.125, kind: "normal" },
+      { lane: 2, beat: 4.75, timeSec: 2.375, kind: "normal" },
     ],
-    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 6, timeSec: 3 }, { beat: 8, timeSec: 4 }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
     bpmChanges: [],
     stops: [],
     scrollChanges: [
       { beat: 4, timeSec: 2, rate: 0 },
-      { beat: 6, timeSec: 3, rate: -1 },
+      { beat: 4.25, timeSec: 2.125, rate: 20 },
+      { beat: 4.5, timeSec: 2.25, rate: -20 },
+      { beat: 4.75, timeSec: 2.375, rate: 0 },
     ],
     warnings: [],
   };
@@ -210,6 +233,28 @@ function createReverseLongNoteScore() {
     scrollChanges: [
       { beat: 4, timeSec: 2, rate: -1 },
     ],
+    warnings: [],
+  };
+}
+
+function createGameStopProjectionScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 5,
+    lastPlayableTimeSec: 5,
+    lastTimelineTimeSec: 5,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 6, timeSec: 4, kind: "normal" },
+    ],
+    comboEvents: [{ lane: 1, beat: 6, timeSec: 4, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 5 }],
+    bpmChanges: [],
+    stops: [{ beat: 4, timeSec: 3, stopBeats: 4, durationSec: 1 }],
+    scrollChanges: [],
     warnings: [],
   };
 }

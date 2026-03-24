@@ -71,6 +71,14 @@ export function createScoreViewerModel(score) {
   const gameBpmChangesByTrack = createGamePointIndex(bpmChanges);
   const gameStopsByTrack = createGamePointIndex(stops);
   const gameScrollChangesByTrack = createGamePointIndex(scrollChanges);
+  const gameTimeline = createGameTimeline({
+    notes: allNotes,
+    barLines,
+    bpmChanges,
+    stops,
+    scrollChanges,
+    gameScrollIndex,
+  });
   const totalBeat = getScoreTotalBeat(score);
   const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
   const editorInvisibleNotes = invisibleNotes.filter((note) => Number.isFinite(note.beat));
@@ -109,6 +117,7 @@ export function createScoreViewerModel(score) {
     gameBpmChangesByTrack,
     gameStopsByTrack,
     gameScrollChangesByTrack,
+    gameTimeline,
     totalCombo: comboEvents.length,
     beatTimingIndex,
     gameScrollIndex,
@@ -699,6 +708,113 @@ function createGameScrollIndex(scrollChanges) {
       return stateRates[actionIndex];
     },
   };
+}
+
+function createGameTimeline({ notes, barLines, bpmChanges, stops, scrollChanges, gameScrollIndex }) {
+  const pointMap = new Map();
+  ensureGameTimelinePoint(pointMap, 0, 0, gameScrollIndex);
+
+  for (const barLine of barLines ?? []) {
+    const point = ensureGameTimelinePoint(pointMap, barLine?.beat, barLine?.timeSec, gameScrollIndex);
+    if (point) {
+      point.barLines.push(barLine);
+    }
+  }
+  for (const bpmChange of bpmChanges ?? []) {
+    const point = ensureGameTimelinePoint(pointMap, bpmChange?.beat, bpmChange?.timeSec, gameScrollIndex);
+    if (point) {
+      point.bpmChanges.push(bpmChange);
+    }
+  }
+  for (const stop of stops ?? []) {
+    const point = ensureGameTimelinePoint(pointMap, stop?.beat, stop?.timeSec, gameScrollIndex);
+    if (point) {
+      point.stops.push(stop);
+    }
+  }
+  for (const scrollChange of scrollChanges ?? []) {
+    const point = ensureGameTimelinePoint(pointMap, scrollChange?.beat, scrollChange?.timeSec, gameScrollIndex);
+    if (point) {
+      point.scrollChanges.push(scrollChange);
+    }
+  }
+  for (const note of notes ?? []) {
+    const point = ensureGameTimelinePoint(pointMap, note?.beat, note?.timeSec, gameScrollIndex);
+    if (point) {
+      point.notes.push(note);
+    }
+    if (note?.kind === "long") {
+      const longEndPoint = ensureGameTimelinePoint(pointMap, note?.endBeat, note?.endTimeSec, gameScrollIndex);
+      if (longEndPoint) {
+        longEndPoint.longEndNotes.push(note);
+      }
+    }
+  }
+
+  const points = [...pointMap.values()].sort(compareTimedBeatLike);
+  const pointIndexByKey = new Map();
+  let currentScrollRate = 1;
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    point.index = index;
+    point.stopDurationSec = point.stops.reduce((sum, stop) => {
+      const durationSec = Number.isFinite(stop?.durationSec) && stop.durationSec > 0 ? stop.durationSec : 0;
+      return sum + durationSec;
+    }, 0);
+    if (point.scrollChanges.length > 0) {
+      const lastScrollChange = point.scrollChanges[point.scrollChanges.length - 1];
+      currentScrollRate = Number.isFinite(lastScrollChange?.rate) ? lastScrollChange.rate : currentScrollRate;
+    }
+    point.outgoingScrollRate = currentScrollRate;
+    pointIndexByKey.set(createGameTimelinePointKey(point.beat, point.timeSec), index);
+  }
+
+  for (const note of notes ?? []) {
+    const startIndex = pointIndexByKey.get(createGameTimelinePointKey(note?.beat, note?.timeSec));
+    if (Number.isInteger(startIndex)) {
+      note.gameTimelineIndex = startIndex;
+    }
+    if (note?.kind === "long") {
+      const endIndex = pointIndexByKey.get(createGameTimelinePointKey(note?.endBeat, note?.endTimeSec));
+      if (Number.isInteger(endIndex)) {
+        note.gameTimelineEndIndex = endIndex;
+      }
+    }
+  }
+
+  return points;
+}
+
+function ensureGameTimelinePoint(pointMap, beat, timeSec, gameScrollIndex) {
+  if (!Number.isFinite(beat) || !Number.isFinite(timeSec)) {
+    return null;
+  }
+  const key = createGameTimelinePointKey(beat, timeSec);
+  let point = pointMap.get(key);
+  if (point) {
+    return point;
+  }
+  point = {
+    beat,
+    timeSec,
+    trackPosition: gameScrollIndex ? gameScrollIndex.beatToDisplacement(beat) : beat,
+    barLines: [],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    notes: [],
+    longEndNotes: [],
+    stopDurationSec: 0,
+    outgoingScrollRate: 1,
+    index: -1,
+  };
+  pointMap.set(key, point);
+  return point;
+}
+
+function createGameTimelinePointKey(beat, timeSec) {
+  return `${Math.round((beat ?? 0) * 1000000)}:${Math.round((timeSec ?? 0) * 1000000)}`;
 }
 
 function createGamePointIndex(items) {

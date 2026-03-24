@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.6.1
+// @version      1.6.2
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -56,8 +56,9 @@
     );
     const beatTimingIndex = createBeatTimingIndex(score);
     const totalBeat = getScoreTotalBeat(score);
-    const notesByBeat = [...notes].sort(compareBeatNoteLike);
-    const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long");
+    const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
+    const notesByBeat = [...editorNotes].sort(compareBeatNoteLike);
+    const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long" && Number.isFinite(note.endBeat ?? note.beat));
     const longNotesByEndBeat = [...longNotesByBeat].sort(compareLongNoteEndBeat);
     const measureRanges = createEditorMeasureRanges(score.barLines, totalBeat);
     return {
@@ -3270,7 +3271,7 @@
     GM_addStyle(fontCSS);
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-    const SCORE_PARSER_VERSION = "0.6.1";
+    const SCORE_PARSER_VERSION = "0.6.2";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
     let scoreLoaderContextPromise = null;
     let activeBmsPreviewRuntime = null;

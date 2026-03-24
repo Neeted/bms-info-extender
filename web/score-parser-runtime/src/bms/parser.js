@@ -272,6 +272,7 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
         if (pendingStart) {
           notes.push({
             lane: pendingStart.lane,
+            beat: pendingStart.beat,
             timeSec: pendingStart.timeSec,
             kind: "normal",
             side: pendingStart.side,

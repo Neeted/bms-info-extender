@@ -129,6 +129,35 @@ test("viewer model prefers parser timingActions over lossy bpmChanges", () => {
   assert.equal(getTimeSecForBeat(model, 6.5), 3);
 });
 
+test("viewer model excludes malformed beatless notes from editor indexes", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 12,
+    lastPlayableTimeSec: 12,
+    lastTimelineTimeSec: 12,
+    noteCounts: { visible: 2, normal: 2, long: 0, invisible: 0, mine: 0, all: 2 },
+    notes: [
+      { lane: 1, beat: 4, timeSec: 2, kind: "normal" },
+      { lane: 7, timeSec: 10, kind: "normal" },
+    ],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  assert.equal(model.notes.length, 2);
+  assert.equal(model.notesByBeat.length, 1);
+  assert.deepEqual(model.notesByBeat.map((note) => ({ lane: note.lane, beat: note.beat, timeSec: note.timeSec })), [
+    { lane: 1, beat: 4, timeSec: 2 },
+  ]);
+});
+
 test("viewer model editor scroll mapping uses beat axis", () => {
   const model = createScoreViewerModel({
     format: "bms",

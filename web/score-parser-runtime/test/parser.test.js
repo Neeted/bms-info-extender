@@ -310,6 +310,33 @@ test("BMS LNOBJ long notes inherit combo behavior from LNMODE", () => {
   assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start", "long-end"]);
 });
 
+test("BMS LNOBJ normal notes keep beat positions", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#LNOBJ AA",
+    "#00111:0102",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "ab".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.score.notes.map((note) => ({
+      kind: note.kind,
+      beat: note.beat,
+      timeSec: note.timeSec,
+    })),
+    [
+      { kind: "normal", beat: 4, timeSec: 2 },
+      { kind: "normal", beat: 6, timeSec: 3 },
+    ],
+  );
+  assert.ok(result.score.notes.every((note) => note.kind !== "normal" || Number.isFinite(note.beat)));
+});
+
 test("BMS ignores 00 tokens in direct BPM lanes", () => {
   const chart = [
     "#PLAYER 1",

@@ -49,8 +49,9 @@ export function createScoreViewerModel(score) {
 
   const beatTimingIndex = createBeatTimingIndex(score);
   const totalBeat = getScoreTotalBeat(score);
-  const notesByBeat = [...notes].sort(compareBeatNoteLike);
-  const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long");
+  const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
+  const notesByBeat = [...editorNotes].sort(compareBeatNoteLike);
+  const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long" && Number.isFinite(note.endBeat ?? note.beat));
   const longNotesByEndBeat = [...longNotesByBeat].sort(compareLongNoteEndBeat);
   const measureRanges = createEditorMeasureRanges(score.barLines, totalBeat);
 

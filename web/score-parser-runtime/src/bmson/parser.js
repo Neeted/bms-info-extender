@@ -68,22 +68,27 @@ export function parseBmsonText(text, options) {
       }
       const beat = note.y / resolution;
       const timeSec = timing.beatToSeconds(beat);
+      const endBeat = Number.isFinite(note.l) && note.l > 0
+        ? (note.y + note.l) / resolution
+        : undefined;
       const endTimeSec = Number.isFinite(note.l) && note.l > 0
-        ? timing.beatToSeconds((note.y + note.l) / resolution)
+        ? timing.beatToSeconds(endBeat)
         : undefined;
       notes.push({
         lane: mapping.lane,
+        beat,
         timeSec,
+        endBeat,
         endTimeSec,
         kind: endTimeSec === undefined ? "normal" : "long",
         side: mapping.side,
       });
       if (endTimeSec === undefined) {
-        comboEvents.push(createComboEvent(mapping, timeSec, "normal"));
+        comboEvents.push(createComboEvent(mapping, beat, timeSec, "normal"));
       } else {
-        comboEvents.push(createComboEvent(mapping, timeSec, "long-start"));
+        comboEvents.push(createComboEvent(mapping, beat, timeSec, "long-start"));
         if (shouldCountBmsonLongEnd(note)) {
-          comboEvents.push(createComboEvent(mapping, endTimeSec, "long-end"));
+          comboEvents.push(createComboEvent(mapping, endBeat, endTimeSec, "long-end"));
         }
       }
       lastPlayableTimeSec = Math.max(lastPlayableTimeSec, endTimeSec ?? timeSec);
@@ -113,33 +118,38 @@ export function parseBmsonText(text, options) {
   const bpmChanges = (bmson.bpm_events ?? [])
     .filter((event) => Number.isFinite(event?.bpm) && event.bpm > 0 && Number.isFinite(event?.y))
     .map((event) => ({
+      beat: event.y / resolution,
       timeSec: timing.beatToSeconds(event.y / resolution),
       bpm: event.bpm,
     }))
-    .sort((left, right) => left.timeSec - right.timeSec);
+    .sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
 
   const stops = (bmson.stop_events ?? [])
     .filter((event) => Number.isFinite(event?.duration) && event.duration > 0 && Number.isFinite(event?.y))
     .map((event) => ({
+      beat: event.y / resolution,
       timeSec: timing.beatToSeconds(event.y / resolution),
+      stopBeats: event.duration / resolution,
       durationSec: (event.duration / resolution) * 60 / effectiveBmsonBpmAtBeat(initialBpm, bmson.bpm_events ?? [], event.y / resolution, resolution),
     }))
-    .sort((left, right) => left.timeSec - right.timeSec);
+    .sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
 
   const scrollChanges = (bmson.scroll_events ?? [])
     .filter((event) => Number.isFinite(event?.rate) && Number.isFinite(event?.y))
     .map((event) => ({
+      beat: event.y / resolution,
       timeSec: timing.beatToSeconds(event.y / resolution),
       rate: event.rate,
     }))
-    .sort((left, right) => left.timeSec - right.timeSec);
+    .sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
 
   const barLines = (bmson.lines ?? [])
     .filter((line) => Number.isFinite(line?.y))
     .map((line) => ({
+      beat: line.y / resolution,
       timeSec: timing.beatToSeconds(line.y / resolution),
     }))
-    .sort((left, right) => left.timeSec - right.timeSec);
+    .sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
 
   let lastTimelineTimeSec = lastPlayableTimeSec;
   for (const event of bmson.bpm_events ?? []) {
@@ -178,6 +188,7 @@ export function parseBmsonText(text, options) {
     format: "bmson",
     mode,
     laneCount,
+    initialBpm,
     notes,
     comboEvents,
     barLines,
@@ -338,9 +349,10 @@ function shouldCountBmsonLongEnd(note) {
   return note?.t === 2 || note?.t === 3;
 }
 
-function createComboEvent(mapping, timeSec, kind) {
+function createComboEvent(mapping, beat, timeSec, kind) {
   const event = {
     lane: mapping.lane,
+    beat,
     timeSec,
     kind,
   };

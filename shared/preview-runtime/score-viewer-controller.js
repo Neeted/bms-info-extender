@@ -1,23 +1,38 @@
 import {
+  DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  DEFAULT_VIEWER_MODE,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
   getClampedSelectedTimeSec,
   getContentHeightPx,
+  getEditorFrameState,
+  getEditorContentHeightPx,
+  getEditorScrollTopForBeat,
+  getEditorScrollTopForTimeSec,
+  getTimeSecForBeat,
+  getTimeSecForEditorScrollTop,
   getScrollTopForTimeSec,
   getTimeSecForScrollTop,
   getViewerCursor,
+  normalizeViewerMode,
+  resolveViewerModeForModel,
 } from "./score-viewer-model.js";
 import {
   createScoreViewerRenderer,
   estimateViewerWidth,
 } from "./score-viewer-renderer.js";
 
-const SCROLL_MULTIPLIER = 2;
+const DEFAULT_WHEEL_LINE_HEIGHT_PX = 16;
 const MIN_SPACING_SCALE = 0.5;
 const MAX_SPACING_SCALE = 8.0;
 const SPACING_STEP = 0.01;
 const DEFAULT_SPACING_SCALE = 1.0;
 
-export function createScoreViewerController({ root, onTimeChange = () => {}, onPlaybackToggle = () => {} }) {
+export function createScoreViewerController({
+  root,
+  onTimeChange = () => {},
+  onPlaybackToggle = () => {},
+  onViewerModeChange = () => {},
+}) {
   const scrollHost = document.createElement("div");
   scrollHost.className = "score-viewer-scroll-host";
 
@@ -84,7 +99,23 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
   spacingInput.step = String(SPACING_STEP);
   spacingInput.value = String(DEFAULT_SPACING_SCALE);
 
-  statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput);
+  const modeRow = document.createElement("div");
+  modeRow.className = "score-viewer-status-row score-viewer-mode-row";
+
+  const modeTitle = document.createElement("span");
+  modeTitle.className = "score-viewer-mode-title";
+  modeTitle.textContent = "Mode";
+
+  const modeSelect = document.createElement("select");
+  modeSelect.className = "score-viewer-mode-select";
+  modeSelect.append(
+    createModeOption("time", "Time"),
+    createModeOption("editor", "Editor"),
+    createModeOption("game", "Game", true),
+  );
+  modeRow.append(modeTitle, modeSelect);
+
+  statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput, modeRow);
   bottomBar.append(statusPanel);
 
   const judgeLine = document.createElement("div");
@@ -100,11 +131,25 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     isOpen: false,
     isPlaying: false,
     spacingScale: DEFAULT_SPACING_SCALE,
+    viewerMode: DEFAULT_VIEWER_MODE,
+  };
+  const uiState = {
+    playbackButtonDisabled: null,
+    playbackButtonText: null,
+    playbackButtonLabel: null,
+    playbackTime: null,
+    measureText: null,
+    comboText: null,
+    spacingText: null,
+    spacingInputValue: null,
+    modeSelectValue: null,
+    modeSelectDisabled: null,
   };
 
   let ignoreScrollUntilNextFrame = false;
   let resizeObserver = null;
   let dragState = null;
+  let editorFrameStateCache = null;
 
   scrollHost.addEventListener("scroll", () => {
     syncTimeFromScrollPosition();
@@ -114,7 +159,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     if (!state.model || !state.isOpen || !isScrollInteractive()) {
       return;
     }
-    scrollHost.scrollTop += event.deltaY * SCROLL_MULTIPLIER;
+    scrollHost.scrollTop += normalizeWheelDeltaY(event.deltaY, event.deltaMode, scrollHost.clientHeight);
     syncTimeFromScrollPosition({ force: true });
     event.preventDefault();
   }, { passive: false });
@@ -140,7 +185,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
       return;
     }
     const deltaY = event.clientY - dragState.startY;
-    scrollHost.scrollTop = dragState.startScrollTop + deltaY * SCROLL_MULTIPLIER;
+    scrollHost.scrollTop = dragState.startScrollTop + deltaY;
     syncTimeFromScrollPosition({ force: true });
     event.preventDefault();
   });
@@ -157,6 +202,24 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     }
     state.spacingScale = nextScale;
     spacingValue.textContent = formatSpacingScale(state.spacingScale);
+    refreshLayout();
+  });
+
+  modeSelect.addEventListener("change", () => {
+    const nextMode = normalizeViewerMode(modeSelect.value);
+    if (nextMode === "game") {
+      modeSelect.value = getResolvedViewerMode();
+      return;
+    }
+    if (nextMode === "editor" && !state.model?.supportsEditorMode) {
+      modeSelect.value = getResolvedViewerMode();
+      return;
+    }
+    if (nextMode === state.viewerMode) {
+      return;
+    }
+    state.viewerMode = nextMode;
+    onViewerModeChange(state.viewerMode);
     refreshLayout();
   });
 
@@ -184,6 +247,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     }
     state.model = model;
     state.selectedTimeSec = getClampedSelectedTimeSec(state.model, state.selectedTimeSec);
+    editorFrameStateCache = null;
     updateRootWidth();
     refreshLayout();
   }
@@ -196,6 +260,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
       return;
     }
     state.selectedTimeSec = clampedTimeSec;
+    editorFrameStateCache = null;
     syncScrollPosition();
     renderScene();
   }
@@ -219,6 +284,18 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     renderScene();
   }
 
+  function setViewerMode(nextViewerMode) {
+    const normalizedMode = normalizeViewerMode(nextViewerMode);
+    const resolvedInputMode = normalizedMode === "game" ? DEFAULT_VIEWER_MODE : normalizedMode;
+    if (state.viewerMode === resolvedInputMode) {
+      renderScene();
+      return;
+    }
+    state.viewerMode = resolvedInputMode;
+    editorFrameStateCache = null;
+    refreshLayout();
+  }
+
   function setEmptyState(_title, _message) {}
 
   function syncScrollPosition() {
@@ -227,12 +304,22 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
       return;
     }
     ignoreScrollUntilNextFrame = true;
-    scrollHost.scrollTop = getScrollTopForTimeSec(
-      state.model,
-      state.selectedTimeSec,
-      root.clientHeight || 0,
-      getPixelsPerSecond(),
-    );
+    const viewportHeight = root.clientHeight || 0;
+    if (getResolvedViewerMode() === "editor") {
+      const editorFrameState = getEditorFrameStateForCurrentView(viewportHeight);
+      scrollHost.scrollTop = getEditorScrollTopForBeat(
+        state.model,
+        editorFrameState?.selectedBeat ?? 0,
+        viewportHeight,
+        getPixelsPerBeat(),
+      );
+    } else {
+      scrollHost.scrollTop = getScrollTopForResolvedMode(
+        state.model,
+        state.selectedTimeSec,
+        viewportHeight,
+      );
+    }
     requestAnimationFrame(() => {
       ignoreScrollUntilNextFrame = false;
     });
@@ -245,11 +332,14 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     if (!force && ignoreScrollUntilNextFrame) {
       return;
     }
-    const nextTimeSec = getTimeSecForScrollTop(state.model, scrollHost.scrollTop, getPixelsPerSecond());
+    const nextTimeSec = getResolvedViewerMode() === "editor"
+      ? getTimeSecForBeat(state.model, scrollHost.scrollTop / getPixelsPerBeat())
+      : getTimeSecForResolvedMode(state.model, scrollHost.scrollTop);
     if (Math.abs(nextTimeSec - state.selectedTimeSec) < 0.0005) {
       return;
     }
     state.selectedTimeSec = nextTimeSec;
+    editorFrameStateCache = null;
     renderScene();
     onTimeChange(nextTimeSec);
   }
@@ -259,29 +349,55 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     const width = Math.max(1, root.clientWidth);
     const height = Math.max(260, root.clientHeight);
     renderer.resize(width, height);
-    spacer.style.height = `${getContentHeightPx(state.model, height, getPixelsPerSecond())}px`;
+    spacer.style.height = `${getContentHeightForResolvedMode(state.model, height)}px`;
     syncScrollPosition();
     renderScene();
   }
 
   function renderScene() {
-    const cursor = getViewerCursor(state.model, state.selectedTimeSec);
     const showScene = Boolean(state.model && state.isOpen);
+    const resolvedViewerMode = getResolvedViewerMode();
+    const editorFrameState = resolvedViewerMode === "editor"
+      ? getEditorFrameStateForCurrentView(root.clientHeight || 0)
+      : null;
+    const cursor = getViewerCursor(
+      state.model,
+      state.selectedTimeSec,
+      resolvedViewerMode,
+      editorFrameState?.selectedBeat,
+    );
+
     canvas.hidden = !showScene;
     markerOverlay.hidden = !showScene;
     bottomBar.hidden = !showScene;
     judgeLine.hidden = !showScene;
 
-    playbackButton.disabled = !state.model;
-    playbackButton.textContent = state.isPlaying ? "❚❚" : "▶";
-    playbackButton.setAttribute("aria-label", state.isPlaying ? "Pause score viewer" : "Play score viewer");
-    playbackTime.textContent = `${formatPlaybackTime(cursor.timeSec)} s`;
-    measureRow.textContent = `Measure: ${formatMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`;
-    comboRow.textContent = `Combo: ${cursor.comboCount}/${cursor.totalCombo}`;
-    spacingValue.textContent = formatSpacingScale(state.spacingScale);
-    spacingInput.value = String(state.spacingScale);
+    setDisabledIfChanged(playbackButton, !state.model, "playbackButtonDisabled");
+    setTextIfChanged(playbackButton, state.isPlaying ? "❚❚" : "▶", "playbackButtonText");
+    setAttributeIfChanged(
+      playbackButton,
+      "aria-label",
+      state.isPlaying ? "Pause score viewer" : "Play score viewer",
+      "playbackButtonLabel",
+    );
+    setTextIfChanged(playbackTime, `${formatPlaybackTime(cursor.timeSec)} s`, "playbackTime");
+    setTextIfChanged(
+      measureRow,
+      `Measure: ${formatMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`,
+      "measureText",
+    );
+    setTextIfChanged(comboRow, `Combo: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
+    setTextIfChanged(spacingValue, formatSpacingScale(state.spacingScale), "spacingText");
+    setValueIfChanged(spacingInput, String(state.spacingScale), "spacingInputValue");
+    setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");
+    setDisabledIfChanged(modeSelect, !state.model, "modeSelectDisabled");
 
-    const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec, getPixelsPerSecond());
+    const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec, {
+      viewerMode: resolvedViewerMode,
+      pixelsPerSecond: getPixelsPerSecond(),
+      pixelsPerBeat: getPixelsPerBeat(),
+      editorFrameState,
+    });
     renderMarkerLabels(showScene ? renderResult.markers : []);
   }
 
@@ -315,6 +431,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
 
   setPinned(false);
   spacingValue.textContent = formatSpacingScale(state.spacingScale);
+  modeSelect.value = DEFAULT_VIEWER_MODE;
   refreshLayout();
 
   return {
@@ -323,6 +440,7 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     setPinned,
     setOpen,
     setPlaybackState,
+    setViewerMode,
     setEmptyState,
     refreshLayout,
     destroy,
@@ -382,8 +500,114 @@ export function createScoreViewerController({ root, onTimeChange = () => {}, onP
     }
   }
 
+  function getResolvedViewerMode() {
+    return resolveViewerModeForModel(state.model, state.viewerMode);
+  }
+
   function getPixelsPerSecond() {
     return DEFAULT_VIEWER_PIXELS_PER_SECOND * state.spacingScale;
+  }
+
+  function getPixelsPerBeat() {
+    return DEFAULT_EDITOR_PIXELS_PER_BEAT * state.spacingScale;
+  }
+
+  function getEditorFrameStateForCurrentView(viewportHeight = root.clientHeight || 0) {
+    if (!state.model || getResolvedViewerMode() !== "editor") {
+      editorFrameStateCache = null;
+      return null;
+    }
+    const pixelsPerBeat = getPixelsPerBeat();
+    if (
+      editorFrameStateCache
+      && editorFrameStateCache.model === state.model
+      && Math.abs(editorFrameStateCache.selectedTimeSec - state.selectedTimeSec) < 0.0005
+      && editorFrameStateCache.viewportHeight === viewportHeight
+      && Math.abs(editorFrameStateCache.pixelsPerBeat - pixelsPerBeat) < 0.0005
+    ) {
+      return editorFrameStateCache.frameState;
+    }
+    const frameState = getEditorFrameState(state.model, state.selectedTimeSec, viewportHeight, pixelsPerBeat);
+    editorFrameStateCache = {
+      model: state.model,
+      selectedTimeSec: state.selectedTimeSec,
+      viewportHeight,
+      pixelsPerBeat,
+      frameState,
+    };
+    return frameState;
+  }
+
+  function getContentHeightForResolvedMode(model, viewportHeight) {
+    if (getResolvedViewerMode() === "editor") {
+      return getEditorContentHeightPx(model, viewportHeight, getPixelsPerBeat());
+    }
+    return getContentHeightPx(model, viewportHeight, getPixelsPerSecond());
+  }
+
+  function getScrollTopForResolvedMode(model, selectedTimeSec, viewportHeight) {
+    if (getResolvedViewerMode() === "editor") {
+      return getEditorScrollTopForTimeSec(model, selectedTimeSec, viewportHeight, getPixelsPerBeat());
+    }
+    return getScrollTopForTimeSec(model, selectedTimeSec, viewportHeight, getPixelsPerSecond());
+  }
+
+  function getTimeSecForResolvedMode(model, scrollTop) {
+    if (getResolvedViewerMode() === "editor") {
+      return getTimeSecForEditorScrollTop(model, scrollTop, getPixelsPerBeat());
+    }
+    return getTimeSecForScrollTop(model, scrollTop, getPixelsPerSecond());
+  }
+
+  function setTextIfChanged(element, nextValue, key) {
+    if (uiState[key] === nextValue) {
+      return;
+    }
+    uiState[key] = nextValue;
+    element.textContent = nextValue;
+  }
+
+  function setValueIfChanged(element, nextValue, key) {
+    if (uiState[key] === nextValue) {
+      return;
+    }
+    uiState[key] = nextValue;
+    element.value = nextValue;
+  }
+
+  function setDisabledIfChanged(element, nextValue, key) {
+    if (uiState[key] === nextValue) {
+      return;
+    }
+    uiState[key] = nextValue;
+    element.disabled = nextValue;
+  }
+
+  function setAttributeIfChanged(element, attributeName, nextValue, key) {
+    if (uiState[key] === nextValue) {
+      return;
+    }
+    uiState[key] = nextValue;
+    element.setAttribute(attributeName, nextValue);
+  }
+}
+
+function createModeOption(value, label, disabled = false) {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = label;
+  option.disabled = disabled;
+  return option;
+}
+
+export function normalizeWheelDeltaY(deltaY, deltaMode, viewportHeight, lineHeightPx = DEFAULT_WHEEL_LINE_HEIGHT_PX) {
+  switch (deltaMode) {
+    case 1:
+      return deltaY * lineHeightPx;
+    case 2:
+      return deltaY * Math.max(viewportHeight, 1);
+    default:
+      return deltaY;
   }
 }
 

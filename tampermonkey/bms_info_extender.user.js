@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.5.0
+// @version      1.6.0
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -9,7 +9,9 @@
 // @match        https://www.gaftalk.com/minir/*
 // @match        https://mocha-repository.info/song.php*
 // @grant        GM_addStyle
+// @grant        GM_getValue
 // @grant        GM_getResourceText
+// @grant        GM_setValue
 // @connect      bms.howan.jp
 // @connect      bms-info-extender.netlify.app
 // @resource     googlefont https://fonts.googleapis.com/css2?family=Inconsolata&family=Noto+Sans+JP&display=swap
@@ -22,6 +24,22 @@
 (() => {
   // shared/preview-runtime/score-viewer-model.js
   var DEFAULT_VIEWER_PIXELS_PER_SECOND = 160;
+  var DEFAULT_EDITOR_PIXELS_PER_BEAT = 64;
+  var DEFAULT_VIEWER_MODE = "time";
+  var ACTION_PRECEDENCE = {
+    bpm: 1,
+    stop: 2
+  };
+  function normalizeViewerMode(value) {
+    return value === "editor" || value === "game" || value === "time" ? value : DEFAULT_VIEWER_MODE;
+  }
+  function resolveViewerModeForModel(model, viewerMode) {
+    const normalizedMode = normalizeViewerMode(viewerMode);
+    if (normalizedMode === "editor" && model?.supportsEditorMode) {
+      return "editor";
+    }
+    return DEFAULT_VIEWER_MODE;
+  }
   function createScoreViewerModel(score) {
     if (!score) {
       return null;
@@ -34,16 +52,29 @@
     const longEndEventKeys = new Set(
       comboEvents.filter((event) => event.kind === "long-end").map(createTimedLaneKey)
     );
+    const beatTimingIndex = createBeatTimingIndex(score);
+    const totalBeat = getScoreTotalBeat(score);
+    const notesByBeat = [...notes].sort(compareBeatNoteLike);
+    const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long");
+    const longNotesByEndBeat = [...longNotesByBeat].sort(compareLongNoteEndBeat);
+    const measureRanges = createEditorMeasureRanges(score.barLines, totalBeat);
     return {
       score,
       notes,
+      notesByBeat,
+      longNotesByBeat,
+      longNotesByEndBeat,
+      measureRanges,
       comboEvents,
       longEndEventKeys,
-      barLines: [...score.barLines].sort(compareNoteLike),
-      bpmChanges: [...score.bpmChanges].sort(compareNoteLike),
-      stops: [...score.stops].sort(compareNoteLike),
-      scrollChanges: [...score.scrollChanges ?? []].sort(compareNoteLike),
-      totalCombo: comboEvents.length
+      barLines: [...score.barLines].sort(compareTimedBeatLike),
+      bpmChanges: [...score.bpmChanges].sort(compareTimedBeatLike),
+      stops: [...score.stops].sort(compareTimedBeatLike),
+      scrollChanges: [...score.scrollChanges ?? []].sort(compareTimedBeatLike),
+      totalCombo: comboEvents.length,
+      beatTimingIndex,
+      totalBeat,
+      supportsEditorMode: Boolean(beatTimingIndex && Number.isFinite(totalBeat))
     };
   }
   function getScoreTotalDurationSec(score) {
@@ -55,12 +86,58 @@
     const lastPlayableTimeSec = Number.isFinite(score.lastPlayableTimeSec) ? score.lastPlayableTimeSec : 0;
     return Math.max(totalDurationSec ?? lastTimelineTimeSec ?? lastPlayableTimeSec, 0);
   }
+  function getScoreTotalBeat(score) {
+    if (!score || typeof score !== "object") {
+      return 0;
+    }
+    let maxBeat = 0;
+    for (const note of score.notes ?? []) {
+      maxBeat = Math.max(maxBeat, finiteOrZero(note.endBeat), finiteOrZero(note.beat));
+    }
+    for (const event of score.comboEvents ?? []) {
+      maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
+    }
+    for (const event of score.barLines ?? []) {
+      maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
+    }
+    for (const event of score.bpmChanges ?? []) {
+      maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
+    }
+    for (const event of score.stops ?? []) {
+      maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
+    }
+    for (const event of score.scrollChanges ?? []) {
+      maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
+    }
+    return Math.max(maxBeat, 0);
+  }
   function getClampedSelectedTimeSec(model, timeSec) {
     if (!model) {
       return 0;
     }
     const numericValue = Number.isFinite(timeSec) ? timeSec : 0;
     return clamp(numericValue, 0, getScoreTotalDurationSec(model.score));
+  }
+  function getClampedSelectedBeat(model, beat) {
+    if (!model) {
+      return 0;
+    }
+    const numericValue = Number.isFinite(beat) ? beat : 0;
+    return clamp(numericValue, 0, model.totalBeat ?? 0);
+  }
+  function getBeatAtTimeSec(model, timeSec) {
+    if (!model || !model.beatTimingIndex) {
+      return 0;
+    }
+    const clampedTimeSec = getClampedSelectedTimeSec(model, timeSec);
+    return getClampedSelectedBeat(model, model.beatTimingIndex.secondsToBeat(clampedTimeSec));
+  }
+  function getTimeSecForBeat(model, beat) {
+    if (!model || !model.beatTimingIndex) {
+      return 0;
+    }
+    const clampedBeat = getClampedSelectedBeat(model, beat);
+    return clamp(model.beatTimingIndex.beatToSeconds(clampedBeat), 0, getScoreTotalDurationSec(model.score));
   }
   function getContentHeightPx(model, viewportHeight, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
     if (!model) {
@@ -71,11 +148,26 @@
       Math.ceil(getScoreTotalDurationSec(model.score) * pixelsPerSecond + viewportHeight)
     );
   }
+  function getEditorContentHeightPx(model, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT) {
+    if (!model) {
+      return Math.max(1, viewportHeight);
+    }
+    return Math.max(
+      Math.max(1, viewportHeight),
+      Math.ceil((model.totalBeat ?? 0) * pixelsPerBeat + viewportHeight)
+    );
+  }
   function getTimeSecForScrollTop(model, scrollTop, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
     if (!model) {
       return 0;
     }
     return getClampedSelectedTimeSec(model, scrollTop / pixelsPerSecond);
+  }
+  function getTimeSecForEditorScrollTop(model, scrollTop, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT) {
+    if (!model) {
+      return 0;
+    }
+    return getTimeSecForBeat(model, scrollTop / pixelsPerBeat);
   }
   function getScrollTopForTimeSec(model, timeSec, viewportHeight, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
     if (!model) {
@@ -84,6 +176,14 @@
     const clampedTimeSec = getClampedSelectedTimeSec(model, timeSec);
     const maxScrollTop = Math.max(0, getContentHeightPx(model, viewportHeight, pixelsPerSecond) - viewportHeight);
     return clamp(clampedTimeSec * pixelsPerSecond, 0, maxScrollTop);
+  }
+  function getEditorScrollTopForTimeSec(model, timeSec, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT) {
+    if (!model) {
+      return 0;
+    }
+    const clampedBeat = getBeatAtTimeSec(model, timeSec);
+    const maxScrollTop = Math.max(0, getEditorContentHeightPx(model, viewportHeight, pixelsPerBeat) - viewportHeight);
+    return clamp(clampedBeat * pixelsPerBeat, 0, maxScrollTop);
   }
   function getVisibleTimeRange(model, selectedTimeSec, viewportHeight, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
     if (!model) {
@@ -97,10 +197,52 @@
       endTimeSec: Math.min(getScoreTotalDurationSec(model.score), clampedTimeSec + halfViewportSec + overscanSec)
     };
   }
-  function getViewerCursor(model, selectedTimeSec) {
+  function getEditorFrameState(model, selectedTimeSec, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT) {
+    if (!model) {
+      return {
+        selectedBeat: 0,
+        startBeat: 0,
+        endBeat: 0,
+        viewportHeight: Math.max(viewportHeight, 0)
+      };
+    }
+    const selectedBeat = getBeatAtTimeSec(model, selectedTimeSec);
+    const halfViewportBeat = viewportHeight / pixelsPerBeat / 2;
+    const overscanBeat = Math.max(halfViewportBeat * 0.35, 1);
+    return {
+      selectedBeat,
+      startBeat: Math.max(0, selectedBeat - halfViewportBeat - overscanBeat),
+      endBeat: Math.min(model.totalBeat ?? 0, selectedBeat + halfViewportBeat + overscanBeat),
+      viewportHeight
+    };
+  }
+  function createEditorMeasureRanges(barLines, totalBeat) {
+    const sortedBarLines = [...barLines ?? []].filter((barLine) => Number.isFinite(barLine?.beat)).sort(compareTimedBeatLike);
+    const ranges = [];
+    let previousBeat = 0;
+    if (sortedBarLines.length === 0) {
+      if (Number.isFinite(totalBeat) && totalBeat > 0) {
+        ranges.push({ startBeat: 0, endBeat: totalBeat });
+      }
+      return ranges;
+    }
+    for (const barLine of sortedBarLines) {
+      const currentBeat = barLine.beat;
+      if (currentBeat > previousBeat) {
+        ranges.push({ startBeat: previousBeat, endBeat: currentBeat });
+      }
+      previousBeat = currentBeat;
+    }
+    if (Number.isFinite(totalBeat) && totalBeat > previousBeat) {
+      ranges.push({ startBeat: previousBeat, endBeat: totalBeat });
+    }
+    return ranges;
+  }
+  function getViewerCursor(model, selectedTimeSec, viewerMode = DEFAULT_VIEWER_MODE, selectedBeatOverride = void 0) {
     if (!model) {
       return {
         timeSec: 0,
+        beat: 0,
         measureIndex: 0,
         totalMeasureIndex: 0,
         comboCount: 0,
@@ -109,8 +251,11 @@
     }
     const clampedTimeSec = getClampedSelectedTimeSec(model, selectedTimeSec);
     const totalMeasureIndex = getTotalMeasureIndex(model);
+    const resolvedMode = resolveViewerModeForModel(model, viewerMode);
+    const selectedBeat = Number.isFinite(selectedBeatOverride) ? getClampedSelectedBeat(model, selectedBeatOverride) : getBeatAtTimeSec(model, clampedTimeSec);
     return {
       timeSec: clampedTimeSec,
+      beat: resolvedMode === "editor" ? selectedBeat : 0,
       measureIndex: Math.min(getMeasureIndexAtTime(model, clampedTimeSec), totalMeasureIndex),
       totalMeasureIndex,
       comboCount: getComboCountAtTime(model, clampedTimeSec),
@@ -124,12 +269,6 @@
     const index = upperBoundByTime(model.barLines, timeSec) - 1;
     return Math.max(0, index);
   }
-  function getTotalMeasureIndex(model) {
-    if (!model || model.barLines.length === 0) {
-      return 0;
-    }
-    return Math.max(model.barLines.length - 2, 0);
-  }
   function getComboCountAtTime(model, timeSec) {
     if (!model || model.comboEvents.length === 0) {
       return 0;
@@ -142,13 +281,119 @@
     }
     return model.longEndEventKeys.has(createTimedLaneKey(note.lane, note.endTimeSec, note.side));
   }
+  function getEditorScrollTopForBeat(model, beat, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT) {
+    if (!model) {
+      return 0;
+    }
+    const clampedBeat = getClampedSelectedBeat(model, beat);
+    const maxScrollTop = Math.max(0, getEditorContentHeightPx(model, viewportHeight, pixelsPerBeat) - viewportHeight);
+    return clamp(clampedBeat * pixelsPerBeat, 0, maxScrollTop);
+  }
+  function getTotalMeasureIndex(model) {
+    if (!model || model.barLines.length === 0) {
+      return 0;
+    }
+    return Math.max(model.barLines.length - 2, 0);
+  }
   function createFallbackComboEvents(notes) {
     return notes.filter((note) => note.kind === "normal" || note.kind === "long").map((note) => ({
       lane: note.lane,
+      beat: Number.isFinite(note.beat) ? note.beat : 0,
       timeSec: note.timeSec,
       kind: note.kind === "long" ? "long-start" : "normal",
       ...note.side ? { side: note.side } : {}
     }));
+  }
+  function createBeatTimingIndex(score) {
+    const initialBpm = Number.isFinite(score.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
+    if (!initialBpm) {
+      return null;
+    }
+    const actions = [];
+    for (const event of score.bpmChanges ?? []) {
+      if (Number.isFinite(event?.beat) && Number.isFinite(event?.bpm) && event.bpm > 0) {
+        actions.push({ type: "bpm", beat: event.beat, bpm: event.bpm });
+      }
+    }
+    for (const event of score.stops ?? []) {
+      if (Number.isFinite(event?.beat) && Number.isFinite(event?.stopBeats) && event.stopBeats > 0) {
+        actions.push({ type: "stop", beat: event.beat, stopBeats: event.stopBeats });
+      }
+    }
+    actions.sort(compareTimingAction);
+    const stateBeats = new Array(actions.length);
+    const stateSeconds = new Array(actions.length);
+    const stateBpms = new Array(actions.length);
+    const segments = [];
+    let currentBeat = 0;
+    let currentSeconds = 0;
+    let currentBpm = initialBpm;
+    for (let index = 0; index < actions.length; index += 1) {
+      const action = actions[index];
+      if (action.beat > currentBeat) {
+        const nextSeconds = currentSeconds + (action.beat - currentBeat) * 60 / currentBpm;
+        segments.push({
+          type: "linear",
+          startSec: currentSeconds,
+          endSec: nextSeconds,
+          startBeat: currentBeat,
+          endBeat: action.beat,
+          bpm: currentBpm
+        });
+        currentBeat = action.beat;
+        currentSeconds = nextSeconds;
+      }
+      if (action.type === "bpm") {
+        currentBpm = action.bpm;
+      } else {
+        const stopDurationSec = (action.stopBeats ?? 0) * 60 / currentBpm;
+        if (stopDurationSec > 0) {
+          segments.push({
+            type: "stop",
+            startSec: currentSeconds,
+            endSec: currentSeconds + stopDurationSec,
+            beat: currentBeat
+          });
+          currentSeconds += stopDurationSec;
+        }
+      }
+      stateBeats[index] = currentBeat;
+      stateSeconds[index] = currentSeconds;
+      stateBpms[index] = currentBpm;
+    }
+    return {
+      initialBpm,
+      actions,
+      segments,
+      stateBeats,
+      stateSeconds,
+      stateBpms,
+      tailBeat: currentBeat,
+      tailSeconds: currentSeconds,
+      tailBpm: currentBpm,
+      beatToSeconds(beat) {
+        const normalizedBeat = Number.isFinite(beat) ? Math.max(beat, 0) : 0;
+        const actionIndex = upperBoundActionsByBeat(actions, normalizedBeat) - 1;
+        if (actionIndex < 0) {
+          return normalizedBeat * 60 / initialBpm;
+        }
+        return stateSeconds[actionIndex] + (normalizedBeat - stateBeats[actionIndex]) * 60 / stateBpms[actionIndex];
+      },
+      secondsToBeat(seconds) {
+        const normalizedSeconds = Number.isFinite(seconds) ? Math.max(seconds, 0) : 0;
+        const segmentIndex = upperBoundSegmentsByStartSec(segments, normalizedSeconds) - 1;
+        if (segmentIndex >= 0) {
+          const segment = segments[segmentIndex];
+          if (normalizedSeconds <= segment.endSec) {
+            if (segment.type === "stop") {
+              return segment.beat;
+            }
+            return segment.startBeat + (normalizedSeconds - segment.startSec) * segment.bpm / 60;
+          }
+        }
+        return currentBeat + (normalizedSeconds - currentSeconds) * currentBpm / 60;
+      }
+    };
   }
   function upperBoundByTime(items, timeSec) {
     let low = 0;
@@ -163,9 +408,38 @@
     }
     return low;
   }
+  function upperBoundActionsByBeat(actions, beat) {
+    let low = 0;
+    let high = actions.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (actions[mid].beat <= beat) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
+  }
+  function upperBoundSegmentsByStartSec(segments, seconds) {
+    let low = 0;
+    let high = segments.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (segments[mid].startSec <= seconds) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
+  }
   function compareNoteLike(left, right) {
     if (left.timeSec !== right.timeSec) {
       return left.timeSec - right.timeSec;
+    }
+    if (finiteOrZero(left.beat) !== finiteOrZero(right.beat)) {
+      return finiteOrZero(left.beat) - finiteOrZero(right.beat);
     }
     return (left.lane ?? 0) - (right.lane ?? 0);
   }
@@ -173,11 +447,44 @@
     if (left.timeSec !== right.timeSec) {
       return left.timeSec - right.timeSec;
     }
+    if (finiteOrZero(left.beat) !== finiteOrZero(right.beat)) {
+      return finiteOrZero(left.beat) - finiteOrZero(right.beat);
+    }
     const order = comboEventOrder(left.kind) - comboEventOrder(right.kind);
     if (order !== 0) {
       return order;
     }
     return left.lane - right.lane;
+  }
+  function compareBeatNoteLike(left, right) {
+    if (finiteOrZero(left.beat) !== finiteOrZero(right.beat)) {
+      return finiteOrZero(left.beat) - finiteOrZero(right.beat);
+    }
+    if ((left.timeSec ?? 0) !== (right.timeSec ?? 0)) {
+      return (left.timeSec ?? 0) - (right.timeSec ?? 0);
+    }
+    return (left.lane ?? 0) - (right.lane ?? 0);
+  }
+  function compareLongNoteEndBeat(left, right) {
+    if (finiteOrZero(left.endBeat ?? left.beat) !== finiteOrZero(right.endBeat ?? right.beat)) {
+      return finiteOrZero(left.endBeat ?? left.beat) - finiteOrZero(right.endBeat ?? right.beat);
+    }
+    if (finiteOrZero(left.beat) !== finiteOrZero(right.beat)) {
+      return finiteOrZero(left.beat) - finiteOrZero(right.beat);
+    }
+    return (left.timeSec ?? 0) - (right.timeSec ?? 0);
+  }
+  function compareTimedBeatLike(left, right) {
+    if (Number.isFinite(left?.beat) && Number.isFinite(right?.beat) && left.beat !== right.beat) {
+      return left.beat - right.beat;
+    }
+    return (left?.timeSec ?? 0) - (right?.timeSec ?? 0);
+  }
+  function compareTimingAction(left, right) {
+    if (left.beat !== right.beat) {
+      return left.beat - right.beat;
+    }
+    return ACTION_PRECEDENCE[left.type] - ACTION_PRECEDENCE[right.type];
   }
   function comboEventOrder(kind) {
     switch (kind) {
@@ -197,6 +504,9 @@
     }
     return `${side ?? "-"}:${input}:${Math.round((timeSec ?? 0) * 1e6)}`;
   }
+  function finiteOrZero(value) {
+    return Number.isFinite(value) ? value : 0;
+  }
   function clamp(value, minValue, maxValue) {
     return Math.min(Math.max(value, minValue), maxValue);
   }
@@ -206,8 +516,10 @@
   var DP_GUTTER_UNITS = 1.2;
   var FIXED_LANE_WIDTH = 16;
   var BACKGROUND_FILL = "#000000";
-  var SEPARATOR_COLOR = "rgba(72, 72, 72, 0.95)";
-  var BAR_LINE = "rgba(255, 255, 255, 0.92)";
+  var SEPARATOR_COLOR = "#404040";
+  var BAR_LINE = "#ffffff";
+  var EDITOR_BEAT_GRID_LINE = "#808080";
+  var EDITOR_SIXTEENTH_GRID_LINE = "#404040";
   var BPM_MARKER = "#00ff00";
   var STOP_MARKER = "#ff00ff";
   var SCROLL_MARKER = "#ff0";
@@ -275,7 +587,12 @@
       canvas.style.height = `${height}px`;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
-    function render(model, selectedTimeSec, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
+    function render(model, selectedTimeSec, {
+      viewerMode = DEFAULT_VIEWER_MODE,
+      pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND,
+      pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
+      editorFrameState = null
+    } = {}) {
       context.clearRect(0, 0, width, height);
       context.fillStyle = BACKGROUND_FILL;
       context.fillRect(0, 0, width, height);
@@ -283,12 +600,25 @@
         return createEmptyRenderResult();
       }
       const lanes = createLaneLayout(model.score.mode, model.score.laneCount, width);
+      const resolvedMode = resolveViewerModeForModel(model, viewerMode);
+      if (resolvedMode === "time") {
+        return renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond);
+      }
+      return renderEditorMode(
+        model,
+        lanes,
+        editorFrameState ?? getEditorFrameState(model, selectedTimeSec, height, pixelsPerBeat),
+        pixelsPerBeat
+      );
+    }
+    return { resize, render };
+    function renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond) {
       const { startTimeSec, endTimeSec } = getVisibleTimeRange(model, selectedTimeSec, height, pixelsPerSecond);
-      drawBarLines(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-      drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-      drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+      drawBarLinesTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+      drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+      drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
       drawLaneSeparators(context, lanes, height);
-      const markers = drawTempoMarkers(
+      const markers = drawTempoMarkersTimeMode(
         context,
         model.bpmChanges,
         model.stops,
@@ -305,7 +635,24 @@
         laneBounds: getLaneBounds(lanes)
       };
     }
-    return { resize, render };
+    function renderEditorMode(model, lanes, editorFrameState, pixelsPerBeat) {
+      drawEditorSubGrid(context, model.measureRanges, lanes, editorFrameState, pixelsPerBeat);
+      drawBarLinesEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
+      drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+      drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+      drawLaneSeparators(context, lanes, height);
+      const markers = drawTempoMarkersEditorMode(
+        context,
+        model,
+        lanes,
+        editorFrameState,
+        pixelsPerBeat
+      );
+      return {
+        markers,
+        laneBounds: getLaneBounds(lanes)
+      };
+    }
   }
   function estimateViewerWidth(mode, laneCount) {
     const layout = getModeLayout(mode, laneCount);
@@ -313,7 +660,7 @@
     const contentWidth = layout.display.length * FIXED_LANE_WIDTH + gutterWidth;
     return Math.ceil(contentWidth + JUDGE_LINE_SIDE_OVERHANG * 2);
   }
-  function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawBarLinesTimeMode(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
     if (!leftLane || !rightLane) {
       return;
@@ -335,7 +682,7 @@
     }
     context.restore();
   }
-  function drawTempoMarkers(context, bpmChanges, stops, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
     if (!leftLane || !rightLane) {
       return [];
@@ -351,6 +698,182 @@
         continue;
       }
       const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const markerRect = getTempoMarkerRect(rightLane, "right");
+      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
+        markers.push({
+          type: "bpm",
+          timeSec: bpmChange.timeSec,
+          y,
+          label: formatBpmMarkerLabel(bpmChange.bpm),
+          side: "right",
+          color: BPM_MARKER,
+          x: rightLane.x + rightLane.width + TEMPO_LABEL_GAP
+        });
+        lastBpmLabelY = y;
+      }
+    }
+    context.fillStyle = STOP_MARKER;
+    for (const stop of stops) {
+      if (stop.timeSec < startTimeSec || stop.timeSec > endTimeSec) {
+        continue;
+      }
+      const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const markerRect = getTempoMarkerRect(leftLane, "left");
+      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
+        markers.push({
+          type: "stop",
+          timeSec: stop.timeSec,
+          y,
+          label: formatStopMarkerLabel(stop.durationSec),
+          side: "left",
+          color: STOP_MARKER,
+          x: leftLane.x - TEMPO_LABEL_GAP
+        });
+        lastStopLabelY = y;
+      }
+    }
+    context.fillStyle = SCROLL_MARKER;
+    for (const scrollChange of scrollChanges) {
+      if (scrollChange.timeSec < startTimeSec || scrollChange.timeSec > endTimeSec) {
+        continue;
+      }
+      const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const markerRect = getTempoMarkerRect(leftLane, "left");
+      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
+        markers.push({
+          type: "scroll",
+          timeSec: scrollChange.timeSec,
+          y,
+          label: formatScrollMarkerLabel(scrollChange.rate),
+          side: "left",
+          color: SCROLL_MARKER,
+          x: leftLane.x - TEMPO_LABEL_GAP
+        });
+        lastScrollLabelY = y;
+      }
+    }
+    context.restore();
+    return markers;
+  }
+  function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+    context.save();
+    for (const note of model.notes) {
+      if (note.kind !== "long" || !Number.isFinite(note.endTimeSec)) {
+        continue;
+      }
+      if (note.endTimeSec < startTimeSec || note.timeSec > endTimeSec) {
+        continue;
+      }
+      const lane = lanes[note.lane];
+      if (!lane) {
+        continue;
+      }
+      const startY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const endY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
+      const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
+      const bodyHeight = Math.max(bottomY - topY, 2);
+      context.fillStyle = dimColor(lane.note, 0.42);
+      context.fillRect(lane.x, topY, lane.width, bodyHeight);
+    }
+    context.restore();
+  }
+  function drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+    context.save();
+    for (const note of model.notes) {
+      const noteEndTimeSec = note.endTimeSec ?? note.timeSec;
+      if (noteEndTimeSec < startTimeSec || note.timeSec > endTimeSec) {
+        continue;
+      }
+      const lane = lanes[note.lane];
+      if (!lane || note.kind === "invisible") {
+        continue;
+      }
+      const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
+      if (note.kind === "long" && Number.isFinite(note.endTimeSec) && shouldDrawLongEndCap(model, note)) {
+        const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+        drawRectNote(context, lane, endHeadY, lane.note);
+      }
+    }
+    context.restore();
+  }
+  function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixelsPerBeat) {
+    const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+    if (!leftLane || !rightLane || !Array.isArray(measureRanges) || measureRanges.length === 0) {
+      return;
+    }
+    const leftX = leftLane.x;
+    const rightX = rightLane.x + rightLane.width;
+    const visibleGridLines = collectVisibleEditorGridLines(
+      measureRanges,
+      editorFrameState.startBeat,
+      editorFrameState.endBeat
+    );
+    if (visibleGridLines.sixteenthBeats.length === 0 && visibleGridLines.beatBeats.length === 0) {
+      return;
+    }
+    context.save();
+    context.lineWidth = 1;
+    context.strokeStyle = EDITOR_SIXTEENTH_GRID_LINE;
+    for (const beat of visibleGridLines.sixteenthBeats) {
+      const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      context.beginPath();
+      context.moveTo(leftX, y + 0.5);
+      context.lineTo(rightX, y + 0.5);
+      context.stroke();
+    }
+    context.strokeStyle = EDITOR_BEAT_GRID_LINE;
+    for (const beat of visibleGridLines.beatBeats) {
+      const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      context.beginPath();
+      context.moveTo(leftX, y + 0.5);
+      context.lineTo(rightX, y + 0.5);
+      context.stroke();
+    }
+    context.restore();
+  }
+  function drawBarLinesEditorMode(context, barLines, lanes, editorFrameState, pixelsPerBeat) {
+    const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+    if (!leftLane || !rightLane) {
+      return;
+    }
+    const leftX = leftLane.x;
+    const rightX = rightLane.x + rightLane.width;
+    const visibleWindow = getBeatWindowIndices(barLines, editorFrameState.startBeat, editorFrameState.endBeat);
+    context.save();
+    context.strokeStyle = BAR_LINE;
+    context.lineWidth = 1;
+    for (let index = visibleWindow.startIndex; index < visibleWindow.endIndex; index += 1) {
+      const barLine = barLines[index];
+      const y = beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      context.beginPath();
+      context.moveTo(leftX, y + 0.5);
+      context.lineTo(rightX, y + 0.5);
+      context.stroke();
+    }
+    context.restore();
+  }
+  function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
+    const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+    if (!leftLane || !rightLane) {
+      return [];
+    }
+    const markers = [];
+    let lastBpmLabelY = Number.POSITIVE_INFINITY;
+    let lastStopLabelY = Number.POSITIVE_INFINITY;
+    let lastScrollLabelY = Number.POSITIVE_INFINITY;
+    const bpmWindow = getBeatWindowIndices(model.bpmChanges, editorFrameState.startBeat, editorFrameState.endBeat);
+    const stopWindow = getBeatWindowIndices(model.stops, editorFrameState.startBeat, editorFrameState.endBeat);
+    const scrollWindow = getBeatWindowIndices(model.scrollChanges, editorFrameState.startBeat, editorFrameState.endBeat);
+    context.save();
+    context.fillStyle = BPM_MARKER;
+    for (let index = bpmWindow.startIndex; index < bpmWindow.endIndex; index += 1) {
+      const bpmChange = model.bpmChanges[index];
+      const y = beatToViewportY(bpmChange.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
       const markerRect = getTempoMarkerRect(rightLane, "right");
       context.fillRect(
         markerRect.x,
@@ -372,11 +895,9 @@
       }
     }
     context.fillStyle = STOP_MARKER;
-    for (const stop of stops) {
-      if (stop.timeSec < startTimeSec || stop.timeSec > endTimeSec) {
-        continue;
-      }
-      const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    for (let index = stopWindow.startIndex; index < stopWindow.endIndex; index += 1) {
+      const stop = model.stops[index];
+      const y = beatToViewportY(stop.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
       const markerRect = getTempoMarkerRect(leftLane, "left");
       context.fillRect(
         markerRect.x,
@@ -398,11 +919,9 @@
       }
     }
     context.fillStyle = SCROLL_MARKER;
-    for (const scrollChange of scrollChanges) {
-      if (scrollChange.timeSec < startTimeSec || scrollChange.timeSec > endTimeSec) {
-        continue;
-      }
-      const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    for (let index = scrollWindow.startIndex; index < scrollWindow.endIndex; index += 1) {
+      const scrollChange = model.scrollChanges[index];
+      const y = beatToViewportY(scrollChange.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
       const markerRect = getTempoMarkerRect(leftLane, "left");
       context.fillRect(
         markerRect.x,
@@ -442,46 +961,51 @@
       width
     };
   }
-  function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
     context.save();
-    for (const note of model.notes) {
-      if (note.kind !== "long" || !Number.isFinite(note.endTimeSec)) {
-        continue;
-      }
-      if (note.endTimeSec < startTimeSec || note.timeSec > endTimeSec) {
-        continue;
-      }
+    const candidateWindow = getLongBodyWindow(model, editorFrameState.startBeat, editorFrameState.endBeat);
+    for (let index = candidateWindow.startIndex; index < candidateWindow.endIndex; index += 1) {
+      const note = candidateWindow.items[index];
       const lane = lanes[note.lane];
       if (!lane) {
         continue;
       }
-      const startY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
-      const endY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const noteStartBeat = note.beat ?? 0;
+      const noteEndBeat = getNoteEndBeat(note);
+      if (noteEndBeat < editorFrameState.startBeat || noteStartBeat > editorFrameState.endBeat) {
+        continue;
+      }
+      const startY = beatToViewportY(noteStartBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const endY = beatToViewportY(noteEndBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
       const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
-      const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
+      const bottomY = Math.min(Math.max(startY, endY), editorFrameState.viewportHeight + NOTE_HEAD_HEIGHT + 24);
       const bodyHeight = Math.max(bottomY - topY, 2);
       context.fillStyle = dimColor(lane.note, 0.42);
       context.fillRect(lane.x, topY, lane.width, bodyHeight);
     }
     context.restore();
   }
-  function drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
     context.save();
-    for (const note of model.notes) {
-      const noteEndTimeSec = note.endTimeSec ?? note.timeSec;
-      if (noteEndTimeSec < startTimeSec || note.timeSec > endTimeSec) {
-        continue;
-      }
+    const noteWindow = getBeatWindowIndices(model.notesByBeat, editorFrameState.startBeat, editorFrameState.endBeat);
+    for (let index = noteWindow.startIndex; index < noteWindow.endIndex; index += 1) {
+      const note = model.notesByBeat[index];
       const lane = lanes[note.lane];
       if (!lane || note.kind === "invisible") {
         continue;
       }
-      const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const headY = beatToViewportY(note.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
       drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
-      if (note.kind === "long" && Number.isFinite(note.endTimeSec) && shouldDrawLongEndCap(model, note)) {
-        const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
-        drawRectNote(context, lane, endHeadY, lane.note);
+    }
+    const longEndWindow = getBeatWindowIndices(model.longNotesByEndBeat, editorFrameState.startBeat, editorFrameState.endBeat, getNoteEndBeat);
+    for (let index = longEndWindow.startIndex; index < longEndWindow.endIndex; index += 1) {
+      const note = model.longNotesByEndBeat[index];
+      const lane = lanes[note.lane];
+      if (!lane || !shouldDrawLongEndCap(model, note)) {
+        continue;
       }
+      const endHeadY = beatToViewportY(getNoteEndBeat(note), editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      drawRectNote(context, lane, endHeadY, lane.note);
     }
     context.restore();
   }
@@ -624,6 +1148,9 @@
   function timeToViewportY(eventTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond) {
     return viewportHeight / 2 - (eventTimeSec - selectedTimeSec) * pixelsPerSecond;
   }
+  function beatToViewportY(eventBeat, selectedBeat, viewportHeight, pixelsPerBeat) {
+    return viewportHeight / 2 - (eventBeat - selectedBeat) * pixelsPerBeat;
+  }
   function formatBpmMarkerLabel(bpm) {
     return trimDecimal(Number(bpm).toFixed(2));
   }
@@ -635,6 +1162,114 @@
   }
   function trimDecimal(value) {
     return String(value).replace(/\.?0+$/, "");
+  }
+  function collectVisibleEditorGridLines(measureRanges, startBeat, endBeat) {
+    const beatBeats = [];
+    const sixteenthBeats = [];
+    const visibleMeasures = getVisibleMeasureRanges(measureRanges, startBeat, endBeat);
+    for (const measure of visibleMeasures) {
+      const measureLength = measure.endBeat - measure.startBeat;
+      if (!(measureLength > 0)) {
+        continue;
+      }
+      for (let subdivision = 1; ; subdivision += 1) {
+        const beat = measure.startBeat + subdivision * 0.25;
+        if (!(beat < measure.endBeat - 1e-9)) {
+          break;
+        }
+        if (beat < startBeat || beat > endBeat) {
+          continue;
+        }
+        if (subdivision % 4 === 0) {
+          beatBeats.push(beat);
+        } else {
+          sixteenthBeats.push(beat);
+        }
+      }
+    }
+    return { beatBeats, sixteenthBeats };
+  }
+  function getBeatWindowIndices(items, startBeat, endBeat, getBeat = getEventBeat) {
+    return {
+      startIndex: lowerBoundByBeat(items, startBeat, getBeat),
+      endIndex: upperBoundByBeat(items, endBeat, getBeat)
+    };
+  }
+  function getLongBodyWindow(model, startBeat, endBeat) {
+    const visibleStartCount = upperBoundByBeat(model.longNotesByBeat, endBeat, getEventBeat);
+    const visibleEndStartIndex = lowerBoundByBeat(model.longNotesByEndBeat, startBeat, getNoteEndBeat);
+    const remainingEndCount = model.longNotesByEndBeat.length - visibleEndStartIndex;
+    if (visibleStartCount <= remainingEndCount) {
+      return {
+        items: model.longNotesByBeat,
+        startIndex: 0,
+        endIndex: visibleStartCount
+      };
+    }
+    return {
+      items: model.longNotesByEndBeat,
+      startIndex: visibleEndStartIndex,
+      endIndex: model.longNotesByEndBeat.length
+    };
+  }
+  function getVisibleMeasureRanges(measureRanges, startBeat, endBeat) {
+    const startIndex = lowerBoundMeasureRangesByEndBeat(measureRanges, startBeat);
+    const visibleRanges = [];
+    for (let index = startIndex; index < measureRanges.length; index += 1) {
+      const measureRange = measureRanges[index];
+      if (measureRange.startBeat > endBeat) {
+        break;
+      }
+      if (measureRange.endBeat > startBeat) {
+        visibleRanges.push(measureRange);
+      }
+    }
+    return visibleRanges;
+  }
+  function lowerBoundByBeat(items, beat, getBeat = getEventBeat) {
+    let low = 0;
+    let high = items.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (getBeat(items[mid]) < beat) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
+  }
+  function lowerBoundMeasureRangesByEndBeat(measureRanges, beat) {
+    let low = 0;
+    let high = measureRanges.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if ((measureRanges[mid]?.endBeat ?? 0) <= beat) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
+  }
+  function upperBoundByBeat(items, beat, getBeat = getEventBeat) {
+    let low = 0;
+    let high = items.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (getBeat(items[mid]) <= beat) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
+  }
+  function getEventBeat(item) {
+    return Number.isFinite(item?.beat) ? item.beat : 0;
+  }
+  function getNoteEndBeat(note) {
+    return Number.isFinite(note?.endBeat) ? note.endBeat : getEventBeat(note);
   }
   function dimColor(color, factor) {
     if (!color.startsWith("#")) {
@@ -652,14 +1287,20 @@
   }
 
   // shared/preview-runtime/score-viewer-controller.js
-  var SCROLL_MULTIPLIER = 2;
+  var DEFAULT_WHEEL_LINE_HEIGHT_PX = 16;
   var MIN_SPACING_SCALE = 0.5;
   var MAX_SPACING_SCALE = 8;
   var SPACING_STEP = 0.01;
   var DEFAULT_SPACING_SCALE = 1;
-  function createScoreViewerController({ root, onTimeChange = () => {
-  }, onPlaybackToggle = () => {
-  } }) {
+  function createScoreViewerController({
+    root,
+    onTimeChange = () => {
+    },
+    onPlaybackToggle = () => {
+    },
+    onViewerModeChange = () => {
+    }
+  }) {
     const scrollHost = document.createElement("div");
     scrollHost.className = "score-viewer-scroll-host";
     const spacer = document.createElement("div");
@@ -707,7 +1348,20 @@
     spacingInput.max = String(MAX_SPACING_SCALE);
     spacingInput.step = String(SPACING_STEP);
     spacingInput.value = String(DEFAULT_SPACING_SCALE);
-    statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput);
+    const modeRow = document.createElement("div");
+    modeRow.className = "score-viewer-status-row score-viewer-mode-row";
+    const modeTitle = document.createElement("span");
+    modeTitle.className = "score-viewer-mode-title";
+    modeTitle.textContent = "Mode";
+    const modeSelect = document.createElement("select");
+    modeSelect.className = "score-viewer-mode-select";
+    modeSelect.append(
+      createModeOption("time", "Time"),
+      createModeOption("editor", "Editor"),
+      createModeOption("game", "Game", true)
+    );
+    modeRow.append(modeTitle, modeSelect);
+    statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput, modeRow);
     bottomBar.append(statusPanel);
     const judgeLine = document.createElement("div");
     judgeLine.className = "score-viewer-judge-line";
@@ -719,11 +1373,25 @@
       isPinned: false,
       isOpen: false,
       isPlaying: false,
-      spacingScale: DEFAULT_SPACING_SCALE
+      spacingScale: DEFAULT_SPACING_SCALE,
+      viewerMode: DEFAULT_VIEWER_MODE
+    };
+    const uiState = {
+      playbackButtonDisabled: null,
+      playbackButtonText: null,
+      playbackButtonLabel: null,
+      playbackTime: null,
+      measureText: null,
+      comboText: null,
+      spacingText: null,
+      spacingInputValue: null,
+      modeSelectValue: null,
+      modeSelectDisabled: null
     };
     let ignoreScrollUntilNextFrame = false;
     let resizeObserver = null;
     let dragState = null;
+    let editorFrameStateCache = null;
     scrollHost.addEventListener("scroll", () => {
       syncTimeFromScrollPosition();
     });
@@ -731,7 +1399,7 @@
       if (!state.model || !state.isOpen || !isScrollInteractive()) {
         return;
       }
-      scrollHost.scrollTop += event.deltaY * SCROLL_MULTIPLIER;
+      scrollHost.scrollTop += normalizeWheelDeltaY(event.deltaY, event.deltaMode, scrollHost.clientHeight);
       syncTimeFromScrollPosition({ force: true });
       event.preventDefault();
     }, { passive: false });
@@ -755,7 +1423,7 @@
         return;
       }
       const deltaY = event.clientY - dragState.startY;
-      scrollHost.scrollTop = dragState.startScrollTop + deltaY * SCROLL_MULTIPLIER;
+      scrollHost.scrollTop = dragState.startScrollTop + deltaY;
       syncTimeFromScrollPosition({ force: true });
       event.preventDefault();
     });
@@ -770,6 +1438,23 @@
       }
       state.spacingScale = nextScale;
       spacingValue.textContent = formatSpacingScale(state.spacingScale);
+      refreshLayout();
+    });
+    modeSelect.addEventListener("change", () => {
+      const nextMode = normalizeViewerMode(modeSelect.value);
+      if (nextMode === "game") {
+        modeSelect.value = getResolvedViewerMode();
+        return;
+      }
+      if (nextMode === "editor" && !state.model?.supportsEditorMode) {
+        modeSelect.value = getResolvedViewerMode();
+        return;
+      }
+      if (nextMode === state.viewerMode) {
+        return;
+      }
+      state.viewerMode = nextMode;
+      onViewerModeChange(state.viewerMode);
       refreshLayout();
     });
     playbackButton.addEventListener("click", (event) => {
@@ -794,6 +1479,7 @@
       }
       state.model = model;
       state.selectedTimeSec = getClampedSelectedTimeSec(state.model, state.selectedTimeSec);
+      editorFrameStateCache = null;
       updateRootWidth();
       refreshLayout();
     }
@@ -805,6 +1491,7 @@
         return;
       }
       state.selectedTimeSec = clampedTimeSec;
+      editorFrameStateCache = null;
       syncScrollPosition();
       renderScene();
     }
@@ -824,6 +1511,17 @@
       updateScrollInteractivity();
       renderScene();
     }
+    function setViewerMode(nextViewerMode) {
+      const normalizedMode = normalizeViewerMode(nextViewerMode);
+      const resolvedInputMode = normalizedMode === "game" ? DEFAULT_VIEWER_MODE : normalizedMode;
+      if (state.viewerMode === resolvedInputMode) {
+        renderScene();
+        return;
+      }
+      state.viewerMode = resolvedInputMode;
+      editorFrameStateCache = null;
+      refreshLayout();
+    }
     function setEmptyState(_title, _message) {
     }
     function syncScrollPosition() {
@@ -832,12 +1530,22 @@
         return;
       }
       ignoreScrollUntilNextFrame = true;
-      scrollHost.scrollTop = getScrollTopForTimeSec(
-        state.model,
-        state.selectedTimeSec,
-        root.clientHeight || 0,
-        getPixelsPerSecond()
-      );
+      const viewportHeight = root.clientHeight || 0;
+      if (getResolvedViewerMode() === "editor") {
+        const editorFrameState = getEditorFrameStateForCurrentView(viewportHeight);
+        scrollHost.scrollTop = getEditorScrollTopForBeat(
+          state.model,
+          editorFrameState?.selectedBeat ?? 0,
+          viewportHeight,
+          getPixelsPerBeat()
+        );
+      } else {
+        scrollHost.scrollTop = getScrollTopForResolvedMode(
+          state.model,
+          state.selectedTimeSec,
+          viewportHeight
+        );
+      }
       requestAnimationFrame(() => {
         ignoreScrollUntilNextFrame = false;
       });
@@ -849,11 +1557,12 @@
       if (!force && ignoreScrollUntilNextFrame) {
         return;
       }
-      const nextTimeSec = getTimeSecForScrollTop(state.model, scrollHost.scrollTop, getPixelsPerSecond());
+      const nextTimeSec = getResolvedViewerMode() === "editor" ? getTimeSecForBeat(state.model, scrollHost.scrollTop / getPixelsPerBeat()) : getTimeSecForResolvedMode(state.model, scrollHost.scrollTop);
       if (Math.abs(nextTimeSec - state.selectedTimeSec) < 5e-4) {
         return;
       }
       state.selectedTimeSec = nextTimeSec;
+      editorFrameStateCache = null;
       renderScene();
       onTimeChange(nextTimeSec);
     }
@@ -862,26 +1571,49 @@
       const width = Math.max(1, root.clientWidth);
       const height = Math.max(260, root.clientHeight);
       renderer.resize(width, height);
-      spacer.style.height = `${getContentHeightPx(state.model, height, getPixelsPerSecond())}px`;
+      spacer.style.height = `${getContentHeightForResolvedMode(state.model, height)}px`;
       syncScrollPosition();
       renderScene();
     }
     function renderScene() {
-      const cursor = getViewerCursor(state.model, state.selectedTimeSec);
       const showScene = Boolean(state.model && state.isOpen);
+      const resolvedViewerMode = getResolvedViewerMode();
+      const editorFrameState = resolvedViewerMode === "editor" ? getEditorFrameStateForCurrentView(root.clientHeight || 0) : null;
+      const cursor = getViewerCursor(
+        state.model,
+        state.selectedTimeSec,
+        resolvedViewerMode,
+        editorFrameState?.selectedBeat
+      );
       canvas.hidden = !showScene;
       markerOverlay.hidden = !showScene;
       bottomBar.hidden = !showScene;
       judgeLine.hidden = !showScene;
-      playbackButton.disabled = !state.model;
-      playbackButton.textContent = state.isPlaying ? "❚❚" : "▶";
-      playbackButton.setAttribute("aria-label", state.isPlaying ? "Pause score viewer" : "Play score viewer");
-      playbackTime.textContent = `${formatPlaybackTime(cursor.timeSec)} s`;
-      measureRow.textContent = `Measure: ${formatMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`;
-      comboRow.textContent = `Combo: ${cursor.comboCount}/${cursor.totalCombo}`;
-      spacingValue.textContent = formatSpacingScale(state.spacingScale);
-      spacingInput.value = String(state.spacingScale);
-      const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec, getPixelsPerSecond());
+      setDisabledIfChanged(playbackButton, !state.model, "playbackButtonDisabled");
+      setTextIfChanged(playbackButton, state.isPlaying ? "❚❚" : "▶", "playbackButtonText");
+      setAttributeIfChanged(
+        playbackButton,
+        "aria-label",
+        state.isPlaying ? "Pause score viewer" : "Play score viewer",
+        "playbackButtonLabel"
+      );
+      setTextIfChanged(playbackTime, `${formatPlaybackTime(cursor.timeSec)} s`, "playbackTime");
+      setTextIfChanged(
+        measureRow,
+        `Measure: ${formatMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`,
+        "measureText"
+      );
+      setTextIfChanged(comboRow, `Combo: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
+      setTextIfChanged(spacingValue, formatSpacingScale(state.spacingScale), "spacingText");
+      setValueIfChanged(spacingInput, String(state.spacingScale), "spacingInputValue");
+      setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");
+      setDisabledIfChanged(modeSelect, !state.model, "modeSelectDisabled");
+      const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec, {
+        viewerMode: resolvedViewerMode,
+        pixelsPerSecond: getPixelsPerSecond(),
+        pixelsPerBeat: getPixelsPerBeat(),
+        editorFrameState
+      });
       renderMarkerLabels(showScene ? renderResult.markers : []);
     }
     function renderMarkerLabels(markers) {
@@ -909,6 +1641,7 @@
     }
     setPinned(false);
     spacingValue.textContent = formatSpacingScale(state.spacingScale);
+    modeSelect.value = DEFAULT_VIEWER_MODE;
     refreshLayout();
     return {
       setModel,
@@ -916,6 +1649,7 @@
       setPinned,
       setOpen,
       setPlaybackState,
+      setViewerMode,
       setEmptyState,
       refreshLayout,
       destroy
@@ -964,8 +1698,96 @@
         clearDragState();
       }
     }
+    function getResolvedViewerMode() {
+      return resolveViewerModeForModel(state.model, state.viewerMode);
+    }
     function getPixelsPerSecond() {
       return DEFAULT_VIEWER_PIXELS_PER_SECOND * state.spacingScale;
+    }
+    function getPixelsPerBeat() {
+      return DEFAULT_EDITOR_PIXELS_PER_BEAT * state.spacingScale;
+    }
+    function getEditorFrameStateForCurrentView(viewportHeight = root.clientHeight || 0) {
+      if (!state.model || getResolvedViewerMode() !== "editor") {
+        editorFrameStateCache = null;
+        return null;
+      }
+      const pixelsPerBeat = getPixelsPerBeat();
+      if (editorFrameStateCache && editorFrameStateCache.model === state.model && Math.abs(editorFrameStateCache.selectedTimeSec - state.selectedTimeSec) < 5e-4 && editorFrameStateCache.viewportHeight === viewportHeight && Math.abs(editorFrameStateCache.pixelsPerBeat - pixelsPerBeat) < 5e-4) {
+        return editorFrameStateCache.frameState;
+      }
+      const frameState = getEditorFrameState(state.model, state.selectedTimeSec, viewportHeight, pixelsPerBeat);
+      editorFrameStateCache = {
+        model: state.model,
+        selectedTimeSec: state.selectedTimeSec,
+        viewportHeight,
+        pixelsPerBeat,
+        frameState
+      };
+      return frameState;
+    }
+    function getContentHeightForResolvedMode(model, viewportHeight) {
+      if (getResolvedViewerMode() === "editor") {
+        return getEditorContentHeightPx(model, viewportHeight, getPixelsPerBeat());
+      }
+      return getContentHeightPx(model, viewportHeight, getPixelsPerSecond());
+    }
+    function getScrollTopForResolvedMode(model, selectedTimeSec, viewportHeight) {
+      if (getResolvedViewerMode() === "editor") {
+        return getEditorScrollTopForTimeSec(model, selectedTimeSec, viewportHeight, getPixelsPerBeat());
+      }
+      return getScrollTopForTimeSec(model, selectedTimeSec, viewportHeight, getPixelsPerSecond());
+    }
+    function getTimeSecForResolvedMode(model, scrollTop) {
+      if (getResolvedViewerMode() === "editor") {
+        return getTimeSecForEditorScrollTop(model, scrollTop, getPixelsPerBeat());
+      }
+      return getTimeSecForScrollTop(model, scrollTop, getPixelsPerSecond());
+    }
+    function setTextIfChanged(element, nextValue, key) {
+      if (uiState[key] === nextValue) {
+        return;
+      }
+      uiState[key] = nextValue;
+      element.textContent = nextValue;
+    }
+    function setValueIfChanged(element, nextValue, key) {
+      if (uiState[key] === nextValue) {
+        return;
+      }
+      uiState[key] = nextValue;
+      element.value = nextValue;
+    }
+    function setDisabledIfChanged(element, nextValue, key) {
+      if (uiState[key] === nextValue) {
+        return;
+      }
+      uiState[key] = nextValue;
+      element.disabled = nextValue;
+    }
+    function setAttributeIfChanged(element, attributeName, nextValue, key) {
+      if (uiState[key] === nextValue) {
+        return;
+      }
+      uiState[key] = nextValue;
+      element.setAttribute(attributeName, nextValue);
+    }
+  }
+  function createModeOption(value, label, disabled = false) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    option.disabled = disabled;
+    return option;
+  }
+  function normalizeWheelDeltaY(deltaY, deltaMode, viewportHeight, lineHeightPx = DEFAULT_WHEEL_LINE_HEIGHT_PX) {
+    switch (deltaMode) {
+      case 1:
+        return deltaY * lineHeightPx;
+      case 2:
+        return deltaY * Math.max(viewportHeight, 1);
+      default:
+        return deltaY;
     }
   }
   function createMarkerLabel(marker, side) {
@@ -1460,6 +2282,7 @@
   var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
   var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
+  var VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
   var bmsSearchPatternAvailabilityCache = /* @__PURE__ */ new Map();
   var BMSDATA_CSS = `
   .bmsdata {
@@ -1491,25 +2314,28 @@
   .bd-scoreviewer-pin input { width: auto; flex: 0 0 auto; min-height: auto; margin: 0; padding: 0; border: none; background: transparent; accent-color: #ffffff; }
   .bd-scoreviewer-pin span { display: inline-block; line-height: 1.25; white-space: nowrap; }
   .score-viewer-shell * { box-sizing: content-box; }
-  .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; }
+  .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; isolation: isolate; contain: layout paint style; }
   .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
-  .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; }
+  .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; contain: layout paint; }
   .score-viewer-scroll-host.is-scrollable { overflow-y: auto; cursor: grab; touch-action: none; }
   .score-viewer-scroll-host.is-scrollable.is-dragging { cursor: grabbing; }
   .score-viewer-spacer { width: 1px; opacity: 0; }
   .score-viewer-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; }
+  .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; contain: layout paint; }
   .score-viewer-marker-label { position: absolute; top: 0; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1; white-space: nowrap; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.72); }
   .score-viewer-marker-label.is-left { transform: translate(-100%, -50%); text-align: right; }
   .score-viewer-marker-label.is-right { transform: translate(0, -50%); text-align: left; }
-  .score-viewer-bottom-bar { position: absolute; left: 12px; bottom: 12px; z-index: 3; pointer-events: none; }
-  .score-viewer-status-panel { display: grid; gap: 4px; min-width: 180px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); pointer-events: auto; }
+  .score-viewer-bottom-bar { position: absolute; left: 12px; bottom: 12px; z-index: 3; pointer-events: none; contain: layout paint; }
+  .score-viewer-status-panel { display: grid; gap: 4px; min-width: 180px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); pointer-events: auto; contain: layout paint style; }
   .score-viewer-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .score-viewer-status-row.is-time { justify-content: flex-start; gap: 8px; }
   .score-viewer-status-metric { font-variant-numeric: tabular-nums; }
   .score-viewer-spacing-row { padding-top: 2px; }
   .score-viewer-spacing-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .score-viewer-spacing-value { margin-left: auto; color: #fff; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+  .score-viewer-mode-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
+  .score-viewer-mode-select { margin-left: auto; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; }
+  .score-viewer-mode-select:disabled { opacity: 0.55; cursor: not-allowed; }
   .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
@@ -1732,6 +2558,9 @@
     loadParsedScore = async () => null,
     prefetchParsedScore = async () => {
     },
+    getPersistedViewerMode = () => DEFAULT_VIEWER_MODE,
+    setPersistedViewerMode = () => {
+    },
     onSelectedTimeChange = () => {
     },
     onPinChange = () => {
@@ -1759,6 +2588,7 @@
       record: null,
       selectedSha256: null,
       selectedTimeSec: 0,
+      viewerMode: getInitialViewerMode(getPersistedViewerMode),
       isPinned: false,
       isViewerOpen: false,
       isPlaying: false,
@@ -1779,6 +2609,9 @@
       },
       onPlaybackToggle: (nextPlaying) => {
         setPlaybackState(nextPlaying);
+      },
+      onViewerModeChange: (nextViewerMode) => {
+        setViewerMode(nextViewerMode);
       }
     });
     const graphController = createBmsInfoGraph({
@@ -1817,6 +2650,7 @@
     return {
       setRecord,
       setSelectedTimeSec,
+      setViewerMode,
       setPinned,
       setPlaybackState,
       prefetch,
@@ -1974,6 +2808,21 @@
       }
       scheduleRender();
     }
+    function setViewerMode(nextViewerMode) {
+      const normalizedMode = normalizeViewerMode(nextViewerMode);
+      const persistedMode = normalizedMode === "game" ? DEFAULT_VIEWER_MODE : normalizedMode;
+      if (state.viewerMode === persistedMode) {
+        scheduleRender();
+        return;
+      }
+      state.viewerMode = persistedMode;
+      try {
+        setPersistedViewerMode(persistedMode);
+      } catch (error) {
+        console.warn("Failed to persist viewer mode:", error);
+      }
+      scheduleRender();
+    }
     function setPinned(nextPinned) {
       const normalized = Boolean(nextPinned);
       if (state.isPinned === normalized) {
@@ -2083,6 +2932,7 @@
       viewerController.setPlaybackState(state.isPlaying);
       viewerController.setPinned(state.isPinned);
       viewerController.setModel(state.viewerModel);
+      viewerController.setViewerMode(state.viewerMode);
       viewerController.setSelectedTimeSec(state.selectedTimeSec);
       viewerController.setOpen(Boolean(state.isViewerOpen && state.viewerModel));
       const isActuallyOpen = Boolean(state.isViewerOpen && state.viewerModel);
@@ -2157,6 +3007,15 @@
     const maxTimeSec = state.record?.durationSec ?? 0;
     return clampValue(Number.isFinite(timeSec) ? timeSec : 0, 0, Math.max(maxTimeSec, 0));
   }
+  function getInitialViewerMode(getPersistedViewerMode) {
+    try {
+      const persistedMode = normalizeViewerMode(getPersistedViewerMode?.());
+      return persistedMode === "game" ? DEFAULT_VIEWER_MODE : persistedMode;
+    } catch (error) {
+      console.warn("Failed to read persisted viewer mode:", error);
+      return DEFAULT_VIEWER_MODE;
+    }
+  }
   function estimateViewerWidthFromNumericMode(mode) {
     switch (Number(mode)) {
       case 5:
@@ -2215,7 +3074,7 @@
     GM_addStyle(fontCSS);
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-    const SCORE_PARSER_VERSION = "0.5.0";
+    const SCORE_PARSER_VERSION = "0.6.0";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
     let scoreLoaderContextPromise = null;
     let activeBmsPreviewRuntime = null;
@@ -2770,6 +3629,21 @@
           }
           const loaderContext = await ensureScoreLoaderContext();
           await loaderContext.loader.prefetchScore(record.sha256.toLowerCase());
+        },
+        getPersistedViewerMode: () => {
+          try {
+            return typeof GM_getValue === "function" ? GM_getValue(VIEWER_MODE_STORAGE_KEY, DEFAULT_VIEWER_MODE) : DEFAULT_VIEWER_MODE;
+          } catch (_error) {
+            return DEFAULT_VIEWER_MODE;
+          }
+        },
+        setPersistedViewerMode: (nextViewerMode) => {
+          try {
+            if (typeof GM_setValue === "function") {
+              GM_setValue(VIEWER_MODE_STORAGE_KEY, nextViewerMode);
+            }
+          } catch (_error) {
+          }
         },
         onRuntimeError: (error) => {
           console.warn("Score viewer runtime failed:", error);

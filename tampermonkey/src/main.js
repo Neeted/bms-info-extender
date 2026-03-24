@@ -1,5 +1,6 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
+// 1.6.0 譜面ビューワへ Time / Editor / Game モード切替を追加
 // 1.5.0 preview/runtime の source を shared/dev/userscript へ分離し、build 生成へ移行
 // 1.4.0 preview runtime を dev page と共通化し、graph hover 時の無駄な再描画を削減
 // 1.3.0 譜面ビューワへ SCROLL マーカー表示を追加
@@ -19,7 +20,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-  const SCORE_PARSER_VERSION = "0.5.0";
+  const SCORE_PARSER_VERSION = "0.6.0";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   let scoreLoaderContextPromise = null;
   let activeBmsPreviewRuntime = null;
@@ -849,6 +850,24 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         }
         const loaderContext = await ensureScoreLoaderContext();
         await loaderContext.loader.prefetchScore(record.sha256.toLowerCase());
+      },
+      getPersistedViewerMode: () => {
+        try {
+          return typeof GM_getValue === "function"
+            ? GM_getValue(PreviewRuntime.VIEWER_MODE_STORAGE_KEY, PreviewRuntime.DEFAULT_VIEWER_MODE)
+            : PreviewRuntime.DEFAULT_VIEWER_MODE;
+        } catch (_error) {
+          return PreviewRuntime.DEFAULT_VIEWER_MODE;
+        }
+      },
+      setPersistedViewerMode: (nextViewerMode) => {
+        try {
+          if (typeof GM_setValue === "function") {
+            GM_setValue(PreviewRuntime.VIEWER_MODE_STORAGE_KEY, nextViewerMode);
+          }
+        } catch (_error) {
+          // Ignore storage failures and keep runtime state only.
+        }
       },
       onRuntimeError: (error) => {
         console.warn("Score viewer runtime failed:", error);

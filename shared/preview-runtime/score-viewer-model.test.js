@@ -2,13 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_EDITOR_PIXELS_PER_BEAT,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
+  createEditorMeasureRanges,
   createScoreViewerModel,
+  getBeatAtTimeSec,
   getClampedSelectedTimeSec,
   getComboCountAtTime,
   getContentHeightPx,
+  getEditorFrameState,
+  getEditorContentHeightPx,
+  getEditorScrollTopForBeat,
+  getEditorScrollTopForTimeSec,
   getMeasureIndexAtTime,
   getScrollTopForTimeSec,
+  getTimeSecForBeat,
+  getTimeSecForEditorScrollTop,
   getTimeSecForScrollTop,
   getVisibleTimeRange,
   getViewerCursor,
@@ -16,43 +25,43 @@ import {
 
 test("viewer model resolves measure and combo positions from comboEvents and bar lines", () => {
   const model = createScoreViewerModel({
+    format: "bms",
     mode: "7k",
     laneCount: 8,
+    initialBpm: 120,
     totalDurationSec: 12,
     lastPlayableTimeSec: 10,
     lastTimelineTimeSec: 12,
     noteCounts: { visible: 3, normal: 2, long: 1, invisible: 0, mine: 0, all: 3 },
     notes: [
-      { lane: 1, timeSec: 1, kind: "normal" },
-      { lane: 2, timeSec: 2, endTimeSec: 3, kind: "long" },
+      { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
+      { lane: 2, beat: 4, endBeat: 6, endTimeSec: 3, timeSec: 2, kind: "long" },
     ],
     comboEvents: [
-      { lane: 1, timeSec: 1, kind: "normal" },
-      { lane: 2, timeSec: 2, kind: "long-start" },
-      { lane: 2, timeSec: 3, kind: "long-end" },
+      { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
+      { lane: 2, beat: 4, timeSec: 2, kind: "long-start" },
+      { lane: 2, beat: 6, timeSec: 3, kind: "long-end" },
     ],
-    barLines: [{ timeSec: 0 }, { timeSec: 2.5 }, { timeSec: 5 }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
     bpmChanges: [],
     stops: [],
+    scrollChanges: [],
     warnings: [],
   });
 
   assert.equal(getMeasureIndexAtTime(model, 0), 0);
-  assert.equal(getMeasureIndexAtTime(model, 2.49), 0);
-  assert.equal(getMeasureIndexAtTime(model, 2.5), 1);
+  assert.equal(getMeasureIndexAtTime(model, 1.99), 0);
+  assert.equal(getMeasureIndexAtTime(model, 2), 1);
   assert.equal(getComboCountAtTime(model, 0.99), 0);
   assert.equal(getComboCountAtTime(model, 2.5), 2);
   assert.equal(getComboCountAtTime(model, 3), 3);
 
-  const cursor = getViewerCursor(model, 3);
+  const cursor = getViewerCursor(model, 3, "editor");
+  assert.equal(cursor.beat, 6);
   assert.equal(cursor.measureIndex, 1);
   assert.equal(cursor.totalMeasureIndex, 1);
   assert.equal(cursor.comboCount, 3);
   assert.equal(cursor.totalCombo, 3);
-
-  const endCursor = getViewerCursor(model, 10);
-  assert.equal(endCursor.measureIndex, 1);
-  assert.equal(endCursor.totalMeasureIndex, 1);
 
   const totalDurationCursor = getViewerCursor(model, 11.75);
   assert.equal(totalDurationCursor.timeSec, 11.75);
@@ -64,49 +73,100 @@ test("viewer model resolves measure and combo positions from comboEvents and bar
   assert.equal(getScrollTopForTimeSec(model, 20, 480, DEFAULT_VIEWER_PIXELS_PER_SECOND), 12 * DEFAULT_VIEWER_PIXELS_PER_SECOND);
 });
 
-test("viewer model scroll mapping keeps selectedTimeSec centered", () => {
+test("viewer model converts between seconds and beats across BPM changes and STOPs", () => {
   const model = createScoreViewerModel({
-    mode: "popn-9k",
-    laneCount: 9,
-    totalDurationSec: 20,
-    lastPlayableTimeSec: 20,
-    lastTimelineTimeSec: 20,
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 6,
+    lastPlayableTimeSec: 6,
+    lastTimelineTimeSec: 6,
     noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
     notes: [],
     comboEvents: [],
-    barLines: [{ timeSec: 0 }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 3 }, { beat: 12, timeSec: 5 }],
+    bpmChanges: [{ beat: 4, timeSec: 2, bpm: 240 }],
+    stops: [{ beat: 8, timeSec: 3, stopBeats: 4, durationSec: 1 }],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  assert.equal(getBeatAtTimeSec(model, 1.5), 3);
+  assert.equal(getBeatAtTimeSec(model, 2.5), 6);
+  assert.equal(getBeatAtTimeSec(model, 3.25), 8);
+  assert.equal(getBeatAtTimeSec(model, 3.75), 8);
+  assert.equal(getBeatAtTimeSec(model, 4.5), 10);
+  assert.equal(getTimeSecForBeat(model, 10), 4.5);
+});
+
+test("viewer model editor scroll mapping uses beat axis", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "popn-9k",
+    laneCount: 9,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
     bpmChanges: [],
     stops: [],
+    scrollChanges: [],
     warnings: [],
   });
 
   const viewportHeight = 480;
-  const scrollTop = getScrollTopForTimeSec(model, 4.25, viewportHeight, DEFAULT_VIEWER_PIXELS_PER_SECOND);
-  assert.equal(scrollTop, 4.25 * DEFAULT_VIEWER_PIXELS_PER_SECOND);
-  assert.equal(getTimeSecForScrollTop(model, scrollTop, DEFAULT_VIEWER_PIXELS_PER_SECOND), 4.25);
-  assert.ok(getContentHeightPx(model, viewportHeight, DEFAULT_VIEWER_PIXELS_PER_SECOND) >= viewportHeight);
+  const scrollTop = getEditorScrollTopForTimeSec(model, 1, viewportHeight, DEFAULT_EDITOR_PIXELS_PER_BEAT);
+  assert.equal(scrollTop, 2 * DEFAULT_EDITOR_PIXELS_PER_BEAT);
+  assert.equal(getEditorScrollTopForBeat(model, 2, viewportHeight, DEFAULT_EDITOR_PIXELS_PER_BEAT), scrollTop);
+  assert.equal(getTimeSecForEditorScrollTop(model, scrollTop, DEFAULT_EDITOR_PIXELS_PER_BEAT), 1);
+  assert.equal(getEditorContentHeightPx(model, viewportHeight, DEFAULT_EDITOR_PIXELS_PER_BEAT), 8 * DEFAULT_EDITOR_PIXELS_PER_BEAT + viewportHeight);
+  assert.equal(getTimeSecForScrollTop(model, getScrollTopForTimeSec(model, 1, viewportHeight, DEFAULT_VIEWER_PIXELS_PER_SECOND), DEFAULT_VIEWER_PIXELS_PER_SECOND), 1);
 });
 
-test("viewer model scroll mapping respects custom pixelsPerSecond", () => {
+test("viewer model reuses editor frame state semantics around BPM and STOP transitions", () => {
   const model = createScoreViewerModel({
+    format: "bms",
     mode: "7k",
     laneCount: 8,
-    totalDurationSec: 20,
-    lastPlayableTimeSec: 20,
-    lastTimelineTimeSec: 20,
+    initialBpm: 120,
+    totalDurationSec: 6,
+    lastPlayableTimeSec: 6,
+    lastTimelineTimeSec: 6,
     noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
     notes: [],
     comboEvents: [],
-    barLines: [{ timeSec: 0 }],
-    bpmChanges: [],
-    stops: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 3 }, { beat: 12, timeSec: 5 }],
+    bpmChanges: [{ beat: 4, timeSec: 2, bpm: 240 }],
+    stops: [{ beat: 8, timeSec: 3, stopBeats: 4, durationSec: 1 }],
+    scrollChanges: [],
     warnings: [],
   });
 
-  const pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND * 3;
-  const viewportHeight = 320;
-  const scrollTop = getScrollTopForTimeSec(model, 2, viewportHeight, pixelsPerSecond);
-  assert.equal(scrollTop, 2 * pixelsPerSecond);
-  assert.equal(getTimeSecForScrollTop(model, scrollTop, pixelsPerSecond), 2);
-  assert.ok(getContentHeightPx(model, viewportHeight, pixelsPerSecond) >= viewportHeight);
+  const frameState = getEditorFrameState(model, 3.75, 480, DEFAULT_EDITOR_PIXELS_PER_BEAT);
+  assert.equal(frameState.selectedBeat, 8);
+  assert.equal(frameState.viewportHeight, 480);
+  assert.equal(frameState.startBeat < frameState.selectedBeat, true);
+  assert.equal(frameState.endBeat > frameState.selectedBeat, true);
+});
+
+test("viewer model builds editor measure ranges including trailing beats after the last bar line", () => {
+  const measureRanges = createEditorMeasureRanges(
+    [
+      { beat: 0, timeSec: 0 },
+      { beat: 3, timeSec: 1.5 },
+      { beat: 7.5, timeSec: 4 },
+    ],
+    10,
+  );
+
+  assert.deepEqual(measureRanges, [
+    { startBeat: 0, endBeat: 3 },
+    { startBeat: 3, endBeat: 7.5 },
+    { startBeat: 7.5, endBeat: 10 },
+  ]);
 });

@@ -1,6 +1,10 @@
 import {
+  DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  DEFAULT_VIEWER_MODE,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
+  getEditorFrameState,
   getVisibleTimeRange,
+  resolveViewerModeForModel,
   shouldDrawLongEndCap,
 } from "./score-viewer-model.js";
 
@@ -8,8 +12,10 @@ export const VIEWER_LANE_SIDE_PADDING = 6;
 export const DP_GUTTER_UNITS = 1.2;
 export const FIXED_LANE_WIDTH = 16;
 const BACKGROUND_FILL = "#000000";
-const SEPARATOR_COLOR = "rgba(72, 72, 72, 0.95)";
-const BAR_LINE = "rgba(255, 255, 255, 0.92)";
+const SEPARATOR_COLOR = "#404040";
+const BAR_LINE = "#ffffff";
+const EDITOR_BEAT_GRID_LINE = "#808080";
+const EDITOR_SIXTEENTH_GRID_LINE = "#404040";
 const BPM_MARKER = "#00ff00";
 const STOP_MARKER = "#ff00ff";
 const SCROLL_MARKER = "#ff0";
@@ -82,7 +88,16 @@ export function createScoreViewerRenderer(canvas) {
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  function render(model, selectedTimeSec, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
+  function render(
+    model,
+    selectedTimeSec,
+    {
+      viewerMode = DEFAULT_VIEWER_MODE,
+      pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND,
+      pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
+      editorFrameState = null,
+    } = {},
+  ) {
     context.clearRect(0, 0, width, height);
     context.fillStyle = BACKGROUND_FILL;
     context.fillRect(0, 0, width, height);
@@ -92,13 +107,30 @@ export function createScoreViewerRenderer(canvas) {
     }
 
     const lanes = createLaneLayout(model.score.mode, model.score.laneCount, width);
+    const resolvedMode = resolveViewerModeForModel(model, viewerMode);
+
+    if (resolvedMode === "time") {
+      return renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond);
+    }
+
+    return renderEditorMode(
+      model,
+      lanes,
+      editorFrameState ?? getEditorFrameState(model, selectedTimeSec, height, pixelsPerBeat),
+      pixelsPerBeat,
+    );
+  }
+
+  return { resize, render };
+
+  function renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond) {
     const { startTimeSec, endTimeSec } = getVisibleTimeRange(model, selectedTimeSec, height, pixelsPerSecond);
 
-    drawBarLines(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-    drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-    drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    drawBarLinesTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
     drawLaneSeparators(context, lanes, height);
-    const markers = drawTempoMarkers(
+    const markers = drawTempoMarkersTimeMode(
       context,
       model.bpmChanges,
       model.stops,
@@ -117,7 +149,25 @@ export function createScoreViewerRenderer(canvas) {
     };
   }
 
-  return { resize, render };
+  function renderEditorMode(model, lanes, editorFrameState, pixelsPerBeat) {
+    drawEditorSubGrid(context, model.measureRanges, lanes, editorFrameState, pixelsPerBeat);
+    drawBarLinesEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
+    drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+    drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+    drawLaneSeparators(context, lanes, height);
+    const markers = drawTempoMarkersEditorMode(
+      context,
+      model,
+      lanes,
+      editorFrameState,
+      pixelsPerBeat,
+    );
+
+    return {
+      markers,
+      laneBounds: getLaneBounds(lanes),
+    };
+  }
 }
 
 export function estimateViewerWidth(mode, laneCount) {
@@ -127,7 +177,7 @@ export function estimateViewerWidth(mode, laneCount) {
   return Math.ceil(contentWidth + JUDGE_LINE_SIDE_OVERHANG * 2);
 }
 
-function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+function drawBarLinesTimeMode(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
     return;
@@ -150,7 +200,7 @@ function drawBarLines(context, barLines, lanes, selectedTimeSec, startTimeSec, e
   context.restore();
 }
 
-function drawTempoMarkers(
+function drawTempoMarkersTimeMode(
   context,
   bpmChanges,
   stops,
@@ -179,6 +229,198 @@ function drawTempoMarkers(
     }
     const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
     const markerRect = getTempoMarkerRect(rightLane, "right");
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
+      markers.push({
+        type: "bpm",
+        timeSec: bpmChange.timeSec,
+        y,
+        label: formatBpmMarkerLabel(bpmChange.bpm),
+        side: "right",
+        color: BPM_MARKER,
+        x: rightLane.x + rightLane.width + TEMPO_LABEL_GAP,
+      });
+      lastBpmLabelY = y;
+    }
+  }
+
+  context.fillStyle = STOP_MARKER;
+  for (const stop of stops) {
+    if (stop.timeSec < startTimeSec || stop.timeSec > endTimeSec) {
+      continue;
+    }
+    const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const markerRect = getTempoMarkerRect(leftLane, "left");
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
+      markers.push({
+        type: "stop",
+        timeSec: stop.timeSec,
+        y,
+        label: formatStopMarkerLabel(stop.durationSec),
+        side: "left",
+        color: STOP_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP,
+      });
+      lastStopLabelY = y;
+    }
+  }
+
+  context.fillStyle = SCROLL_MARKER;
+  for (const scrollChange of scrollChanges) {
+    if (scrollChange.timeSec < startTimeSec || scrollChange.timeSec > endTimeSec) {
+      continue;
+    }
+    const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const markerRect = getTempoMarkerRect(leftLane, "left");
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
+      markers.push({
+        type: "scroll",
+        timeSec: scrollChange.timeSec,
+        y,
+        label: formatScrollMarkerLabel(scrollChange.rate),
+        side: "left",
+        color: SCROLL_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP,
+      });
+      lastScrollLabelY = y;
+    }
+  }
+
+  context.restore();
+  return markers;
+}
+
+function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  context.save();
+  for (const note of model.notes) {
+    if (note.kind !== "long" || !Number.isFinite(note.endTimeSec)) {
+      continue;
+    }
+    if (note.endTimeSec < startTimeSec || note.timeSec > endTimeSec) {
+      continue;
+    }
+    const lane = lanes[note.lane];
+    if (!lane) {
+      continue;
+    }
+    const startY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const endY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
+    const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
+    const bodyHeight = Math.max(bottomY - topY, 2);
+    context.fillStyle = dimColor(lane.note, 0.42);
+    context.fillRect(lane.x, topY, lane.width, bodyHeight);
+  }
+  context.restore();
+}
+
+function drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  context.save();
+  for (const note of model.notes) {
+    const noteEndTimeSec = note.endTimeSec ?? note.timeSec;
+    if (noteEndTimeSec < startTimeSec || note.timeSec > endTimeSec) {
+      continue;
+    }
+    const lane = lanes[note.lane];
+    if (!lane || note.kind === "invisible") {
+      continue;
+    }
+
+    const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
+
+    if (note.kind === "long" && Number.isFinite(note.endTimeSec) && shouldDrawLongEndCap(model, note)) {
+      const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      drawRectNote(context, lane, endHeadY, lane.note);
+    }
+  }
+  context.restore();
+}
+
+function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixelsPerBeat) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  if (!leftLane || !rightLane || !Array.isArray(measureRanges) || measureRanges.length === 0) {
+    return;
+  }
+  const leftX = leftLane.x;
+  const rightX = rightLane.x + rightLane.width;
+  const visibleGridLines = collectVisibleEditorGridLines(
+    measureRanges,
+    editorFrameState.startBeat,
+    editorFrameState.endBeat,
+  );
+
+  if (visibleGridLines.sixteenthBeats.length === 0 && visibleGridLines.beatBeats.length === 0) {
+    return;
+  }
+
+  context.save();
+  context.lineWidth = 1;
+
+  context.strokeStyle = EDITOR_SIXTEENTH_GRID_LINE;
+  for (const beat of visibleGridLines.sixteenthBeats) {
+    const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+    context.beginPath();
+    context.moveTo(leftX, y + 0.5);
+    context.lineTo(rightX, y + 0.5);
+    context.stroke();
+  }
+
+  context.strokeStyle = EDITOR_BEAT_GRID_LINE;
+  for (const beat of visibleGridLines.beatBeats) {
+    const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+    context.beginPath();
+    context.moveTo(leftX, y + 0.5);
+    context.lineTo(rightX, y + 0.5);
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+function drawBarLinesEditorMode(context, barLines, lanes, editorFrameState, pixelsPerBeat) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  if (!leftLane || !rightLane) {
+    return;
+  }
+  const leftX = leftLane.x;
+  const rightX = rightLane.x + rightLane.width;
+  const visibleWindow = getBeatWindowIndices(barLines, editorFrameState.startBeat, editorFrameState.endBeat);
+  context.save();
+  context.strokeStyle = BAR_LINE;
+  context.lineWidth = 1;
+  for (let index = visibleWindow.startIndex; index < visibleWindow.endIndex; index += 1) {
+    const barLine = barLines[index];
+    const y = beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+    context.beginPath();
+    context.moveTo(leftX, y + 0.5);
+    context.lineTo(rightX, y + 0.5);
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  if (!leftLane || !rightLane) {
+    return [];
+  }
+  const markers = [];
+  let lastBpmLabelY = Number.POSITIVE_INFINITY;
+  let lastStopLabelY = Number.POSITIVE_INFINITY;
+  let lastScrollLabelY = Number.POSITIVE_INFINITY;
+  const bpmWindow = getBeatWindowIndices(model.bpmChanges, editorFrameState.startBeat, editorFrameState.endBeat);
+  const stopWindow = getBeatWindowIndices(model.stops, editorFrameState.startBeat, editorFrameState.endBeat);
+  const scrollWindow = getBeatWindowIndices(model.scrollChanges, editorFrameState.startBeat, editorFrameState.endBeat);
+
+  context.save();
+  context.fillStyle = BPM_MARKER;
+  for (let index = bpmWindow.startIndex; index < bpmWindow.endIndex; index += 1) {
+    const bpmChange = model.bpmChanges[index];
+    const y = beatToViewportY(bpmChange.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+    const markerRect = getTempoMarkerRect(rightLane, "right");
     context.fillRect(
       markerRect.x,
       Math.round(y - TEMPO_MARKER_HEIGHT / 2),
@@ -200,11 +442,9 @@ function drawTempoMarkers(
   }
 
   context.fillStyle = STOP_MARKER;
-  for (const stop of stops) {
-    if (stop.timeSec < startTimeSec || stop.timeSec > endTimeSec) {
-      continue;
-    }
-    const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+  for (let index = stopWindow.startIndex; index < stopWindow.endIndex; index += 1) {
+    const stop = model.stops[index];
+    const y = beatToViewportY(stop.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(
       markerRect.x,
@@ -227,11 +467,9 @@ function drawTempoMarkers(
   }
 
   context.fillStyle = SCROLL_MARKER;
-  for (const scrollChange of scrollChanges) {
-    if (scrollChange.timeSec < startTimeSec || scrollChange.timeSec > endTimeSec) {
-      continue;
-    }
-    const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+  for (let index = scrollWindow.startIndex; index < scrollWindow.endIndex; index += 1) {
+    const scrollChange = model.scrollChanges[index];
+    const y = beatToViewportY(scrollChange.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(
       markerRect.x,
@@ -276,23 +514,24 @@ function getTempoMarkerRect(lane, side) {
   };
 }
 
-function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+function drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
   context.save();
-  for (const note of model.notes) {
-    if (note.kind !== "long" || !Number.isFinite(note.endTimeSec)) {
-      continue;
-    }
-    if (note.endTimeSec < startTimeSec || note.timeSec > endTimeSec) {
-      continue;
-    }
+  const candidateWindow = getLongBodyWindow(model, editorFrameState.startBeat, editorFrameState.endBeat);
+  for (let index = candidateWindow.startIndex; index < candidateWindow.endIndex; index += 1) {
+    const note = candidateWindow.items[index];
     const lane = lanes[note.lane];
     if (!lane) {
       continue;
     }
-    const startY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
-    const endY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const noteStartBeat = note.beat ?? 0;
+    const noteEndBeat = getNoteEndBeat(note);
+    if (noteEndBeat < editorFrameState.startBeat || noteStartBeat > editorFrameState.endBeat) {
+      continue;
+    }
+    const startY = beatToViewportY(noteStartBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+    const endY = beatToViewportY(noteEndBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
     const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
-    const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
+    const bottomY = Math.min(Math.max(startY, endY), editorFrameState.viewportHeight + NOTE_HEAD_HEIGHT + 24);
     const bodyHeight = Math.max(bottomY - topY, 2);
     context.fillStyle = dimColor(lane.note, 0.42);
     context.fillRect(lane.x, topY, lane.width, bodyHeight);
@@ -300,25 +539,29 @@ function drawLongBodies(context, model, lanes, selectedTimeSec, startTimeSec, en
   context.restore();
 }
 
-function drawNoteHeads(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+function drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
   context.save();
-  for (const note of model.notes) {
-    const noteEndTimeSec = note.endTimeSec ?? note.timeSec;
-    if (noteEndTimeSec < startTimeSec || note.timeSec > endTimeSec) {
-      continue;
-    }
+  const noteWindow = getBeatWindowIndices(model.notesByBeat, editorFrameState.startBeat, editorFrameState.endBeat);
+  for (let index = noteWindow.startIndex; index < noteWindow.endIndex; index += 1) {
+    const note = model.notesByBeat[index];
     const lane = lanes[note.lane];
     if (!lane || note.kind === "invisible") {
       continue;
     }
 
-    const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+    const headY = beatToViewportY(note.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
     drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
+  }
 
-    if (note.kind === "long" && Number.isFinite(note.endTimeSec) && shouldDrawLongEndCap(model, note)) {
-      const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
-      drawRectNote(context, lane, endHeadY, lane.note);
+  const longEndWindow = getBeatWindowIndices(model.longNotesByEndBeat, editorFrameState.startBeat, editorFrameState.endBeat, getNoteEndBeat);
+  for (let index = longEndWindow.startIndex; index < longEndWindow.endIndex; index += 1) {
+    const note = model.longNotesByEndBeat[index];
+    const lane = lanes[note.lane];
+    if (!lane || !shouldDrawLongEndCap(model, note)) {
+      continue;
     }
+    const endHeadY = beatToViewportY(getNoteEndBeat(note), editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+    drawRectNote(context, lane, endHeadY, lane.note);
   }
   context.restore();
 }
@@ -478,6 +721,10 @@ function timeToViewportY(eventTimeSec, selectedTimeSec, viewportHeight, pixelsPe
   return viewportHeight / 2 - (eventTimeSec - selectedTimeSec) * pixelsPerSecond;
 }
 
+function beatToViewportY(eventBeat, selectedBeat, viewportHeight, pixelsPerBeat) {
+  return viewportHeight / 2 - (eventBeat - selectedBeat) * pixelsPerBeat;
+}
+
 function formatBpmMarkerLabel(bpm) {
   return trimDecimal(Number(bpm).toFixed(2));
 }
@@ -492,6 +739,126 @@ function formatScrollMarkerLabel(rate) {
 
 function trimDecimal(value) {
   return String(value).replace(/\.?0+$/, "");
+}
+
+export function collectVisibleEditorGridLines(measureRanges, startBeat, endBeat) {
+  const beatBeats = [];
+  const sixteenthBeats = [];
+  const visibleMeasures = getVisibleMeasureRanges(measureRanges, startBeat, endBeat);
+
+  for (const measure of visibleMeasures) {
+    const measureLength = measure.endBeat - measure.startBeat;
+    if (!(measureLength > 0)) {
+      continue;
+    }
+    for (let subdivision = 1; ; subdivision += 1) {
+      const beat = measure.startBeat + subdivision * 0.25;
+      if (!(beat < measure.endBeat - 1e-9)) {
+        break;
+      }
+      if (beat < startBeat || beat > endBeat) {
+        continue;
+      }
+      if (subdivision % 4 === 0) {
+        beatBeats.push(beat);
+      } else {
+        sixteenthBeats.push(beat);
+      }
+    }
+  }
+
+  return { beatBeats, sixteenthBeats };
+}
+
+function getBeatWindowIndices(items, startBeat, endBeat, getBeat = getEventBeat) {
+  return {
+    startIndex: lowerBoundByBeat(items, startBeat, getBeat),
+    endIndex: upperBoundByBeat(items, endBeat, getBeat),
+  };
+}
+
+function getLongBodyWindow(model, startBeat, endBeat) {
+  const visibleStartCount = upperBoundByBeat(model.longNotesByBeat, endBeat, getEventBeat);
+  const visibleEndStartIndex = lowerBoundByBeat(model.longNotesByEndBeat, startBeat, getNoteEndBeat);
+  const remainingEndCount = model.longNotesByEndBeat.length - visibleEndStartIndex;
+
+  if (visibleStartCount <= remainingEndCount) {
+    return {
+      items: model.longNotesByBeat,
+      startIndex: 0,
+      endIndex: visibleStartCount,
+    };
+  }
+  return {
+    items: model.longNotesByEndBeat,
+    startIndex: visibleEndStartIndex,
+    endIndex: model.longNotesByEndBeat.length,
+  };
+}
+
+function getVisibleMeasureRanges(measureRanges, startBeat, endBeat) {
+  const startIndex = lowerBoundMeasureRangesByEndBeat(measureRanges, startBeat);
+  const visibleRanges = [];
+  for (let index = startIndex; index < measureRanges.length; index += 1) {
+    const measureRange = measureRanges[index];
+    if (measureRange.startBeat > endBeat) {
+      break;
+    }
+    if (measureRange.endBeat > startBeat) {
+      visibleRanges.push(measureRange);
+    }
+  }
+  return visibleRanges;
+}
+
+function lowerBoundByBeat(items, beat, getBeat = getEventBeat) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getBeat(items[mid]) < beat) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+function lowerBoundMeasureRangesByEndBeat(measureRanges, beat) {
+  let low = 0;
+  let high = measureRanges.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if ((measureRanges[mid]?.endBeat ?? 0) <= beat) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+function upperBoundByBeat(items, beat, getBeat = getEventBeat) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getBeat(items[mid]) <= beat) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+function getEventBeat(item) {
+  return Number.isFinite(item?.beat) ? item.beat : 0;
+}
+
+function getNoteEndBeat(note) {
+  return Number.isFinite(note?.endBeat) ? note.endBeat : getEventBeat(note);
 }
 
 function dimColor(color, factor) {

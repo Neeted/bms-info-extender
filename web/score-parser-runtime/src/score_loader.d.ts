@@ -28,7 +28,9 @@ export type ParseOptions = {
 
 export type ParsedNote = {
     lane: number;
+    beat: number;
     timeSec: number;
+    endBeat?: number;
     endTimeSec?: number;
     kind: ParsedNoteKind;
     side?: ParsedSide;
@@ -36,26 +38,32 @@ export type ParsedNote = {
 
 export type ParsedComboEvent = {
     lane: number;
+    beat: number;
     timeSec: number;
     kind: ParsedComboEventKind;
     side?: ParsedSide;
 };
 
 export type ParsedBarLine = {
+    beat: number;
     timeSec: number;
 };
 
 export type ParsedBpmChange = {
+    beat: number;
     timeSec: number;
     bpm: number;
 };
 
 export type ParsedStop = {
+    beat: number;
     timeSec: number;
+    stopBeats: number;
     durationSec: number;
 };
 
 export type ParsedScrollChange = {
+    beat: number;
     timeSec: number;
     rate: number;
 };
@@ -84,6 +92,7 @@ export type ParsedScore = {
     format: ScoreFormat;
     mode: ScoreMode;
     laneCount: number;
+    initialBpm: number;
     totalDurationSec: number;
     lastPlayableTimeSec: number;
     lastTimelineTimeSec: number;

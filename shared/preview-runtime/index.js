@@ -1,7 +1,9 @@
 import {
   createScoreViewerModel,
+  DEFAULT_VIEWER_MODE,
   getClampedSelectedTimeSec,
   getScoreTotalDurationSec,
+  normalizeViewerMode,
 } from "./score-viewer-model.js";
 import { createScoreViewerController } from "./score-viewer-controller.js";
 import { estimateViewerWidth } from "./score-viewer-renderer.js";
@@ -15,6 +17,8 @@ export const BMSDATA_STYLE_ID = "bms-info-extender-style";
 const BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
+export const VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
+export { DEFAULT_VIEWER_MODE };
 
 const bmsSearchPatternAvailabilityCache = new Map();
 
@@ -48,25 +52,28 @@ export const BMSDATA_CSS = `
   .bd-scoreviewer-pin input { width: auto; flex: 0 0 auto; min-height: auto; margin: 0; padding: 0; border: none; background: transparent; accent-color: #ffffff; }
   .bd-scoreviewer-pin span { display: inline-block; line-height: 1.25; white-space: nowrap; }
   .score-viewer-shell * { box-sizing: content-box; }
-  .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; }
+  .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; isolation: isolate; contain: layout paint style; }
   .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
-  .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; }
+  .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; contain: layout paint; }
   .score-viewer-scroll-host.is-scrollable { overflow-y: auto; cursor: grab; touch-action: none; }
   .score-viewer-scroll-host.is-scrollable.is-dragging { cursor: grabbing; }
   .score-viewer-spacer { width: 1px; opacity: 0; }
   .score-viewer-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; }
+  .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; contain: layout paint; }
   .score-viewer-marker-label { position: absolute; top: 0; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1; white-space: nowrap; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.72); }
   .score-viewer-marker-label.is-left { transform: translate(-100%, -50%); text-align: right; }
   .score-viewer-marker-label.is-right { transform: translate(0, -50%); text-align: left; }
-  .score-viewer-bottom-bar { position: absolute; left: 12px; bottom: 12px; z-index: 3; pointer-events: none; }
-  .score-viewer-status-panel { display: grid; gap: 4px; min-width: 180px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); pointer-events: auto; }
+  .score-viewer-bottom-bar { position: absolute; left: 12px; bottom: 12px; z-index: 3; pointer-events: none; contain: layout paint; }
+  .score-viewer-status-panel { display: grid; gap: 4px; min-width: 180px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); pointer-events: auto; contain: layout paint style; }
   .score-viewer-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .score-viewer-status-row.is-time { justify-content: flex-start; gap: 8px; }
   .score-viewer-status-metric { font-variant-numeric: tabular-nums; }
   .score-viewer-spacing-row { padding-top: 2px; }
   .score-viewer-spacing-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .score-viewer-spacing-value { margin-left: auto; color: #fff; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+  .score-viewer-mode-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
+  .score-viewer-mode-select { margin-left: auto; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; }
+  .score-viewer-mode-select:disabled { opacity: 0.55; cursor: not-allowed; }
   .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
@@ -301,6 +308,8 @@ export function createBmsInfoPreview({
   documentRef = document,
   loadParsedScore = async () => null,
   prefetchParsedScore = async () => {},
+  getPersistedViewerMode = () => DEFAULT_VIEWER_MODE,
+  setPersistedViewerMode = () => {},
   onSelectedTimeChange = () => {},
   onPinChange = () => {},
   onPlaybackChange = () => {},
@@ -326,6 +335,7 @@ export function createBmsInfoPreview({
     record: null,
     selectedSha256: null,
     selectedTimeSec: 0,
+    viewerMode: getInitialViewerMode(getPersistedViewerMode),
     isPinned: false,
     isViewerOpen: false,
     isPlaying: false,
@@ -347,6 +357,9 @@ export function createBmsInfoPreview({
     },
     onPlaybackToggle: (nextPlaying) => {
       setPlaybackState(nextPlaying);
+    },
+    onViewerModeChange: (nextViewerMode) => {
+      setViewerMode(nextViewerMode);
     },
   });
 
@@ -387,6 +400,7 @@ export function createBmsInfoPreview({
   return {
     setRecord,
     setSelectedTimeSec,
+    setViewerMode,
     setPinned,
     setPlaybackState,
     prefetch,
@@ -564,6 +578,22 @@ export function createBmsInfoPreview({
     scheduleRender();
   }
 
+  function setViewerMode(nextViewerMode) {
+    const normalizedMode = normalizeViewerMode(nextViewerMode);
+    const persistedMode = normalizedMode === "game" ? DEFAULT_VIEWER_MODE : normalizedMode;
+    if (state.viewerMode === persistedMode) {
+      scheduleRender();
+      return;
+    }
+    state.viewerMode = persistedMode;
+    try {
+      setPersistedViewerMode(persistedMode);
+    } catch (error) {
+      console.warn("Failed to persist viewer mode:", error);
+    }
+    scheduleRender();
+  }
+
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state.isPinned === normalized) {
@@ -679,6 +709,7 @@ export function createBmsInfoPreview({
     viewerController.setPlaybackState(state.isPlaying);
     viewerController.setPinned(state.isPinned);
     viewerController.setModel(state.viewerModel);
+    viewerController.setViewerMode(state.viewerMode);
     viewerController.setSelectedTimeSec(state.selectedTimeSec);
     viewerController.setOpen(Boolean(state.isViewerOpen && state.viewerModel));
 
@@ -760,6 +791,16 @@ function clampSelectedTimeSec(state, timeSec) {
   }
   const maxTimeSec = state.record?.durationSec ?? 0;
   return clampValue(Number.isFinite(timeSec) ? timeSec : 0, 0, Math.max(maxTimeSec, 0));
+}
+
+function getInitialViewerMode(getPersistedViewerMode) {
+  try {
+    const persistedMode = normalizeViewerMode(getPersistedViewerMode?.());
+    return persistedMode === "game" ? DEFAULT_VIEWER_MODE : persistedMode;
+  } catch (error) {
+    console.warn("Failed to read persisted viewer mode:", error);
+    return DEFAULT_VIEWER_MODE;
+  }
 }
 
 function estimateViewerWidthFromNumericMode(mode) {

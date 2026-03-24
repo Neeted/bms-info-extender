@@ -47,6 +47,7 @@ export function parseBmsText(text, options) {
     format: "bms",
     mode,
     laneCount: laneCountForMode(mode),
+    initialBpm: timing.initialBpm,
     notes,
     comboEvents,
     barLines,
@@ -128,13 +129,13 @@ function buildBpmChanges(chart, warnings, timing) {
     }
 
     if (nextBpm !== null && nextBpm !== currentBpm) {
-      changes.push({ timeSec: timing.beatToSeconds(beat), bpm: nextBpm });
+      changes.push({ beat, timeSec: timing.beatToSeconds(beat), bpm: nextBpm });
       currentBpm = nextBpm;
     } else if (nextBpm !== null) {
       currentBpm = nextBpm;
     }
   }
-  changes.sort((left, right) => left.timeSec - right.timeSec || left.bpm - right.bpm);
+  changes.sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec || left.bpm - right.bpm);
   return changes;
 }
 
@@ -153,11 +154,13 @@ function buildStops(chart, warnings, timing) {
     const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
     const bpm = timing.getBpmAtBeat(beat);
     stops.push({
+      beat,
       timeSec: timing.beatToSeconds(beat),
+      stopBeats,
       durationSec: (stopBeats * 60) / bpm,
     });
   }
-  stops.sort((left, right) => left.timeSec - right.timeSec);
+  stops.sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
   return stops;
 }
 
@@ -175,11 +178,12 @@ function buildScrollChanges(chart, warnings, timing) {
     }
     const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
     scrollChanges.push({
+      beat,
       timeSec: timing.beatToSeconds(beat),
       rate,
     });
   }
-  scrollChanges.sort((left, right) => left.timeSec - right.timeSec);
+  scrollChanges.sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
   return scrollChanges;
 }
 
@@ -239,6 +243,7 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
     const parsedSide = parsedSideForMode(mode, descriptor.side);
     const noteBase = {
       lane,
+      beat: object.beat,
       timeSec: object.timeSec,
       ...(parsedSide ? { side: parsedSide } : {}),
     };
@@ -274,7 +279,9 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
       const end = group[index + 1];
       notes.push({
         lane: start.lane,
+        beat: start.beat,
         timeSec: start.timeSec,
+        endBeat: end.beat,
         endTimeSec: end.timeSec,
         kind: "long",
         side: start.side,
@@ -297,12 +304,14 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
       for (const object of group) {
         if (object.value === lnobj) {
           if (pendingStart) {
-            notes.push({
-              lane: pendingStart.lane,
-              timeSec: pendingStart.timeSec,
-              endTimeSec: object.timeSec,
-              kind: "long",
-              side: pendingStart.side,
+          notes.push({
+            lane: pendingStart.lane,
+            beat: pendingStart.beat,
+            timeSec: pendingStart.timeSec,
+            endBeat: object.beat,
+            endTimeSec: object.timeSec,
+            kind: "long",
+            side: pendingStart.side,
             });
             comboEvents.push(createComboEvent(pendingStart, "long-start"));
             if (shouldCountLongEnd(longNoteType)) {
@@ -328,6 +337,7 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
       if (pendingStart) {
         notes.push({
           lane: pendingStart.lane,
+          beat: pendingStart.beat,
           timeSec: pendingStart.timeSec,
           kind: "normal",
           side: pendingStart.side,
@@ -341,6 +351,7 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
     for (const object of group) {
       notes.push({
         lane: object.lane,
+        beat: object.beat,
         timeSec: object.timeSec,
         kind: "normal",
         side: object.side,
@@ -399,6 +410,7 @@ function shouldCountLongEnd(longNoteType) {
 function createComboEvent(object, kind) {
   const event = {
     lane: object.lane,
+    beat: object.beat,
     timeSec: object.timeSec,
     kind,
   };
@@ -438,7 +450,7 @@ function buildBarLines(timeSignatures, timing, timelineObjects) {
   const barLines = [];
   for (let measure = 0; measure <= maxMeasure; measure += 1) {
     const beat = timeSignatures.measureToBeat(measure, 0);
-    barLines.push({ timeSec: timing.beatToSeconds(beat) });
+    barLines.push({ beat, timeSec: timing.beatToSeconds(beat) });
   }
   return barLines;
 }

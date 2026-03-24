@@ -2,6 +2,7 @@ import {
   createBmsDataContainer,
   createBmsInfoPreview,
   fetchBmsInfoRecordByIdentifiers,
+  VIEWER_MODE_STORAGE_KEY,
 } from "../../../../shared/preview-runtime/index.js";
 import {
   createScoreViewerModel,
@@ -520,6 +521,20 @@ function ensurePreviewRuntime() {
       }
       const loaderContext = await getLoaderContext(state.parserVersion, state.scoreBaseUrl);
       await loaderContext.loader.prefetchScore(record.sha256.toLowerCase());
+    },
+    getPersistedViewerMode: () => {
+      try {
+        return localStorage.getItem(VIEWER_MODE_STORAGE_KEY);
+      } catch (_error) {
+        return null;
+      }
+    },
+    setPersistedViewerMode: (nextViewerMode) => {
+      try {
+        localStorage.setItem(VIEWER_MODE_STORAGE_KEY, nextViewerMode);
+      } catch (_error) {
+        // Ignore storage failures in private mode or restricted contexts.
+      }
     },
     onSelectedTimeChange: (nextTimeSec) => {
       const changed = Math.abs(nextTimeSec - state.selectedTimeSec) >= 0.0005;

@@ -24,7 +24,10 @@ test("BMS respects measure length when converting to seconds", () => {
     sha256: "0".repeat(64),
   });
   assert.equal(result.ok, true);
+  assert.equal(result.score.initialBpm, 120);
+  assert.equal(result.score.notes[0].beat, 4);
   assert.equal(result.score.notes[0].timeSec, 2);
+  assert.equal(result.score.notes[1].beat, 10);
   assert.equal(result.score.notes[1].timeSec, 5);
 });
 
@@ -43,6 +46,7 @@ test("BMS applies extended BPM changes", () => {
   });
   assert.equal(result.ok, true);
   assert.equal(result.score.bpmChanges.length, 1);
+  assert.deepEqual(result.score.bpmChanges[0], { beat: 4, timeSec: 2, bpm: 240 });
   assert.equal(result.score.notes[0].timeSec, 3);
 });
 
@@ -61,6 +65,7 @@ test("BMS applies STOP timing", () => {
   });
   assert.equal(result.ok, true);
   assert.equal(result.score.stops.length, 1);
+  assert.deepEqual(result.score.stops[0], { beat: 4, timeSec: 2.5, stopBeats: 1, durationSec: 0.5 });
   assert.equal(result.score.notes[0].timeSec, 4.5);
 });
 
@@ -78,7 +83,7 @@ test("BMS resolves SCROLL changes via SC channel references", () => {
     sha256: "a".repeat(64),
   });
   assert.equal(result.ok, true);
-  assert.deepEqual(result.score.scrollChanges, [{ timeSec: 6, rate: 0.5 }]);
+  assert.deepEqual(result.score.scrollChanges, [{ beat: 12, timeSec: 6, rate: 0.5 }]);
   assert.ok(result.score.lastTimelineTimeSec > result.score.lastPlayableTimeSec);
 });
 
@@ -96,7 +101,7 @@ test("BMS keeps explicit beat-0 SCROLL events", () => {
     sha256: "f".repeat(64),
   });
   assert.equal(result.ok, true);
-  assert.deepEqual(result.score.scrollChanges, [{ timeSec: 0, rate: 1 }]);
+  assert.deepEqual(result.score.scrollChanges, [{ beat: 0, timeSec: 0, rate: 1 }]);
 });
 
 test("BMS accepts zero and negative SCROLL rates", () => {
@@ -116,6 +121,7 @@ test("BMS accepts zero and negative SCROLL rates", () => {
   });
   assert.equal(result.ok, true);
   assert.deepEqual(result.score.scrollChanges.map((change) => change.rate), [0, -1]);
+  assert.deepEqual(result.score.scrollChanges.map((change) => change.beat), [4, 8]);
   assert.equal(result.score.warnings.length, 0);
 });
 
@@ -445,12 +451,20 @@ test("BMSON exposes separate playable and timeline durations", () => {
   });
   assert.equal(result.ok, true);
   assert.equal(result.score.mode, "7k");
+  assert.equal(result.score.initialBpm, 120);
   assert.ok(result.score.lastTimelineTimeSec > result.score.lastPlayableTimeSec);
   assert.equal(result.score.totalDurationSec, result.score.lastTimelineTimeSec);
   assert.equal(result.score.noteCounts.visible, 2);
   assert.equal(result.score.noteCounts.long, 1);
   assert.equal(result.score.noteCounts.invisible, 0);
   assert.equal(result.score.noteCounts.mine, 0);
+  assert.equal(result.score.notes[0].beat, 1);
+  assert.equal(result.score.notes[1].beat, 4);
+  assert.equal(result.score.notes[1].endBeat, 5);
+  assert.deepEqual(result.score.bpmChanges[0], { beat: 2, timeSec: 1, bpm: 180 });
+  assert.deepEqual(result.score.stops[0], { beat: 3, timeSec: 1.5, stopBeats: 0.5, durationSec: 1 / 6 });
+  assert.deepEqual(result.score.barLines[0], { beat: 0, timeSec: 0 });
+  assert.deepEqual(result.score.barLines[1], { beat: 4, timeSec: 11 / 6 });
   assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["normal", "long-start"]);
 });
 
@@ -484,9 +498,9 @@ test("BMSON exposes scroll_events as scrollChanges", () => {
   });
   assert.equal(result.ok, true);
   assert.deepEqual(result.score.scrollChanges, [
-    { timeSec: 0, rate: 1 },
-    { timeSec: 1.5, rate: 0.5 },
-    { timeSec: 2, rate: -1 },
+    { beat: 0, timeSec: 0, rate: 1 },
+    { beat: 3, timeSec: 1.5, rate: 0.5 },
+    { beat: 4, timeSec: 2, rate: -1 },
   ]);
   assert.ok(result.score.lastTimelineTimeSec > result.score.lastPlayableTimeSec);
 });

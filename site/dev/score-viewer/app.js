@@ -3098,6 +3098,13 @@ function createPreviewPreferenceStorage({ read = () => null, write = () => {
     }
   };
 }
+function expandPreviewRenderMask(renderMask = 0) {
+  let expandedMask = renderMask;
+  if (expandedMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible;
+  }
+  return expandedMask;
+}
 var BMSDATA_CSS = `
   .bmsdata {
     --bd-dctx: #333;
@@ -3812,34 +3819,35 @@ function createBmsInfoPreview({
     });
   }
   function flushRender(renderMask = PREVIEW_RENDER_ALL) {
-    if (renderMask & PREVIEW_RENDER_DIRTY.record) {
+    const expandedRenderMask = expandPreviewRenderMask(renderMask);
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.record) {
       graphController.setRecord(state2.record);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.pin) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.pin) {
       graphController.setPinned(state2.isPinned);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.selection) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.selection) {
       graphController.setSelectedTimeSec(state2.selectedTimeSec);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
       viewerController.setModel(state2.viewerModel);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
       viewerController.setViewerMode(state2.viewerMode);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.invisible) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.invisible) {
       viewerController.setInvisibleNoteVisibility(state2.invisibleNoteVisibility);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.playback) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
       viewerController.setPlaybackState(state2.isPlaying);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.pin) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.pin) {
       viewerController.setPinned(state2.isPinned);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.selection || renderMask & PREVIEW_RENDER_DIRTY.viewerModel || renderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.selection || expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel || expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
       viewerController.setSelectedTimeSec(state2.selectedTimeSec, { beatHint: state2.selectedBeat });
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.viewerOpen || renderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerOpen || expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
       viewerController.setOpen(Boolean(state2.isViewerOpen && state2.viewerModel));
     }
     const isActuallyOpen = Boolean(state2.isViewerOpen && state2.viewerModel);

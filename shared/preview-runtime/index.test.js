@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  PREVIEW_RENDER_DIRTY,
   createPreviewPreferenceStorage,
   DEFAULT_VIEWER_MODE,
   DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
   VIEWER_MODE_STORAGE_KEY,
+  expandPreviewRenderMask,
   getInitialViewerMode,
   getInitialInvisibleNoteVisibility,
 } from "./index.js";
@@ -44,4 +46,15 @@ test("preview preference storage shares persistence wiring for both viewer mode 
   assert.equal(store.get(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY), "show");
   assert.equal(preferences.getPersistedViewerMode(), "game");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "show");
+});
+
+test("viewer model dirty render also reapplies persisted viewer chrome", () => {
+  const expandedMask = expandPreviewRenderMask(PREVIEW_RENDER_DIRTY.viewerModel);
+
+  assert.notEqual(expandedMask & PREVIEW_RENDER_DIRTY.viewerMode, 0);
+  assert.notEqual(expandedMask & PREVIEW_RENDER_DIRTY.invisible, 0);
+  assert.equal(
+    expandPreviewRenderMask(PREVIEW_RENDER_DIRTY.selection),
+    PREVIEW_RENDER_DIRTY.selection,
+  );
 });

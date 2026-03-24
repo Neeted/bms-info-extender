@@ -28,7 +28,7 @@ export const INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibl
 export { DEFAULT_VIEWER_MODE };
 export { DEFAULT_INVISIBLE_NOTE_VISIBILITY };
 
-const PREVIEW_RENDER_DIRTY = {
+export const PREVIEW_RENDER_DIRTY = {
   record: 1 << 0,
   selection: 1 << 1,
   viewerModel: 1 << 2,
@@ -73,6 +73,14 @@ export function createPreviewPreferenceStorage({ read = () => null, write = () =
       }
     },
   };
+}
+
+export function expandPreviewRenderMask(renderMask = 0) {
+  let expandedMask = renderMask;
+  if (expandedMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible;
+  }
+  return expandedMask;
 }
 
 export const BMSDATA_CSS = `
@@ -834,34 +842,35 @@ export function createBmsInfoPreview({
   }
 
   function flushRender(renderMask = PREVIEW_RENDER_ALL) {
-    if (renderMask & PREVIEW_RENDER_DIRTY.record) {
+    const expandedRenderMask = expandPreviewRenderMask(renderMask);
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.record) {
       graphController.setRecord(state.record);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.pin) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.pin) {
       graphController.setPinned(state.isPinned);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.selection) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.selection) {
       graphController.setSelectedTimeSec(state.selectedTimeSec);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
       viewerController.setModel(state.viewerModel);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
       viewerController.setViewerMode(state.viewerMode);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.invisible) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.invisible) {
       viewerController.setInvisibleNoteVisibility(state.invisibleNoteVisibility);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.playback) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
       viewerController.setPlaybackState(state.isPlaying);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.pin) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.pin) {
       viewerController.setPinned(state.isPinned);
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.selection || renderMask & PREVIEW_RENDER_DIRTY.viewerModel || renderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.selection || expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel || expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
       viewerController.setSelectedTimeSec(state.selectedTimeSec, { beatHint: state.selectedBeat });
     }
-    if (renderMask & PREVIEW_RENDER_DIRTY.viewerOpen || renderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerOpen || expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
       viewerController.setOpen(Boolean(state.isViewerOpen && state.viewerModel));
     }
 

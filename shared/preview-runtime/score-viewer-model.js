@@ -1,6 +1,8 @@
 export const DEFAULT_VIEWER_PIXELS_PER_SECOND = 160;
 export const DEFAULT_EDITOR_PIXELS_PER_BEAT = 64;
 export const DEFAULT_VIEWER_MODE = "time";
+export const TIME_SELECTION_EPSILON_SEC = 0.0005;
+export const BEAT_SELECTION_EPSILON = 0.000001;
 
 const ACTION_PRECEDENCE = {
   bpm: 1,
@@ -220,9 +222,9 @@ export function getVisibleBeatRange(
   return getEditorFrameState(model, selectedTimeSec, viewportHeight, pixelsPerBeat);
 }
 
-export function getEditorFrameState(
+export function getEditorFrameStateForBeat(
   model,
-  selectedTimeSec,
+  selectedBeat,
   viewportHeight,
   pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
 ) {
@@ -234,15 +236,52 @@ export function getEditorFrameState(
       viewportHeight: Math.max(viewportHeight, 0),
     };
   }
-  const selectedBeat = getBeatAtTimeSec(model, selectedTimeSec);
+  const clampedBeat = getClampedSelectedBeat(model, selectedBeat);
   const halfViewportBeat = viewportHeight / pixelsPerBeat / 2;
   const overscanBeat = Math.max(halfViewportBeat * 0.35, 1);
   return {
-    selectedBeat,
-    startBeat: Math.max(0, selectedBeat - halfViewportBeat - overscanBeat),
-    endBeat: Math.min(model.totalBeat ?? 0, selectedBeat + halfViewportBeat + overscanBeat),
+    selectedBeat: clampedBeat,
+    startBeat: Math.max(0, clampedBeat - halfViewportBeat - overscanBeat),
+    endBeat: Math.min(model.totalBeat ?? 0, clampedBeat + halfViewportBeat + overscanBeat),
     viewportHeight,
   };
+}
+
+export function getEditorFrameState(
+  model,
+  selectedTimeSec,
+  viewportHeight,
+  pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
+) {
+  return getEditorFrameStateForBeat(
+    model,
+    getBeatAtTimeSec(model, selectedTimeSec),
+    viewportHeight,
+    pixelsPerBeat,
+  );
+}
+
+export function hasViewerSelectionChanged(
+  model,
+  viewerMode,
+  previousTimeSec,
+  nextTimeSec,
+  previousBeat = undefined,
+  nextBeat = undefined,
+) {
+  const resolvedMode = resolveViewerModeForModel(model, viewerMode);
+  if (resolvedMode === "editor" && model?.supportsEditorMode) {
+    const normalizedPreviousBeat = Number.isFinite(previousBeat)
+      ? getClampedSelectedBeat(model, previousBeat)
+      : getBeatAtTimeSec(model, previousTimeSec);
+    const normalizedNextBeat = Number.isFinite(nextBeat)
+      ? getClampedSelectedBeat(model, nextBeat)
+      : getBeatAtTimeSec(model, nextTimeSec);
+    return Math.abs(normalizedNextBeat - normalizedPreviousBeat) >= BEAT_SELECTION_EPSILON;
+  }
+  return Math.abs(
+    getClampedSelectedTimeSec(model, nextTimeSec) - getClampedSelectedTimeSec(model, previousTimeSec),
+  ) >= TIME_SELECTION_EPSILON_SEC;
 }
 
 export function createEditorMeasureRanges(barLines, totalBeat) {

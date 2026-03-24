@@ -6,9 +6,12 @@ import {
 } from "../../../../shared/preview-runtime/index.js";
 import {
   createScoreViewerModel,
+  DEFAULT_VIEWER_MODE,
+  getBeatAtTimeSec,
   getClampedSelectedTimeSec,
   getScoreTotalDurationSec,
   getViewerCursor,
+  hasViewerSelectionChanged,
 } from "../../../../shared/preview-runtime/score-viewer-model.js";
 
 const DEFAULT_PARSER_VERSION = "current";
@@ -69,6 +72,8 @@ const state = {
   scoreSourcePreset: PRESET_CURRENT,
   customScoreBaseUrl: "",
   selectedTimeSec: 0,
+  selectedBeat: 0,
+  resolvedViewerMode: DEFAULT_VIEWER_MODE,
   isPinned: false,
   isViewerOpen: false,
   isPlaying: false,
@@ -258,9 +263,24 @@ function getNormalizedSelectedTimeSec(value) {
   return Math.max(0, value);
 }
 
+function getSelectedBeatForTime(timeSec, viewerMode = state.resolvedViewerMode) {
+  if (viewerMode !== "editor") {
+    return 0;
+  }
+  return getBeatAtTimeSec(state.viewerModel, timeSec);
+}
+
 function setSelectedTimeSec(nextValue, { openViewer = false, syncUrl = true } = {}) {
   const normalizedValue = getNormalizedSelectedTimeSec(Number.isFinite(nextValue) ? nextValue : 0);
-  const changed = Math.abs(normalizedValue - state.selectedTimeSec) >= 0.0005;
+  const nextBeat = getSelectedBeatForTime(normalizedValue);
+  const changed = hasViewerSelectionChanged(
+    state.viewerModel,
+    state.resolvedViewerMode,
+    state.selectedTimeSec,
+    normalizedValue,
+    state.selectedBeat,
+    nextBeat,
+  );
 
   if (openViewer) {
     state.isViewerOpen = true;
@@ -273,10 +293,14 @@ function setSelectedTimeSec(nextValue, { openViewer = false, syncUrl = true } = 
   }
 
   state.selectedTimeSec = normalizedValue;
+  state.selectedBeat = nextBeat;
   elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
   elements.timeRangeInput.value = String(state.selectedTimeSec);
   if (state.previewRuntime) {
-    state.previewRuntime.setSelectedTimeSec(state.selectedTimeSec, { openViewer });
+    state.previewRuntime.setSelectedTimeSec(state.selectedTimeSec, {
+      openViewer,
+      beatHint: state.selectedBeat,
+    });
   }
   if (syncUrl) {
     writeQueryState();
@@ -353,6 +377,7 @@ function resetDiagnosticsForNewTarget() {
   state.compressedSource = null;
   state.parsedScore = null;
   state.viewerModel = null;
+  state.selectedBeat = 0;
   state.resolvedScoreUrl = null;
   state.loaderModuleUrl = null;
   state.compressedByteLength = null;
@@ -418,7 +443,9 @@ function getEventCountsLabel(score) {
 }
 
 function getCurrentCursor() {
-  return state.viewerModel ? getViewerCursor(state.viewerModel, state.selectedTimeSec) : null;
+  return state.viewerModel
+    ? getViewerCursor(state.viewerModel, state.selectedTimeSec, state.resolvedViewerMode, state.selectedBeat)
+    : null;
 }
 
 function renderMessageBanner() {
@@ -536,9 +563,23 @@ function ensurePreviewRuntime() {
         // Ignore storage failures in private mode or restricted contexts.
       }
     },
-    onSelectedTimeChange: (nextTimeSec) => {
-      const changed = Math.abs(nextTimeSec - state.selectedTimeSec) >= 0.0005;
+    onSelectedTimeChange: (selection) => {
+      const nextTimeSec = typeof selection === "object" ? selection.timeSec : selection;
+      const nextViewerMode = selection?.viewerMode ?? state.resolvedViewerMode;
+      const nextBeat = nextViewerMode === "editor"
+        ? (Number.isFinite(selection?.beat) ? selection.beat : getSelectedBeatForTime(nextTimeSec, nextViewerMode))
+        : 0;
+      const changed = hasViewerSelectionChanged(
+        state.viewerModel,
+        nextViewerMode,
+        state.selectedTimeSec,
+        nextTimeSec,
+        state.selectedBeat,
+        nextBeat,
+      );
       state.selectedTimeSec = nextTimeSec;
+      state.selectedBeat = nextBeat;
+      state.resolvedViewerMode = nextViewerMode;
       elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
       elements.timeRangeInput.value = String(state.selectedTimeSec);
       if (changed) {
@@ -573,6 +614,8 @@ function ensurePreviewRuntime() {
 function renderPreviewPanel() {
   const previewRuntime = ensurePreviewRuntime();
   const previewState = previewRuntime.getState();
+  state.resolvedViewerMode = previewState.resolvedViewerMode ?? state.resolvedViewerMode;
+  state.selectedBeat = getSelectedBeatForTime(state.selectedTimeSec, state.resolvedViewerMode);
   if (!state.bmsDataRecord) {
     if (state.previewContainer) {
       state.previewContainer.style.display = "none";
@@ -593,8 +636,21 @@ function renderPreviewPanel() {
     previewRuntime.setPinned(state.isPinned);
   }
   const shouldOpenViewer = state.isViewerOpen && !previewState.isViewerOpen;
-  if (Math.abs(previewState.selectedTimeSec - state.selectedTimeSec) >= 0.0005 || shouldOpenViewer) {
-    previewRuntime.setSelectedTimeSec(state.selectedTimeSec, { openViewer: shouldOpenViewer });
+  if (
+    hasViewerSelectionChanged(
+      state.viewerModel,
+      previewState.resolvedViewerMode ?? state.resolvedViewerMode,
+      previewState.selectedTimeSec,
+      state.selectedTimeSec,
+      previewState.selectedBeat,
+      state.selectedBeat,
+    )
+    || shouldOpenViewer
+  ) {
+    previewRuntime.setSelectedTimeSec(state.selectedTimeSec, {
+      openViewer: shouldOpenViewer,
+      beatHint: state.selectedBeat,
+    });
   }
   if (previewState.isPlaying !== state.isPlaying) {
     previewRuntime.setPlaybackState(state.isPlaying);
@@ -734,8 +790,10 @@ function renderSliderBounds() {
   elements.timeNumberInput.min = "0";
   if (state.parsedScore) {
     state.selectedTimeSec = getClampedSelectedTimeSec(state.viewerModel, state.selectedTimeSec);
+    state.selectedBeat = getSelectedBeatForTime(state.selectedTimeSec);
   } else {
     state.selectedTimeSec = clamp(state.selectedTimeSec, 0, maxValue);
+    state.selectedBeat = 0;
   }
   elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
   elements.timeRangeInput.value = String(state.selectedTimeSec);
@@ -827,6 +885,7 @@ async function handleLoad({ clearCachesFirst = false } = {}) {
     if (scoreResult.status !== "fulfilled") {
       state.parsedScore = null;
       state.viewerModel = null;
+      state.selectedBeat = 0;
       state.compressedSource = null;
       state.compressedByteLength = null;
       state.decompressedByteLength = null;
@@ -850,6 +909,7 @@ async function handleLoad({ clearCachesFirst = false } = {}) {
     state.lastError = null;
     state.isViewerOpen = false;
     state.selectedTimeSec = getClampedSelectedTimeSec(state.viewerModel, state.selectedTimeSec);
+    state.selectedBeat = getSelectedBeatForTime(state.selectedTimeSec);
 
     if (state.panelError) {
       setMessage("warning", `Loaded score via ${state.compressedSource}, but BMS Info Extender panel fetch failed.`);
@@ -868,6 +928,7 @@ async function handleLoad({ clearCachesFirst = false } = {}) {
     }
     state.parsedScore = null;
     state.viewerModel = null;
+    state.selectedBeat = 0;
     state.compressedSource = null;
     state.compressedByteLength = null;
     state.decompressedByteLength = null;

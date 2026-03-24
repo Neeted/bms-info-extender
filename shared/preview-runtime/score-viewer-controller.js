@@ -2,12 +2,15 @@ import {
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
   DEFAULT_VIEWER_MODE,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
+  getBeatAtTimeSec,
+  getClampedSelectedBeat,
   getClampedSelectedTimeSec,
   getContentHeightPx,
-  getEditorFrameState,
+  getEditorFrameStateForBeat,
   getEditorContentHeightPx,
   getEditorScrollTopForBeat,
   getEditorScrollTopForTimeSec,
+  hasViewerSelectionChanged,
   getTimeSecForBeat,
   getTimeSecForEditorScrollTop,
   getScrollTopForTimeSec,
@@ -127,6 +130,7 @@ export function createScoreViewerController({
   const state = {
     model: null,
     selectedTimeSec: 0,
+    selectedBeat: 0,
     isPinned: false,
     isOpen: false,
     isPlaying: false,
@@ -247,19 +251,32 @@ export function createScoreViewerController({
     }
     state.model = model;
     state.selectedTimeSec = getClampedSelectedTimeSec(state.model, state.selectedTimeSec);
+    state.selectedBeat = getBeatAtTimeSec(state.model, state.selectedTimeSec);
     editorFrameStateCache = null;
     updateRootWidth();
     refreshLayout();
   }
 
-  function setSelectedTimeSec(timeSec) {
+  function setSelectedTimeSec(timeSec, { beatHint } = {}) {
     const clampedTimeSec = getClampedSelectedTimeSec(state.model, timeSec);
-    if (Math.abs(clampedTimeSec - state.selectedTimeSec) < 0.0005 && state.model) {
+    const resolvedViewerMode = getResolvedViewerMode();
+    const nextBeat = resolvedViewerMode === "editor"
+      ? resolveSelectedBeat(clampedTimeSec, beatHint)
+      : getBeatAtTimeSec(state.model, clampedTimeSec);
+    if (!hasViewerSelectionChanged(
+      state.model,
+      resolvedViewerMode,
+      state.selectedTimeSec,
+      clampedTimeSec,
+      state.selectedBeat,
+      nextBeat,
+    ) && state.model) {
       syncScrollPosition();
       renderScene();
       return;
     }
     state.selectedTimeSec = clampedTimeSec;
+    state.selectedBeat = nextBeat;
     editorFrameStateCache = null;
     syncScrollPosition();
     renderScene();
@@ -292,6 +309,7 @@ export function createScoreViewerController({
       return;
     }
     state.viewerMode = resolvedInputMode;
+    state.selectedBeat = getBeatAtTimeSec(state.model, state.selectedTimeSec);
     editorFrameStateCache = null;
     refreshLayout();
   }
@@ -306,10 +324,9 @@ export function createScoreViewerController({
     ignoreScrollUntilNextFrame = true;
     const viewportHeight = root.clientHeight || 0;
     if (getResolvedViewerMode() === "editor") {
-      const editorFrameState = getEditorFrameStateForCurrentView(viewportHeight);
       scrollHost.scrollTop = getEditorScrollTopForBeat(
         state.model,
-        editorFrameState?.selectedBeat ?? 0,
+        state.selectedBeat,
         viewportHeight,
         getPixelsPerBeat(),
       );
@@ -332,16 +349,46 @@ export function createScoreViewerController({
     if (!force && ignoreScrollUntilNextFrame) {
       return;
     }
-    const nextTimeSec = getResolvedViewerMode() === "editor"
-      ? getTimeSecForBeat(state.model, scrollHost.scrollTop / getPixelsPerBeat())
-      : getTimeSecForResolvedMode(state.model, scrollHost.scrollTop);
-    if (Math.abs(nextTimeSec - state.selectedTimeSec) < 0.0005) {
+    const resolvedViewerMode = getResolvedViewerMode();
+    if (resolvedViewerMode === "editor") {
+      const nextBeat = getClampedSelectedBeat(state.model, scrollHost.scrollTop / getPixelsPerBeat());
+      if (!hasViewerSelectionChanged(
+        state.model,
+        resolvedViewerMode,
+        state.selectedTimeSec,
+        state.selectedTimeSec,
+        state.selectedBeat,
+        nextBeat,
+      )) {
+        return;
+      }
+      state.selectedBeat = nextBeat;
+      state.selectedTimeSec = getTimeSecForBeat(state.model, nextBeat);
+      editorFrameStateCache = null;
+      renderScene();
+      onTimeChange({
+        timeSec: state.selectedTimeSec,
+        beat: nextBeat,
+        viewerMode: resolvedViewerMode,
+        source: "scroll",
+      });
+      return;
+    }
+
+    const nextTimeSec = getTimeSecForResolvedMode(state.model, scrollHost.scrollTop);
+    if (!hasViewerSelectionChanged(state.model, resolvedViewerMode, state.selectedTimeSec, nextTimeSec)) {
       return;
     }
     state.selectedTimeSec = nextTimeSec;
+    state.selectedBeat = getBeatAtTimeSec(state.model, nextTimeSec);
     editorFrameStateCache = null;
     renderScene();
-    onTimeChange(nextTimeSec);
+    onTimeChange({
+      timeSec: nextTimeSec,
+      beat: state.selectedBeat,
+      viewerMode: resolvedViewerMode,
+      source: "scroll",
+    });
   }
 
   function refreshLayout() {
@@ -364,7 +411,7 @@ export function createScoreViewerController({
       state.model,
       state.selectedTimeSec,
       resolvedViewerMode,
-      editorFrameState?.selectedBeat,
+      state.selectedBeat,
     );
 
     canvas.hidden = !showScene;
@@ -521,16 +568,21 @@ export function createScoreViewerController({
     if (
       editorFrameStateCache
       && editorFrameStateCache.model === state.model
-      && Math.abs(editorFrameStateCache.selectedTimeSec - state.selectedTimeSec) < 0.0005
+      && Math.abs(editorFrameStateCache.selectedBeat - state.selectedBeat) < 0.000001
       && editorFrameStateCache.viewportHeight === viewportHeight
       && Math.abs(editorFrameStateCache.pixelsPerBeat - pixelsPerBeat) < 0.0005
     ) {
       return editorFrameStateCache.frameState;
     }
-    const frameState = getEditorFrameState(state.model, state.selectedTimeSec, viewportHeight, pixelsPerBeat);
+    const frameState = getEditorFrameStateForBeat(
+      state.model,
+      state.selectedBeat,
+      viewportHeight,
+      pixelsPerBeat,
+    );
     editorFrameStateCache = {
       model: state.model,
-      selectedTimeSec: state.selectedTimeSec,
+      selectedBeat: state.selectedBeat,
       viewportHeight,
       pixelsPerBeat,
       frameState,
@@ -557,6 +609,16 @@ export function createScoreViewerController({
       return getTimeSecForEditorScrollTop(model, scrollTop, getPixelsPerBeat());
     }
     return getTimeSecForScrollTop(model, scrollTop, getPixelsPerSecond());
+  }
+
+  function resolveSelectedBeat(timeSec, beatHint = undefined) {
+    if (!state.model || getResolvedViewerMode() !== "editor") {
+      return 0;
+    }
+    if (Number.isFinite(beatHint)) {
+      return getClampedSelectedBeat(state.model, beatHint);
+    }
+    return getBeatAtTimeSec(state.model, timeSec);
   }
 
   function setTextIfChanged(element, nextValue, key) {

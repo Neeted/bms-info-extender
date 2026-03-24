@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  BEAT_SELECTION_EPSILON,
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
   createEditorMeasureRanges,
@@ -14,6 +15,7 @@ import {
   getEditorContentHeightPx,
   getEditorScrollTopForBeat,
   getEditorScrollTopForTimeSec,
+  hasViewerSelectionChanged,
   getMeasureIndexAtTime,
   getScrollTopForTimeSec,
   getTimeSecForBeat,
@@ -169,4 +171,62 @@ test("viewer model builds editor measure ranges including trailing beats after t
     { startBeat: 3, endBeat: 7.5 },
     { startBeat: 7.5, endBeat: 10 },
   ]);
+});
+
+test("viewer selection change in editor mode is beat-based for extremely high BPM", () => {
+  const initialBpm = 14500145;
+  const totalBeat = 8;
+  const totalDurationSec = (totalBeat * 60) / initialBpm;
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm,
+    totalDurationSec,
+    lastPlayableTimeSec: totalDurationSec,
+    lastTimelineTimeSec: totalDurationSec,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: (4 * 60) / initialBpm }, { beat: totalBeat, timeSec: totalDurationSec }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  const nextBeat = 1 / DEFAULT_EDITOR_PIXELS_PER_BEAT;
+  const nextTimeSec = getTimeSecForBeat(model, nextBeat);
+
+  assert.equal(nextTimeSec < 0.0005, true);
+  assert.equal(hasViewerSelectionChanged(model, "editor", 0, nextTimeSec, 0, nextBeat), true);
+  assert.equal(nextBeat > BEAT_SELECTION_EPSILON, true);
+});
+
+test("viewer selection change in editor mode stays monotonic for BPM below one", () => {
+  const initialBpm = 0.5;
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm,
+    totalDurationSec: 960,
+    lastPlayableTimeSec: 960,
+    lastTimelineTimeSec: 960,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 480 }, { beat: 8, timeSec: 960 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  const nextBeat = 1 / DEFAULT_EDITOR_PIXELS_PER_BEAT;
+  const nextTimeSec = getTimeSecForBeat(model, nextBeat);
+
+  assert.equal(nextTimeSec > 0, true);
+  assert.equal(getBeatAtTimeSec(model, nextTimeSec), nextBeat);
+  assert.equal(hasViewerSelectionChanged(model, "editor", 0, nextTimeSec, 0, nextBeat), true);
 });

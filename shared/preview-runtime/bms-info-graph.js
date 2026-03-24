@@ -10,6 +10,8 @@ const MIN_RATIO = 1 / 8;
 const MAX_RATIO = 8;
 const MIN_LOG = Math.log10(MIN_RATIO);
 const MAX_LOG = Math.log10(MAX_RATIO);
+const GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX = 48;
+const GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX = 160;
 
 export function createBmsInfoGraph({
   scrollHost,
@@ -21,6 +23,9 @@ export function createBmsInfoGraph({
   onSelectTime = () => {},
   onPinChange = () => {},
 }) {
+  const context = canvas.getContext("2d");
+  const staticCanvas = createLayerCanvas(canvas);
+  const staticContext = staticCanvas.getContext("2d");
   const state = {
     record: null,
     selectedTimeSec: 0,
@@ -66,12 +71,13 @@ export function createBmsInfoGraph({
   function setRecord(record) {
     state.record = record;
     pinInput.disabled = !record;
-    render();
+    renderStaticScene();
+    renderDynamicScene();
   }
 
   function setSelectedTimeSec(timeSec) {
     state.selectedTimeSec = Number.isFinite(timeSec) ? Math.max(0, timeSec) : 0;
-    render();
+    renderDynamicScene();
     syncScrollToSelected();
   }
 
@@ -81,16 +87,14 @@ export function createBmsInfoGraph({
     pinInput.disabled = !state.record;
   }
 
-  function render() {
+  function renderStaticScene() {
     const record = state.record;
     if (!record) {
-      canvas.width = 640;
-      canvas.height = 180;
-      const context = canvas.getContext("2d");
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = "#000000";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      drawSelectedTimeLine(context, 0, canvas.height);
+      staticCanvas.width = 640;
+      staticCanvas.height = 180;
+      staticContext.clearRect(0, 0, staticCanvas.width, staticCanvas.height);
+      staticContext.fillStyle = "#000000";
+      staticContext.fillRect(0, 0, staticCanvas.width, staticCanvas.height);
       return;
     }
 
@@ -99,19 +103,31 @@ export function createBmsInfoGraph({
     const maxNotesPerSecond = Math.max(40, Math.min(record.peakdensity || 0, 100));
     const canvasWidth = timeLength * (RECT_WIDTH + SPACING);
     const canvasHeight = maxNotesPerSecond * (RECT_HEIGHT + SPACING) - SPACING;
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
+    staticCanvas.width = canvasWidth;
+    staticCanvas.height = canvasHeight;
 
-    const context = canvas.getContext("2d");
+    staticContext.clearRect(0, 0, staticCanvas.width, staticCanvas.height);
+    staticContext.fillStyle = "#000000";
+    staticContext.fillRect(0, 0, staticCanvas.width, staticCanvas.height);
+
+    drawHorizontalGrid(staticContext, canvasWidth, canvasHeight, maxNotesPerSecond);
+    drawVerticalGrid(staticContext, canvasWidth, canvasHeight, timeLength);
+    drawDistributionBars(staticContext, segments, canvasHeight, maxNotesPerSecond);
+    drawSpeedChangeLines(staticContext, record, canvasWidth, canvasHeight, timeLength);
+  }
+
+  function renderDynamicScene() {
+    const targetWidth = Math.max(staticCanvas.width || 640, 1);
+    const targetHeight = Math.max(staticCanvas.height || 180, 1);
+    if (canvas.width !== targetWidth) {
+      canvas.width = targetWidth;
+    }
+    if (canvas.height !== targetHeight) {
+      canvas.height = targetHeight;
+    }
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#000000";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-
-    drawHorizontalGrid(context, canvasWidth, canvasHeight, maxNotesPerSecond);
-    drawVerticalGrid(context, canvasWidth, canvasHeight, timeLength);
-    drawDistributionBars(context, segments, canvasHeight, maxNotesPerSecond);
-    drawSpeedChangeLines(context, record, canvasWidth, canvasHeight, timeLength);
-    drawSelectedTimeLine(context, timeToX(state.selectedTimeSec), canvasHeight);
+    context.drawImage(staticCanvas, 0, 0);
+    drawSelectedTimeLine(context, timeToX(state.selectedTimeSec), canvas.height);
   }
 
   function syncScrollToSelected() {
@@ -119,21 +135,40 @@ export function createBmsInfoGraph({
       return;
     }
     const x = timeToX(state.selectedTimeSec);
-    const maxScrollLeft = Math.max(0, scrollHost.scrollWidth - scrollHost.clientWidth);
-    const desired = clamp(x - scrollHost.clientWidth / 2, 0, maxScrollLeft);
-    if (Math.abs(scrollHost.scrollLeft - desired) > 8) {
+    const desired = getGraphFollowScrollLeft({
+      targetX: x,
+      currentScrollLeft: scrollHost.scrollLeft,
+      clientWidth: scrollHost.clientWidth,
+      scrollWidth: scrollHost.scrollWidth,
+    });
+    if (Math.abs(scrollHost.scrollLeft - desired) > 1) {
       scrollHost.scrollLeft = desired;
     }
   }
 
-  render();
+  renderStaticScene();
+  renderDynamicScene();
 
   return {
     setRecord,
     setSelectedTimeSec,
     setPinned,
-    render,
+    render() {
+      renderStaticScene();
+      renderDynamicScene();
+    },
+    destroy() {},
   };
+}
+
+function createLayerCanvas(referenceCanvas) {
+  if (typeof referenceCanvas?.ownerDocument?.createElement === "function") {
+    return referenceCanvas.ownerDocument.createElement("canvas");
+  }
+  if (typeof document !== "undefined" && typeof document.createElement === "function") {
+    return document.createElement("canvas");
+  }
+  throw new Error("Canvas layer creation requires a document.");
 }
 
 function drawHorizontalGrid(context, canvasWidth, canvasHeight, maxNotesPerSecond) {
@@ -277,6 +312,23 @@ function logScaleY(bpm, mainBpm, canvasHeight) {
 
 function timeToX(timeSec) {
   return Math.round(timeSec * (RECT_WIDTH + SPACING)) + 1;
+}
+
+export function getGraphFollowScrollLeft({
+  targetX,
+  currentScrollLeft,
+  clientWidth,
+  scrollWidth,
+}) {
+  const safeClientWidth = Math.max(clientWidth ?? 0, 1);
+  const maxScrollLeft = Math.max(0, (scrollWidth ?? 0) - safeClientWidth);
+  const marginPx = clamp(safeClientWidth * 0.2, GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX, GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX);
+  const leftBound = (currentScrollLeft ?? 0) + marginPx;
+  const rightBound = (currentScrollLeft ?? 0) + safeClientWidth - marginPx;
+  if (targetX >= leftBound && targetX <= rightBound) {
+    return clamp(currentScrollLeft ?? 0, 0, maxScrollLeft);
+  }
+  return clamp(targetX - safeClientWidth / 2, 0, maxScrollLeft);
 }
 
 function clamp(value, minValue, maxValue) {

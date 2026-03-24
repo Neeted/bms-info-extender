@@ -2,8 +2,11 @@ import {
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
   DEFAULT_VIEWER_MODE,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
+  getGameVisibleTrackRange,
   getGameTrackPositionAtTimeSec,
   getEditorFrameState,
+  getLongBodyTrackWindow,
+  getTrackWindowIndices,
   getVisibleTimeRange,
   resolveViewerModeForModel,
   shouldDrawLongEndCap,
@@ -28,6 +31,7 @@ const TEMPO_MARKER_WIDTH_RATIO = 0.5;
 const TEMPO_LABEL_GAP = 8;
 const TEMPO_LABEL_MIN_GAP = 12;
 const LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX = 1;
+const TEMPO_LABEL_FONT = '12px "Inconsolata", "Noto Sans JP"';
 const JUDGE_LINE_SIDE_OVERHANG = FIXED_LANE_WIDTH * 3;
 
 const BEAT_LANE_COLORS = new Map([
@@ -78,6 +82,12 @@ export function createScoreViewerRenderer(canvas) {
   let width = 0;
   let height = 0;
   let dpr = 1;
+  let laneLayoutCache = {
+    mode: null,
+    laneCount: null,
+    width: 0,
+    lanes: [],
+  };
 
   function resize(nextWidth, nextHeight) {
     width = Math.max(1, Math.floor(nextWidth));
@@ -88,6 +98,12 @@ export function createScoreViewerRenderer(canvas) {
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    laneLayoutCache = {
+      mode: null,
+      laneCount: null,
+      width: 0,
+      lanes: [],
+    };
   }
 
   function render(
@@ -109,7 +125,7 @@ export function createScoreViewerRenderer(canvas) {
       return createEmptyRenderResult();
     }
 
-    const lanes = createLaneLayout(model.score.mode, model.score.laneCount, width);
+    const lanes = getCachedLaneLayout(model.score.mode, model.score.laneCount);
     const resolvedMode = resolveViewerModeForModel(model, viewerMode);
 
     if (resolvedMode === "time") {
@@ -140,7 +156,7 @@ export function createScoreViewerRenderer(canvas) {
       drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
     }
     drawLaneSeparators(context, lanes, height);
-    const markers = drawTempoMarkersTimeMode(
+    drawTempoMarkersTimeMode(
       context,
       model.bpmChanges,
       model.stops,
@@ -154,7 +170,7 @@ export function createScoreViewerRenderer(canvas) {
     );
 
     return {
-      markers,
+      markers: [],
       laneBounds: getLaneBounds(lanes),
     };
   }
@@ -168,7 +184,7 @@ export function createScoreViewerRenderer(canvas) {
       drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
     }
     drawLaneSeparators(context, lanes, height);
-    const markers = drawTempoMarkersEditorMode(
+    drawTempoMarkersEditorMode(
       context,
       model,
       lanes,
@@ -177,7 +193,7 @@ export function createScoreViewerRenderer(canvas) {
     );
 
     return {
-      markers,
+      markers: [],
       laneBounds: getLaneBounds(lanes),
     };
   }
@@ -192,12 +208,31 @@ export function createScoreViewerRenderer(canvas) {
       drawInvisibleNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
     }
     drawLaneSeparators(context, lanes, height);
-    const markers = drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
+    drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
 
     return {
-      markers,
+      markers: [],
       laneBounds: getLaneBounds(lanes),
     };
+  }
+
+  function getCachedLaneLayout(mode, laneCount) {
+    if (
+      laneLayoutCache.mode === mode
+      && laneLayoutCache.laneCount === laneCount
+      && laneLayoutCache.width === width
+      && laneLayoutCache.lanes.length > 0
+    ) {
+      return laneLayoutCache.lanes;
+    }
+    const lanes = createLaneLayout(mode, laneCount, width);
+    laneLayoutCache = {
+      mode,
+      laneCount,
+      width,
+      lanes,
+    };
+    return lanes;
   }
 }
 
@@ -245,9 +280,8 @@ function drawTempoMarkersTimeMode(
 ) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
-    return [];
+    return;
   }
-  const markers = [];
   let lastBpmLabelY = Number.POSITIVE_INFINITY;
   let lastStopLabelY = Number.POSITIVE_INFINITY;
   let lastScrollLabelY = Number.POSITIVE_INFINITY;
@@ -262,7 +296,7 @@ function drawTempoMarkersTimeMode(
     const markerRect = getTempoMarkerRect(rightLane, "right");
     context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "bpm",
         timeSec: bpmChange.timeSec,
         y,
@@ -284,7 +318,7 @@ function drawTempoMarkersTimeMode(
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "stop",
         timeSec: stop.timeSec,
         y,
@@ -306,7 +340,7 @@ function drawTempoMarkersTimeMode(
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "scroll",
         timeSec: scrollChange.timeSec,
         y,
@@ -320,7 +354,6 @@ function drawTempoMarkersTimeMode(
   }
 
   context.restore();
-  return markers;
 }
 
 function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
@@ -393,15 +426,19 @@ function drawBarLinesGameMode(context, model, lanes, selectedTrackPosition, view
   if (!leftLane || !rightLane) {
     return;
   }
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
+  const visibleWindow = getTrackWindowIndices(
+    model.gameBarLinesByTrack ?? [],
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition,
+  );
   const leftX = leftLane.x;
   const rightX = rightLane.x + rightLane.width;
   context.save();
   context.strokeStyle = BAR_LINE;
   context.lineWidth = 1;
-  for (const barLine of model.barLines) {
-    if (!Number.isFinite(barLine?.beat)) {
-      continue;
-    }
+  for (let index = visibleWindow.startIndex; index < visibleWindow.endIndex; index += 1) {
+    const barLine = model.gameBarLinesByTrack[index];
     const y = gameTrackPositionToViewportY(
       getEventTrackPosition(barLine),
       selectedTrackPosition,
@@ -420,11 +457,15 @@ function drawBarLinesGameMode(context, model, lanes, selectedTrackPosition, view
 }
 
 function drawLongBodiesGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
+  const candidateWindow = getLongBodyTrackWindow(
+    model,
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition,
+  );
   context.save();
-  for (const note of model.notes) {
-    if (note.kind !== "long" || !Number.isFinite(note?.beat) || !Number.isFinite(note?.endBeat)) {
-      continue;
-    }
+  for (let index = candidateWindow.startIndex; index < candidateWindow.endIndex; index += 1) {
+    const note = candidateWindow.items[index];
     const lane = lanes[note.lane];
     if (!lane) {
       continue;
@@ -432,6 +473,9 @@ function drawLongBodiesGameMode(context, model, lanes, selectedTrackPosition, vi
     const startTrackPosition = getEventTrackPosition(note);
     const endTrackPosition = getNoteEndTrackPosition(note);
     if (!(endTrackPosition > startTrackPosition)) {
+      continue;
+    }
+    if (endTrackPosition < visibleTrackRange.startTrackPosition || startTrackPosition > visibleTrackRange.endTrackPosition) {
       continue;
     }
     const startY = gameTrackPositionToViewportY(startTrackPosition, selectedTrackPosition, viewportHeight, pixelsPerBeat);
@@ -448,11 +492,15 @@ function drawLongBodiesGameMode(context, model, lanes, selectedTrackPosition, vi
 }
 
 function drawNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
+  const noteWindow = getTrackWindowIndices(
+    model.gameNotesByTrack ?? [],
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition,
+  );
   context.save();
-  for (const note of model.notes) {
-    if (!Number.isFinite(note?.beat)) {
-      continue;
-    }
+  for (let index = noteWindow.startIndex; index < noteWindow.endIndex; index += 1) {
+    const note = model.gameNotesByTrack[index];
     const lane = lanes[note.lane];
     if (!lane || note.kind === "invisible") {
       continue;
@@ -468,29 +516,45 @@ function drawNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, vie
     }
     drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
 
-    if (note.kind === "long" && Number.isFinite(note.endBeat) && shouldDrawLongEndCap(model, note)) {
-      const endHeadY = gameTrackPositionToViewportY(
-        getNoteEndTrackPosition(note),
-        selectedTrackPosition,
-        viewportHeight,
-        pixelsPerBeat,
-      );
-      if (isViewportYVisible(endHeadY, viewportHeight)) {
-        drawRectNote(context, lane, endHeadY, lane.note);
-      }
+  }
+  const longEndWindow = getTrackWindowIndices(
+    model.gameLongNotesByEndTrack ?? [],
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition,
+    getNoteEndTrackPosition,
+  );
+  for (let index = longEndWindow.startIndex; index < longEndWindow.endIndex; index += 1) {
+    const note = model.gameLongNotesByEndTrack[index];
+    const lane = lanes[note.lane];
+    if (!lane || !shouldDrawLongEndCap(model, note)) {
+      continue;
     }
+    const endHeadY = gameTrackPositionToViewportY(
+      getNoteEndTrackPosition(note),
+      selectedTrackPosition,
+      viewportHeight,
+      pixelsPerBeat,
+    );
+    if (!isViewportYVisible(endHeadY, viewportHeight)) {
+      continue;
+    }
+    drawRectNote(context, lane, endHeadY, lane.note);
   }
   context.restore();
 }
 
 function drawInvisibleNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
+  const noteWindow = getTrackWindowIndices(
+    model.gameInvisibleNotesByTrack ?? [],
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition,
+  );
   context.save();
   context.strokeStyle = INVISIBLE_NOTE_COLOR;
   context.lineWidth = 1;
-  for (const note of model.invisibleNotes ?? []) {
-    if (!Number.isFinite(note?.beat)) {
-      continue;
-    }
+  for (let index = noteWindow.startIndex; index < noteWindow.endIndex; index += 1) {
+    const note = model.gameInvisibleNotesByTrack[index];
     const lane = lanes[note.lane];
     if (!lane) {
       continue;
@@ -512,19 +576,18 @@ function drawInvisibleNoteHeadsGameMode(context, model, lanes, selectedTrackPosi
 function drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
-    return [];
+    return;
   }
-  const markers = [];
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
   const bpmCandidates = [];
   const stopCandidates = [];
   const scrollCandidates = [];
 
   context.save();
   context.fillStyle = BPM_MARKER;
-  for (const bpmChange of model.bpmChanges) {
-    if (!Number.isFinite(bpmChange?.beat)) {
-      continue;
-    }
+  const bpmWindow = getTrackWindowIndices(model.gameBpmChangesByTrack ?? [], visibleTrackRange.startTrackPosition, visibleTrackRange.endTrackPosition);
+  for (let index = bpmWindow.startIndex; index < bpmWindow.endIndex; index += 1) {
+    const bpmChange = model.gameBpmChangesByTrack[index];
     const y = gameTrackPositionToViewportY(
       getEventTrackPosition(bpmChange),
       selectedTrackPosition,
@@ -548,10 +611,9 @@ function drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, 
   }
 
   context.fillStyle = STOP_MARKER;
-  for (const stop of model.stops) {
-    if (!Number.isFinite(stop?.beat)) {
-      continue;
-    }
+  const stopWindow = getTrackWindowIndices(model.gameStopsByTrack ?? [], visibleTrackRange.startTrackPosition, visibleTrackRange.endTrackPosition);
+  for (let index = stopWindow.startIndex; index < stopWindow.endIndex; index += 1) {
+    const stop = model.gameStopsByTrack[index];
     const y = gameTrackPositionToViewportY(
       getEventTrackPosition(stop),
       selectedTrackPosition,
@@ -575,10 +637,9 @@ function drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, 
   }
 
   context.fillStyle = SCROLL_MARKER;
-  for (const scrollChange of model.scrollChanges) {
-    if (!Number.isFinite(scrollChange?.beat)) {
-      continue;
-    }
+  const scrollWindow = getTrackWindowIndices(model.gameScrollChangesByTrack ?? [], visibleTrackRange.startTrackPosition, visibleTrackRange.endTrackPosition);
+  for (let index = scrollWindow.startIndex; index < scrollWindow.endIndex; index += 1) {
+    const scrollChange = model.gameScrollChangesByTrack[index];
     const y = gameTrackPositionToViewportY(
       getEventTrackPosition(scrollChange),
       selectedTrackPosition,
@@ -602,10 +663,9 @@ function drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, 
   }
   context.restore();
 
-  pushSpacedTempoMarkers(markers, bpmCandidates);
-  pushSpacedTempoMarkers(markers, stopCandidates);
-  pushSpacedTempoMarkers(markers, scrollCandidates);
-  return markers;
+  drawSpacedTempoMarkerLabels(context, bpmCandidates);
+  drawSpacedTempoMarkerLabels(context, stopCandidates);
+  drawSpacedTempoMarkerLabels(context, scrollCandidates);
 }
 
 function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixelsPerBeat) {
@@ -674,9 +734,8 @@ function drawBarLinesEditorMode(context, barLines, lanes, editorFrameState, pixe
 function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
-    return [];
+    return;
   }
-  const markers = [];
   let lastBpmLabelY = Number.POSITIVE_INFINITY;
   let lastStopLabelY = Number.POSITIVE_INFINITY;
   let lastScrollLabelY = Number.POSITIVE_INFINITY;
@@ -697,7 +756,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
       TEMPO_MARKER_HEIGHT,
     );
     if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "bpm",
         timeSec: bpmChange.timeSec,
         y,
@@ -722,7 +781,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
       TEMPO_MARKER_HEIGHT,
     );
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "stop",
         timeSec: stop.timeSec,
         y,
@@ -747,7 +806,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
       TEMPO_MARKER_HEIGHT,
     );
     if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "scroll",
         timeSec: scrollChange.timeSec,
         y,
@@ -761,7 +820,6 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
   }
 
   context.restore();
-  return markers;
 }
 
 function shouldKeepTempoMarkerLabel(lastAcceptedY, nextY) {
@@ -869,15 +927,25 @@ function drawOutlinedRectNote(context, lane, y, color) {
   );
 }
 
-function pushSpacedTempoMarkers(markers, candidates) {
+function drawSpacedTempoMarkerLabels(context, candidates) {
   let lastAcceptedY = Number.POSITIVE_INFINITY;
   for (const candidate of [...candidates].sort((left, right) => left.y - right.y)) {
     if (!shouldKeepTempoMarkerLabel(lastAcceptedY, candidate.y)) {
       continue;
     }
-    markers.push(candidate);
+    drawTempoMarkerLabel(context, candidate);
     lastAcceptedY = candidate.y;
   }
+}
+
+function drawTempoMarkerLabel(context, marker) {
+  context.save();
+  context.font = TEMPO_LABEL_FONT;
+  context.fillStyle = marker.color;
+  context.textBaseline = "middle";
+  context.textAlign = marker.side === "left" ? "right" : "left";
+  context.fillText(marker.label, marker.x, marker.y);
+  context.restore();
 }
 
 function drawLaneSeparators(context, lanes, viewportHeight) {

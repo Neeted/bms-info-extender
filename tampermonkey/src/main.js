@@ -1,5 +1,6 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
+// 1.7.1 Game モード再生の hot path を軽量化し、graph の static/dynamic 分離と shared persistence helper を追加
 // 1.7.0 Game モードへ SCROLL 対応を追加し、beatoraja 寄りの signed displacement 描画を実装
 // 1.6.7 Editor メニュー行の select を border-box 化し、重なりとはみ出しを修正
 // 1.6.6 Editor メニュー行のドロップダウンを 2:3 配分で横並び表示に調整
@@ -844,6 +845,18 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
     }
     // 同一ページ内の再描画では、差し替え前に現在の preview runtime を破棄する。
     resetActiveBmsPreviewRuntime();
+    const previewPreferenceStorage = PreviewRuntime.createPreviewPreferenceStorage({
+      read: (key, fallbackValue) => {
+        return typeof GM_getValue === "function"
+          ? GM_getValue(key, fallbackValue)
+          : fallbackValue;
+      },
+      write: (key, value) => {
+        if (typeof GM_setValue === "function") {
+          GM_setValue(key, value);
+        }
+      },
+    });
     container.__bmsPreviewRuntime = PreviewRuntime.createBmsInfoPreview({
       container,
       documentRef: document,
@@ -859,45 +872,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         const loaderContext = await ensureScoreLoaderContext();
         await loaderContext.loader.prefetchScore(record.sha256.toLowerCase());
       },
-      getPersistedViewerMode: () => {
-        try {
-          return typeof GM_getValue === "function"
-            ? GM_getValue(PreviewRuntime.VIEWER_MODE_STORAGE_KEY, PreviewRuntime.DEFAULT_VIEWER_MODE)
-            : PreviewRuntime.DEFAULT_VIEWER_MODE;
-        } catch (_error) {
-          return PreviewRuntime.DEFAULT_VIEWER_MODE;
-        }
-      },
-      setPersistedViewerMode: (nextViewerMode) => {
-        try {
-          if (typeof GM_setValue === "function") {
-            GM_setValue(PreviewRuntime.VIEWER_MODE_STORAGE_KEY, nextViewerMode);
-          }
-        } catch (_error) {
-          // Ignore storage failures and keep runtime state only.
-        }
-      },
-      getPersistedInvisibleNoteVisibility: () => {
-        try {
-          return typeof GM_getValue === "function"
-            ? GM_getValue(
-              PreviewRuntime.INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
-              PreviewRuntime.DEFAULT_INVISIBLE_NOTE_VISIBILITY,
-            )
-            : PreviewRuntime.DEFAULT_INVISIBLE_NOTE_VISIBILITY;
-        } catch (_error) {
-          return PreviewRuntime.DEFAULT_INVISIBLE_NOTE_VISIBILITY;
-        }
-      },
-      setPersistedInvisibleNoteVisibility: (nextVisibility) => {
-        try {
-          if (typeof GM_setValue === "function") {
-            GM_setValue(PreviewRuntime.INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, nextVisibility);
-          }
-        } catch (_error) {
-          // Ignore storage failures and keep runtime state only.
-        }
-      },
+      ...previewPreferenceStorage,
       onRuntimeError: (error) => {
         console.warn("Score viewer runtime failed:", error);
       },

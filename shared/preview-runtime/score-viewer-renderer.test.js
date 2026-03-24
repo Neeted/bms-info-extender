@@ -94,6 +94,7 @@ test("renderer positions game-mode notes and scroll markers from signed displace
   assert.deepEqual(
     context.fillRectCalls
       .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
+      .sort((left, right) => left.y - right.y)
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
       { x: 72, y: 156, fillStyle: "#bebebe" },
@@ -233,18 +234,26 @@ class MockRenderingContext2D {
     this.fillStyle = "#000000";
     this.strokeStyle = "#000000";
     this.lineWidth = 1;
+    this.font = "";
+    this.textBaseline = "alphabetic";
+    this.textAlign = "start";
     this.fillRectCalls = [];
     this.strokeRectCalls = [];
+    this.fillTextCalls = [];
     this._stateStack = [];
   }
 
   reset() {
     this.fillRectCalls = [];
     this.strokeRectCalls = [];
+    this.fillTextCalls = [];
     this._stateStack = [];
     this.fillStyle = "#000000";
     this.strokeStyle = "#000000";
     this.lineWidth = 1;
+    this.font = "";
+    this.textBaseline = "alphabetic";
+    this.textAlign = "start";
   }
 
   clearRect() {}
@@ -255,6 +264,18 @@ class MockRenderingContext2D {
 
   strokeRect(x, y, width, height) {
     this.strokeRectCalls.push({ x, y, width, height, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
+  }
+
+  fillText(text, x, y) {
+    this.fillTextCalls.push({
+      text,
+      x,
+      y,
+      fillStyle: this.fillStyle,
+      font: this.font,
+      textBaseline: this.textBaseline,
+      textAlign: this.textAlign,
+    });
   }
 
   setTransform() {}
@@ -272,6 +293,9 @@ class MockRenderingContext2D {
       fillStyle: this.fillStyle,
       strokeStyle: this.strokeStyle,
       lineWidth: this.lineWidth,
+      font: this.font,
+      textBaseline: this.textBaseline,
+      textAlign: this.textAlign,
     });
   }
 
@@ -283,5 +307,8 @@ class MockRenderingContext2D {
     this.fillStyle = snapshot.fillStyle;
     this.strokeStyle = snapshot.strokeStyle;
     this.lineWidth = snapshot.lineWidth;
+    this.font = snapshot.font;
+    this.textBaseline = snapshot.textBaseline;
+    this.textAlign = snapshot.textAlign;
   }
 }

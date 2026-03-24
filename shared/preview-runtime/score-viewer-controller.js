@@ -31,6 +31,8 @@ const MIN_SPACING_SCALE = 0.5;
 const MAX_SPACING_SCALE = 8.0;
 const SPACING_STEP = 0.01;
 const DEFAULT_SPACING_SCALE = 1.0;
+const GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO = 0.4;
+const GAME_PLAYBACK_SCROLL_SYNC_MIN_PX = 120;
 
 export function createScoreViewerController({
   root,
@@ -48,17 +50,6 @@ export function createScoreViewerController({
 
   const canvas = document.createElement("canvas");
   canvas.className = "score-viewer-canvas";
-
-  const markerOverlay = document.createElement("div");
-  markerOverlay.className = "score-viewer-marker-overlay";
-
-  const markerLabelsLeft = document.createElement("div");
-  markerLabelsLeft.className = "score-viewer-marker-labels is-left";
-
-  const markerLabelsRight = document.createElement("div");
-  markerLabelsRight.className = "score-viewer-marker-labels is-right";
-
-  markerOverlay.append(markerLabelsLeft, markerLabelsRight);
 
   const bottomBar = document.createElement("div");
   bottomBar.className = "score-viewer-bottom-bar";
@@ -139,7 +130,7 @@ export function createScoreViewerController({
   const judgeLine = document.createElement("div");
   judgeLine.className = "score-viewer-judge-line";
 
-  root.replaceChildren(scrollHost, canvas, markerOverlay, bottomBar, judgeLine);
+  root.replaceChildren(scrollHost, canvas, bottomBar, judgeLine);
 
   const renderer = createScoreViewerRenderer(canvas);
   const state = {
@@ -338,6 +329,9 @@ export function createScoreViewerController({
     }
     state.isPlaying = normalizedPlaying;
     updateScrollInteractivity();
+    if (!state.isPlaying) {
+      syncScrollPosition();
+    }
     renderScene();
   }
 
@@ -368,22 +362,31 @@ export function createScoreViewerController({
       scrollHost.scrollTop = 0;
       return;
     }
-    ignoreScrollUntilNextFrame = true;
     const viewportHeight = root.clientHeight || 0;
-    if (getResolvedViewerMode() === "editor") {
-      scrollHost.scrollTop = getEditorScrollTopForBeat(
+    const resolvedViewerMode = getResolvedViewerMode();
+    const desiredScrollTop = resolvedViewerMode === "editor"
+      ? getEditorScrollTopForBeat(
         state.model,
         state.selectedBeat,
         viewportHeight,
         getPixelsPerBeat(),
-      );
-    } else {
-      scrollHost.scrollTop = getScrollTopForResolvedMode(
+      )
+      : getScrollTopForResolvedMode(
         state.model,
         state.selectedTimeSec,
         viewportHeight,
       );
+    if (!shouldSyncPlaybackScrollPosition({
+      viewerMode: resolvedViewerMode,
+      isPlaying: state.isPlaying,
+      currentScrollTop: scrollHost.scrollTop,
+      desiredScrollTop,
+      viewportHeight,
+    })) {
+      return;
     }
+    ignoreScrollUntilNextFrame = true;
+    scrollHost.scrollTop = desiredScrollTop;
     requestAnimationFrame(() => {
       ignoreScrollUntilNextFrame = false;
     });
@@ -462,7 +465,6 @@ export function createScoreViewerController({
     );
 
     canvas.hidden = !showScene;
-    markerOverlay.hidden = !showScene;
     bottomBar.hidden = !showScene;
     judgeLine.hidden = !showScene;
 
@@ -488,33 +490,13 @@ export function createScoreViewerController({
     setValueIfChanged(invisibleNoteVisibilitySelect, state.invisibleNoteVisibility, "invisibleNoteVisibilityValue");
     setDisabledIfChanged(invisibleNoteVisibilitySelect, !state.model, "invisibleNoteVisibilityDisabled");
 
-    const renderResult = renderer.render(showScene ? state.model : null, cursor.timeSec, {
+    renderer.render(showScene ? state.model : null, cursor.timeSec, {
       viewerMode: resolvedViewerMode,
       pixelsPerSecond: getPixelsPerSecond(),
       pixelsPerBeat: getPixelsPerBeat(),
       editorFrameState,
       showInvisibleNotes: state.invisibleNoteVisibility === "show",
     });
-    renderMarkerLabels(showScene ? renderResult.markers : []);
-  }
-
-  function renderMarkerLabels(markers) {
-    markerLabelsLeft.replaceChildren();
-    markerLabelsRight.replaceChildren();
-
-    if (!Array.isArray(markers) || markers.length === 0) {
-      return;
-    }
-
-    const leftMarkers = filterMarkerLabels(markers.filter((marker) => marker.side === "left"));
-    const rightMarkers = filterMarkerLabels(markers.filter((marker) => marker.side === "right"));
-
-    for (const marker of leftMarkers) {
-      markerLabelsLeft.appendChild(createMarkerLabel(marker, "left"));
-    }
-    for (const marker of rightMarkers) {
-      markerLabelsRight.appendChild(createMarkerLabel(marker, "right"));
-    }
   }
 
   function destroy() {
@@ -725,27 +707,21 @@ export function normalizeWheelDeltaY(deltaY, deltaMode, viewportHeight, lineHeig
   }
 }
 
-function createMarkerLabel(marker, side) {
-  const label = document.createElement("div");
-  label.className = `score-viewer-marker-label is-${marker.type} is-${side}`;
-  label.textContent = marker.label;
-  label.style.top = `${marker.y}px`;
-  label.style.color = marker.color;
-  label.style.left = `${marker.x}px`;
-  return label;
-}
-
-function filterMarkerLabels(markers) {
-  const filtered = [];
-  let lastY = Number.NEGATIVE_INFINITY;
-  for (const marker of [...markers].sort((left, right) => left.y - right.y)) {
-    if (Math.abs(marker.y - lastY) < 12) {
-      continue;
-    }
-    filtered.push(marker);
-    lastY = marker.y;
+export function shouldSyncPlaybackScrollPosition({
+  viewerMode,
+  isPlaying,
+  currentScrollTop,
+  desiredScrollTop,
+  viewportHeight,
+}) {
+  if (viewerMode !== "game" || !isPlaying) {
+    return true;
   }
-  return filtered;
+  const threshold = Math.max(
+    Math.round(Math.max(viewportHeight, 0) * GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO),
+    GAME_PLAYBACK_SCROLL_SYNC_MIN_PX,
+  );
+  return Math.abs((desiredScrollTop ?? 0) - (currentScrollTop ?? 0)) >= threshold;
 }
 
 function clampScale(value) {

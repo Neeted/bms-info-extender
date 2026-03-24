@@ -52,6 +52,10 @@ function createScoreViewerModel(score) {
   const bpmChanges = annotateEventsWithGameTrackPosition(rawBpmChanges, gameScrollIndex);
   const stops = annotateEventsWithGameTrackPosition(rawStops, gameScrollIndex);
   const scrollChanges = annotateEventsWithGameTrackPosition(rawScrollChanges, gameScrollIndex);
+  const gameBarLinesByTrack = createGamePointIndex(barLines);
+  const gameBpmChangesByTrack = createGamePointIndex(bpmChanges);
+  const gameStopsByTrack = createGamePointIndex(stops);
+  const gameScrollChangesByTrack = createGamePointIndex(scrollChanges);
   const totalBeat = getScoreTotalBeat(score);
   const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
   const editorInvisibleNotes = invisibleNotes.filter((note) => Number.isFinite(note.beat));
@@ -59,6 +63,11 @@ function createScoreViewerModel(score) {
   const invisibleNotesByBeat = [...editorInvisibleNotes].sort(compareBeatNoteLike);
   const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long" && Number.isFinite(note.endBeat ?? note.beat));
   const longNotesByEndBeat = [...longNotesByBeat].sort(compareLongNoteEndBeat);
+  const gameNotesByTrack = createGamePointIndex(notes);
+  const gameInvisibleNotesByTrack = createGamePointIndex(invisibleNotes);
+  const gameLongNotesByEndTrack = createGameLongEndIndex(notes);
+  const gameLongBodiesByStartTrack = createGameLongBodyStartIndex(notes);
+  const gameLongBodiesByEndTrack = [...gameLongBodiesByStartTrack].sort(compareGameLongBodyEndTrack);
   const measureRanges = createEditorMeasureRanges(barLines, totalBeat);
   return {
     score,
@@ -68,6 +77,11 @@ function createScoreViewerModel(score) {
     invisibleNotesByBeat,
     longNotesByBeat,
     longNotesByEndBeat,
+    gameNotesByTrack,
+    gameInvisibleNotesByTrack,
+    gameLongNotesByEndTrack,
+    gameLongBodiesByStartTrack,
+    gameLongBodiesByEndTrack,
     measureRanges,
     comboEvents,
     longEndEventKeys,
@@ -75,6 +89,10 @@ function createScoreViewerModel(score) {
     bpmChanges,
     stops,
     scrollChanges,
+    gameBarLinesByTrack,
+    gameBpmChangesByTrack,
+    gameStopsByTrack,
+    gameScrollChangesByTrack,
     totalCombo: comboEvents.length,
     beatTimingIndex,
     gameScrollIndex,
@@ -244,6 +262,16 @@ function getEditorFrameState(model, selectedTimeSec, viewportHeight, pixelsPerBe
     viewportHeight,
     pixelsPerBeat
   );
+}
+function getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT) {
+  const normalizedTrackPosition = Number.isFinite(selectedTrackPosition) ? selectedTrackPosition : 0;
+  const normalizedViewportHeight = Math.max(viewportHeight, 0);
+  const halfViewportTrack = normalizedViewportHeight / Math.max(pixelsPerBeat, 1e-9) / 2;
+  const overscanTrack = Math.max(halfViewportTrack * 0.35, 1);
+  return {
+    startTrackPosition: normalizedTrackPosition - halfViewportTrack - overscanTrack,
+    endTrackPosition: normalizedTrackPosition + halfViewportTrack + overscanTrack
+  };
 }
 function hasViewerSelectionChanged(model, viewerMode, previousTimeSec, nextTimeSec, previousBeat = void 0, nextBeat = void 0) {
   const resolvedMode = resolveViewerModeForModel(model, viewerMode);
@@ -538,6 +566,15 @@ function createGameScrollIndex(scrollChanges) {
     }
   };
 }
+function createGamePointIndex(items) {
+  return [...items ?? []].filter((item) => Number.isFinite(item?.trackPosition)).sort(compareTrackEvent);
+}
+function createGameLongBodyStartIndex(notes) {
+  return [...notes ?? []].filter((note) => note?.kind === "long" && Number.isFinite(note?.trackPosition) && Number.isFinite(note?.endTrackPosition) && note.endTrackPosition > note.trackPosition).sort(compareTrackEvent);
+}
+function createGameLongEndIndex(notes) {
+  return [...notes ?? []].filter((note) => note?.kind === "long" && Number.isFinite(note?.endTrackPosition)).sort(compareGameLongBodyEndTrack);
+}
 function annotateEventsWithGameTrackPosition(events, gameScrollIndex) {
   if (!gameScrollIndex) {
     return [...events];
@@ -570,6 +607,31 @@ function upperBoundByTime(items, timeSec) {
   }
   return low;
 }
+function getTrackWindowIndices(items, startTrackPosition, endTrackPosition, getTrackPosition = getEventTrackPosition) {
+  return {
+    startIndex: lowerBoundByTrackPosition(items, startTrackPosition, getTrackPosition),
+    endIndex: upperBoundByTrackPosition(items, endTrackPosition, getTrackPosition)
+  };
+}
+function getLongBodyTrackWindow(model, startTrackPosition, endTrackPosition) {
+  const startItems = model?.gameLongBodiesByStartTrack ?? [];
+  const endItems = model?.gameLongBodiesByEndTrack ?? [];
+  const visibleStartCount = upperBoundByTrackPosition(startItems, endTrackPosition, getEventTrackPosition);
+  const visibleEndStartIndex = lowerBoundByTrackPosition(endItems, startTrackPosition, getNoteEndTrackPosition);
+  const remainingEndCount = endItems.length - visibleEndStartIndex;
+  if (visibleStartCount <= remainingEndCount) {
+    return {
+      items: startItems,
+      startIndex: 0,
+      endIndex: visibleStartCount
+    };
+  }
+  return {
+    items: endItems,
+    startIndex: visibleEndStartIndex,
+    endIndex: endItems.length
+  };
+}
 function upperBoundActionsByBeat(actions, beat) {
   let low = 0;
   let high = actions.length;
@@ -589,6 +651,32 @@ function upperBoundSegmentsByStartSec(segments, seconds) {
   while (low < high) {
     const mid = Math.floor((low + high) / 2);
     if (segments[mid].startSec <= seconds) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+function lowerBoundByTrackPosition(items, trackPosition, getTrackPosition = getEventTrackPosition) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getTrackPosition(items[mid]) < trackPosition) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+function upperBoundByTrackPosition(items, trackPosition, getTrackPosition = getEventTrackPosition) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getTrackPosition(items[mid]) <= trackPosition) {
       low = mid + 1;
     } else {
       high = mid;
@@ -636,6 +724,24 @@ function compareLongNoteEndBeat(left, right) {
   }
   return (left.timeSec ?? 0) - (right.timeSec ?? 0);
 }
+function compareTrackEvent(left, right) {
+  if (finiteOrZero(left?.trackPosition) !== finiteOrZero(right?.trackPosition)) {
+    return finiteOrZero(left?.trackPosition) - finiteOrZero(right?.trackPosition);
+  }
+  if (finiteOrZero(left?.timeSec) !== finiteOrZero(right?.timeSec)) {
+    return finiteOrZero(left?.timeSec) - finiteOrZero(right?.timeSec);
+  }
+  if (finiteOrZero(left?.beat) !== finiteOrZero(right?.beat)) {
+    return finiteOrZero(left?.beat) - finiteOrZero(right?.beat);
+  }
+  return (left?.lane ?? 0) - (right?.lane ?? 0);
+}
+function compareGameLongBodyEndTrack(left, right) {
+  if (finiteOrZero(left?.endTrackPosition) !== finiteOrZero(right?.endTrackPosition)) {
+    return finiteOrZero(left?.endTrackPosition) - finiteOrZero(right?.endTrackPosition);
+  }
+  return compareTrackEvent(left, right);
+}
 function compareTimedBeatLike(left, right) {
   if (Number.isFinite(left?.beat) && Number.isFinite(right?.beat) && left.beat !== right.beat) {
     return left.beat - right.beat;
@@ -666,6 +772,12 @@ function createTimedLaneKey(input, timeSec, side = void 0) {
   }
   return `${side ?? "-"}:${input}:${Math.round((timeSec ?? 0) * 1e6)}`;
 }
+function getEventTrackPosition(item) {
+  return Number.isFinite(item?.trackPosition) ? item.trackPosition : 0;
+}
+function getNoteEndTrackPosition(note) {
+  return Number.isFinite(note?.endTrackPosition) ? note.endTrackPosition : getEventTrackPosition(note);
+}
 function finiteOrZero(value) {
   return Number.isFinite(value) ? value : 0;
 }
@@ -693,6 +805,7 @@ var TEMPO_MARKER_WIDTH_RATIO = 0.5;
 var TEMPO_LABEL_GAP = 8;
 var TEMPO_LABEL_MIN_GAP = 12;
 var LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX = 1;
+var TEMPO_LABEL_FONT = '12px "Inconsolata", "Noto Sans JP"';
 var JUDGE_LINE_SIDE_OVERHANG = FIXED_LANE_WIDTH * 3;
 var BEAT_LANE_COLORS = /* @__PURE__ */ new Map([
   ["0", "#e04a4a"],
@@ -740,6 +853,12 @@ function createScoreViewerRenderer(canvas) {
   let width = 0;
   let height = 0;
   let dpr = 1;
+  let laneLayoutCache = {
+    mode: null,
+    laneCount: null,
+    width: 0,
+    lanes: []
+  };
   function resize(nextWidth, nextHeight) {
     width = Math.max(1, Math.floor(nextWidth));
     height = Math.max(1, Math.floor(nextHeight));
@@ -749,6 +868,12 @@ function createScoreViewerRenderer(canvas) {
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    laneLayoutCache = {
+      mode: null,
+      laneCount: null,
+      width: 0,
+      lanes: []
+    };
   }
   function render2(model, selectedTimeSec, {
     viewerMode = DEFAULT_VIEWER_MODE,
@@ -763,7 +888,7 @@ function createScoreViewerRenderer(canvas) {
     if (!model) {
       return createEmptyRenderResult();
     }
-    const lanes = createLaneLayout(model.score.mode, model.score.laneCount, width);
+    const lanes = getCachedLaneLayout(model.score.mode, model.score.laneCount);
     const resolvedMode = resolveViewerModeForModel(model, viewerMode);
     if (resolvedMode === "time") {
       return renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond, showInvisibleNotes);
@@ -789,7 +914,7 @@ function createScoreViewerRenderer(canvas) {
       drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
     }
     drawLaneSeparators(context, lanes, height);
-    const markers = drawTempoMarkersTimeMode(
+    drawTempoMarkersTimeMode(
       context,
       model.bpmChanges,
       model.stops,
@@ -802,7 +927,7 @@ function createScoreViewerRenderer(canvas) {
       pixelsPerSecond
     );
     return {
-      markers,
+      markers: [],
       laneBounds: getLaneBounds(lanes)
     };
   }
@@ -815,7 +940,7 @@ function createScoreViewerRenderer(canvas) {
       drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
     }
     drawLaneSeparators(context, lanes, height);
-    const markers = drawTempoMarkersEditorMode(
+    drawTempoMarkersEditorMode(
       context,
       model,
       lanes,
@@ -823,7 +948,7 @@ function createScoreViewerRenderer(canvas) {
       pixelsPerBeat
     );
     return {
-      markers,
+      markers: [],
       laneBounds: getLaneBounds(lanes)
     };
   }
@@ -836,11 +961,24 @@ function createScoreViewerRenderer(canvas) {
       drawInvisibleNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
     }
     drawLaneSeparators(context, lanes, height);
-    const markers = drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
+    drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, height, pixelsPerBeat);
     return {
-      markers,
+      markers: [],
       laneBounds: getLaneBounds(lanes)
     };
+  }
+  function getCachedLaneLayout(mode, laneCount) {
+    if (laneLayoutCache.mode === mode && laneLayoutCache.laneCount === laneCount && laneLayoutCache.width === width && laneLayoutCache.lanes.length > 0) {
+      return laneLayoutCache.lanes;
+    }
+    const lanes = createLaneLayout(mode, laneCount, width);
+    laneLayoutCache = {
+      mode,
+      laneCount,
+      width,
+      lanes
+    };
+    return lanes;
   }
 }
 function estimateViewerWidth(mode, laneCount) {
@@ -874,9 +1012,8 @@ function drawBarLinesTimeMode(context, barLines, lanes, selectedTimeSec, startTi
 function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
-    return [];
+    return;
   }
-  const markers = [];
   let lastBpmLabelY = Number.POSITIVE_INFINITY;
   let lastStopLabelY = Number.POSITIVE_INFINITY;
   let lastScrollLabelY = Number.POSITIVE_INFINITY;
@@ -890,7 +1027,7 @@ function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lan
     const markerRect = getTempoMarkerRect(rightLane, "right");
     context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "bpm",
         timeSec: bpmChange.timeSec,
         y,
@@ -911,7 +1048,7 @@ function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lan
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "stop",
         timeSec: stop.timeSec,
         y,
@@ -932,7 +1069,7 @@ function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lan
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "scroll",
         timeSec: scrollChange.timeSec,
         y,
@@ -945,7 +1082,6 @@ function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lan
     }
   }
   context.restore();
-  return markers;
 }
 function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
   context.save();
@@ -1012,17 +1148,21 @@ function drawBarLinesGameMode(context, model, lanes, selectedTrackPosition, view
   if (!leftLane || !rightLane) {
     return;
   }
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
+  const visibleWindow = getTrackWindowIndices(
+    model.gameBarLinesByTrack ?? [],
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition
+  );
   const leftX = leftLane.x;
   const rightX = rightLane.x + rightLane.width;
   context.save();
   context.strokeStyle = BAR_LINE;
   context.lineWidth = 1;
-  for (const barLine of model.barLines) {
-    if (!Number.isFinite(barLine?.beat)) {
-      continue;
-    }
+  for (let index = visibleWindow.startIndex; index < visibleWindow.endIndex; index += 1) {
+    const barLine = model.gameBarLinesByTrack[index];
     const y = gameTrackPositionToViewportY(
-      getEventTrackPosition(barLine),
+      getEventTrackPosition2(barLine),
       selectedTrackPosition,
       viewportHeight,
       pixelsPerBeat
@@ -1038,18 +1178,25 @@ function drawBarLinesGameMode(context, model, lanes, selectedTrackPosition, view
   context.restore();
 }
 function drawLongBodiesGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
+  const candidateWindow = getLongBodyTrackWindow(
+    model,
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition
+  );
   context.save();
-  for (const note of model.notes) {
-    if (note.kind !== "long" || !Number.isFinite(note?.beat) || !Number.isFinite(note?.endBeat)) {
-      continue;
-    }
+  for (let index = candidateWindow.startIndex; index < candidateWindow.endIndex; index += 1) {
+    const note = candidateWindow.items[index];
     const lane = lanes[note.lane];
     if (!lane) {
       continue;
     }
-    const startTrackPosition = getEventTrackPosition(note);
-    const endTrackPosition = getNoteEndTrackPosition(note);
+    const startTrackPosition = getEventTrackPosition2(note);
+    const endTrackPosition = getNoteEndTrackPosition2(note);
     if (!(endTrackPosition > startTrackPosition)) {
+      continue;
+    }
+    if (endTrackPosition < visibleTrackRange.startTrackPosition || startTrackPosition > visibleTrackRange.endTrackPosition) {
       continue;
     }
     const startY = gameTrackPositionToViewportY(startTrackPosition, selectedTrackPosition, viewportHeight, pixelsPerBeat);
@@ -1065,17 +1212,21 @@ function drawLongBodiesGameMode(context, model, lanes, selectedTrackPosition, vi
   context.restore();
 }
 function drawNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
+  const noteWindow = getTrackWindowIndices(
+    model.gameNotesByTrack ?? [],
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition
+  );
   context.save();
-  for (const note of model.notes) {
-    if (!Number.isFinite(note?.beat)) {
-      continue;
-    }
+  for (let index = noteWindow.startIndex; index < noteWindow.endIndex; index += 1) {
+    const note = model.gameNotesByTrack[index];
     const lane = lanes[note.lane];
     if (!lane || note.kind === "invisible") {
       continue;
     }
     const headY = gameTrackPositionToViewportY(
-      getEventTrackPosition(note),
+      getEventTrackPosition2(note),
       selectedTrackPosition,
       viewportHeight,
       pixelsPerBeat
@@ -1084,34 +1235,50 @@ function drawNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, vie
       continue;
     }
     drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
-    if (note.kind === "long" && Number.isFinite(note.endBeat) && shouldDrawLongEndCap(model, note)) {
-      const endHeadY = gameTrackPositionToViewportY(
-        getNoteEndTrackPosition(note),
-        selectedTrackPosition,
-        viewportHeight,
-        pixelsPerBeat
-      );
-      if (isViewportYVisible(endHeadY, viewportHeight)) {
-        drawRectNote(context, lane, endHeadY, lane.note);
-      }
+  }
+  const longEndWindow = getTrackWindowIndices(
+    model.gameLongNotesByEndTrack ?? [],
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition,
+    getNoteEndTrackPosition2
+  );
+  for (let index = longEndWindow.startIndex; index < longEndWindow.endIndex; index += 1) {
+    const note = model.gameLongNotesByEndTrack[index];
+    const lane = lanes[note.lane];
+    if (!lane || !shouldDrawLongEndCap(model, note)) {
+      continue;
     }
+    const endHeadY = gameTrackPositionToViewportY(
+      getNoteEndTrackPosition2(note),
+      selectedTrackPosition,
+      viewportHeight,
+      pixelsPerBeat
+    );
+    if (!isViewportYVisible(endHeadY, viewportHeight)) {
+      continue;
+    }
+    drawRectNote(context, lane, endHeadY, lane.note);
   }
   context.restore();
 }
 function drawInvisibleNoteHeadsGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
+  const noteWindow = getTrackWindowIndices(
+    model.gameInvisibleNotesByTrack ?? [],
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition
+  );
   context.save();
   context.strokeStyle = INVISIBLE_NOTE_COLOR;
   context.lineWidth = 1;
-  for (const note of model.invisibleNotes ?? []) {
-    if (!Number.isFinite(note?.beat)) {
-      continue;
-    }
+  for (let index = noteWindow.startIndex; index < noteWindow.endIndex; index += 1) {
+    const note = model.gameInvisibleNotesByTrack[index];
     const lane = lanes[note.lane];
     if (!lane) {
       continue;
     }
     const headY = gameTrackPositionToViewportY(
-      getEventTrackPosition(note),
+      getEventTrackPosition2(note),
       selectedTrackPosition,
       viewportHeight,
       pixelsPerBeat
@@ -1126,20 +1293,19 @@ function drawInvisibleNoteHeadsGameMode(context, model, lanes, selectedTrackPosi
 function drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
-    return [];
+    return;
   }
-  const markers = [];
+  const visibleTrackRange = getGameVisibleTrackRange(selectedTrackPosition, viewportHeight, pixelsPerBeat);
   const bpmCandidates = [];
   const stopCandidates = [];
   const scrollCandidates = [];
   context.save();
   context.fillStyle = BPM_MARKER;
-  for (const bpmChange of model.bpmChanges) {
-    if (!Number.isFinite(bpmChange?.beat)) {
-      continue;
-    }
+  const bpmWindow = getTrackWindowIndices(model.gameBpmChangesByTrack ?? [], visibleTrackRange.startTrackPosition, visibleTrackRange.endTrackPosition);
+  for (let index = bpmWindow.startIndex; index < bpmWindow.endIndex; index += 1) {
+    const bpmChange = model.gameBpmChangesByTrack[index];
     const y = gameTrackPositionToViewportY(
-      getEventTrackPosition(bpmChange),
+      getEventTrackPosition2(bpmChange),
       selectedTrackPosition,
       viewportHeight,
       pixelsPerBeat
@@ -1160,12 +1326,11 @@ function drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, 
     });
   }
   context.fillStyle = STOP_MARKER;
-  for (const stop of model.stops) {
-    if (!Number.isFinite(stop?.beat)) {
-      continue;
-    }
+  const stopWindow = getTrackWindowIndices(model.gameStopsByTrack ?? [], visibleTrackRange.startTrackPosition, visibleTrackRange.endTrackPosition);
+  for (let index = stopWindow.startIndex; index < stopWindow.endIndex; index += 1) {
+    const stop = model.gameStopsByTrack[index];
     const y = gameTrackPositionToViewportY(
-      getEventTrackPosition(stop),
+      getEventTrackPosition2(stop),
       selectedTrackPosition,
       viewportHeight,
       pixelsPerBeat
@@ -1186,12 +1351,11 @@ function drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, 
     });
   }
   context.fillStyle = SCROLL_MARKER;
-  for (const scrollChange of model.scrollChanges) {
-    if (!Number.isFinite(scrollChange?.beat)) {
-      continue;
-    }
+  const scrollWindow = getTrackWindowIndices(model.gameScrollChangesByTrack ?? [], visibleTrackRange.startTrackPosition, visibleTrackRange.endTrackPosition);
+  for (let index = scrollWindow.startIndex; index < scrollWindow.endIndex; index += 1) {
+    const scrollChange = model.gameScrollChangesByTrack[index];
     const y = gameTrackPositionToViewportY(
-      getEventTrackPosition(scrollChange),
+      getEventTrackPosition2(scrollChange),
       selectedTrackPosition,
       viewportHeight,
       pixelsPerBeat
@@ -1212,10 +1376,9 @@ function drawTempoMarkersGameMode(context, model, lanes, selectedTrackPosition, 
     });
   }
   context.restore();
-  pushSpacedTempoMarkers(markers, bpmCandidates);
-  pushSpacedTempoMarkers(markers, stopCandidates);
-  pushSpacedTempoMarkers(markers, scrollCandidates);
-  return markers;
+  drawSpacedTempoMarkerLabels(context, bpmCandidates);
+  drawSpacedTempoMarkerLabels(context, stopCandidates);
+  drawSpacedTempoMarkerLabels(context, scrollCandidates);
 }
 function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixelsPerBeat) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
@@ -1276,9 +1439,8 @@ function drawBarLinesEditorMode(context, barLines, lanes, editorFrameState, pixe
 function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
-    return [];
+    return;
   }
-  const markers = [];
   let lastBpmLabelY = Number.POSITIVE_INFINITY;
   let lastStopLabelY = Number.POSITIVE_INFINITY;
   let lastScrollLabelY = Number.POSITIVE_INFINITY;
@@ -1298,7 +1460,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
       TEMPO_MARKER_HEIGHT
     );
     if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "bpm",
         timeSec: bpmChange.timeSec,
         y,
@@ -1322,7 +1484,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
       TEMPO_MARKER_HEIGHT
     );
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "stop",
         timeSec: stop.timeSec,
         y,
@@ -1346,7 +1508,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
       TEMPO_MARKER_HEIGHT
     );
     if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
-      markers.push({
+      drawTempoMarkerLabel(context, {
         type: "scroll",
         timeSec: scrollChange.timeSec,
         y,
@@ -1359,7 +1521,6 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
     }
   }
   context.restore();
-  return markers;
 }
 function shouldKeepTempoMarkerLabel(lastAcceptedY, nextY) {
   return !Number.isFinite(lastAcceptedY) || Math.abs(nextY - lastAcceptedY) >= TEMPO_LABEL_MIN_GAP;
@@ -1456,15 +1617,24 @@ function drawOutlinedRectNote(context, lane, y, color) {
     Math.max(NOTE_HEAD_HEIGHT - 1, 1)
   );
 }
-function pushSpacedTempoMarkers(markers, candidates) {
+function drawSpacedTempoMarkerLabels(context, candidates) {
   let lastAcceptedY = Number.POSITIVE_INFINITY;
   for (const candidate of [...candidates].sort((left, right) => left.y - right.y)) {
     if (!shouldKeepTempoMarkerLabel(lastAcceptedY, candidate.y)) {
       continue;
     }
-    markers.push(candidate);
+    drawTempoMarkerLabel(context, candidate);
     lastAcceptedY = candidate.y;
   }
+}
+function drawTempoMarkerLabel(context, marker) {
+  context.save();
+  context.font = TEMPO_LABEL_FONT;
+  context.fillStyle = marker.color;
+  context.textBaseline = "middle";
+  context.textAlign = marker.side === "left" ? "right" : "left";
+  context.fillText(marker.label, marker.x, marker.y);
+  context.restore();
 }
 function drawLaneSeparators(context, lanes, viewportHeight) {
   if (lanes.length === 0) {
@@ -1610,11 +1780,11 @@ function gameTrackPositionToViewportY(eventTrackPosition, selectedTrackPosition,
 function isViewportYVisible(y, viewportHeight, margin = NOTE_HEAD_HEIGHT + 24) {
   return y >= -margin && y <= viewportHeight + margin;
 }
-function getEventTrackPosition(event) {
+function getEventTrackPosition2(event) {
   return Number.isFinite(event?.trackPosition) ? event.trackPosition : 0;
 }
-function getNoteEndTrackPosition(note) {
-  return Number.isFinite(note?.endTrackPosition) ? note.endTrackPosition : getEventTrackPosition(note);
+function getNoteEndTrackPosition2(note) {
+  return Number.isFinite(note?.endTrackPosition) ? note.endTrackPosition : getEventTrackPosition2(note);
 }
 function formatBpmMarkerLabel(bpm) {
   return trimDecimal(Number(bpm).toFixed(2));
@@ -1757,6 +1927,8 @@ var MIN_SPACING_SCALE = 0.5;
 var MAX_SPACING_SCALE = 8;
 var SPACING_STEP = 0.01;
 var DEFAULT_SPACING_SCALE = 1;
+var GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO = 0.4;
+var GAME_PLAYBACK_SCROLL_SYNC_MIN_PX = 120;
 function createScoreViewerController({
   root,
   onTimeChange = () => {
@@ -1775,13 +1947,6 @@ function createScoreViewerController({
   scrollHost.appendChild(spacer);
   const canvas = document.createElement("canvas");
   canvas.className = "score-viewer-canvas";
-  const markerOverlay = document.createElement("div");
-  markerOverlay.className = "score-viewer-marker-overlay";
-  const markerLabelsLeft = document.createElement("div");
-  markerLabelsLeft.className = "score-viewer-marker-labels is-left";
-  const markerLabelsRight = document.createElement("div");
-  markerLabelsRight.className = "score-viewer-marker-labels is-right";
-  markerOverlay.append(markerLabelsLeft, markerLabelsRight);
   const bottomBar = document.createElement("div");
   bottomBar.className = "score-viewer-bottom-bar";
   const statusPanel = document.createElement("div");
@@ -1841,7 +2006,7 @@ function createScoreViewerController({
   bottomBar.append(statusPanel);
   const judgeLine = document.createElement("div");
   judgeLine.className = "score-viewer-judge-line";
-  root.replaceChildren(scrollHost, canvas, markerOverlay, bottomBar, judgeLine);
+  root.replaceChildren(scrollHost, canvas, bottomBar, judgeLine);
   const renderer = createScoreViewerRenderer(canvas);
   const state2 = {
     model: null,
@@ -2021,6 +2186,9 @@ function createScoreViewerController({
     }
     state2.isPlaying = normalizedPlaying;
     updateScrollInteractivity();
+    if (!state2.isPlaying) {
+      syncScrollPosition();
+    }
     renderScene();
   }
   function setViewerMode(nextViewerMode) {
@@ -2048,22 +2216,29 @@ function createScoreViewerController({
       scrollHost.scrollTop = 0;
       return;
     }
-    ignoreScrollUntilNextFrame = true;
     const viewportHeight = root.clientHeight || 0;
-    if (getResolvedViewerMode2() === "editor") {
-      scrollHost.scrollTop = getEditorScrollTopForBeat(
-        state2.model,
-        state2.selectedBeat,
-        viewportHeight,
-        getPixelsPerBeat()
-      );
-    } else {
-      scrollHost.scrollTop = getScrollTopForResolvedMode(
-        state2.model,
-        state2.selectedTimeSec,
-        viewportHeight
-      );
+    const resolvedViewerMode = getResolvedViewerMode2();
+    const desiredScrollTop = resolvedViewerMode === "editor" ? getEditorScrollTopForBeat(
+      state2.model,
+      state2.selectedBeat,
+      viewportHeight,
+      getPixelsPerBeat()
+    ) : getScrollTopForResolvedMode(
+      state2.model,
+      state2.selectedTimeSec,
+      viewportHeight
+    );
+    if (!shouldSyncPlaybackScrollPosition({
+      viewerMode: resolvedViewerMode,
+      isPlaying: state2.isPlaying,
+      currentScrollTop: scrollHost.scrollTop,
+      desiredScrollTop,
+      viewportHeight
+    })) {
+      return;
     }
+    ignoreScrollUntilNextFrame = true;
+    scrollHost.scrollTop = desiredScrollTop;
     requestAnimationFrame(() => {
       ignoreScrollUntilNextFrame = false;
     });
@@ -2135,7 +2310,6 @@ function createScoreViewerController({
       state2.selectedBeat
     );
     canvas.hidden = !showScene;
-    markerOverlay.hidden = !showScene;
     bottomBar.hidden = !showScene;
     judgeLine.hidden = !showScene;
     setDisabledIfChanged(playbackButton, !state2.model, "playbackButtonDisabled");
@@ -2159,29 +2333,13 @@ function createScoreViewerController({
     setDisabledIfChanged(modeSelect, !state2.model, "modeSelectDisabled");
     setValueIfChanged(invisibleNoteVisibilitySelect, state2.invisibleNoteVisibility, "invisibleNoteVisibilityValue");
     setDisabledIfChanged(invisibleNoteVisibilitySelect, !state2.model, "invisibleNoteVisibilityDisabled");
-    const renderResult = renderer.render(showScene ? state2.model : null, cursor.timeSec, {
+    renderer.render(showScene ? state2.model : null, cursor.timeSec, {
       viewerMode: resolvedViewerMode,
       pixelsPerSecond: getPixelsPerSecond(),
       pixelsPerBeat: getPixelsPerBeat(),
       editorFrameState,
       showInvisibleNotes: state2.invisibleNoteVisibility === "show"
     });
-    renderMarkerLabels(showScene ? renderResult.markers : []);
-  }
-  function renderMarkerLabels(markers) {
-    markerLabelsLeft.replaceChildren();
-    markerLabelsRight.replaceChildren();
-    if (!Array.isArray(markers) || markers.length === 0) {
-      return;
-    }
-    const leftMarkers = filterMarkerLabels(markers.filter((marker) => marker.side === "left"));
-    const rightMarkers = filterMarkerLabels(markers.filter((marker) => marker.side === "right"));
-    for (const marker of leftMarkers) {
-      markerLabelsLeft.appendChild(createMarkerLabel(marker, "left"));
-    }
-    for (const marker of rightMarkers) {
-      markerLabelsRight.appendChild(createMarkerLabel(marker, "right"));
-    }
   }
   function destroy() {
     clearDragState();
@@ -2358,26 +2516,21 @@ function normalizeWheelDeltaY(deltaY, deltaMode, viewportHeight, lineHeightPx = 
       return deltaY;
   }
 }
-function createMarkerLabel(marker, side) {
-  const label = document.createElement("div");
-  label.className = `score-viewer-marker-label is-${marker.type} is-${side}`;
-  label.textContent = marker.label;
-  label.style.top = `${marker.y}px`;
-  label.style.color = marker.color;
-  label.style.left = `${marker.x}px`;
-  return label;
-}
-function filterMarkerLabels(markers) {
-  const filtered = [];
-  let lastY = Number.NEGATIVE_INFINITY;
-  for (const marker of [...markers].sort((left, right) => left.y - right.y)) {
-    if (Math.abs(marker.y - lastY) < 12) {
-      continue;
-    }
-    filtered.push(marker);
-    lastY = marker.y;
+function shouldSyncPlaybackScrollPosition({
+  viewerMode,
+  isPlaying,
+  currentScrollTop,
+  desiredScrollTop,
+  viewportHeight
+}) {
+  if (viewerMode !== "game" || !isPlaying) {
+    return true;
   }
-  return filtered;
+  const threshold = Math.max(
+    Math.round(Math.max(viewportHeight, 0) * GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO),
+    GAME_PLAYBACK_SCROLL_SYNC_MIN_PX
+  );
+  return Math.abs((desiredScrollTop ?? 0) - (currentScrollTop ?? 0)) >= threshold;
 }
 function clampScale(value) {
   if (!Number.isFinite(value)) {
@@ -2602,6 +2755,8 @@ var MIN_RATIO = 1 / 8;
 var MAX_RATIO = 8;
 var MIN_LOG = Math.log10(MIN_RATIO);
 var MAX_LOG = Math.log10(MAX_RATIO);
+var GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX = 48;
+var GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX = 160;
 function createBmsInfoGraph({
   scrollHost,
   canvas,
@@ -2616,6 +2771,9 @@ function createBmsInfoGraph({
   onPinChange = () => {
   }
 }) {
+  const context = canvas.getContext("2d");
+  const staticCanvas = createLayerCanvas(canvas);
+  const staticContext = staticCanvas.getContext("2d");
   const state2 = {
     record: null,
     selectedTimeSec: 0,
@@ -2654,11 +2812,12 @@ function createBmsInfoGraph({
   function setRecord(record) {
     state2.record = record;
     pinInput.disabled = !record;
-    render2();
+    renderStaticScene();
+    renderDynamicScene();
   }
   function setSelectedTimeSec2(timeSec) {
     state2.selectedTimeSec = Number.isFinite(timeSec) ? Math.max(0, timeSec) : 0;
-    render2();
+    renderDynamicScene();
     syncScrollToSelected();
   }
   function setPinned(nextPinned) {
@@ -2666,16 +2825,14 @@ function createBmsInfoGraph({
     pinInput.checked = state2.isPinned;
     pinInput.disabled = !state2.record;
   }
-  function render2() {
+  function renderStaticScene() {
     const record = state2.record;
     if (!record) {
-      canvas.width = 640;
-      canvas.height = 180;
-      const context2 = canvas.getContext("2d");
-      context2.clearRect(0, 0, canvas.width, canvas.height);
-      context2.fillStyle = "#000000";
-      context2.fillRect(0, 0, canvas.width, canvas.height);
-      drawSelectedTimeLine(context2, 0, canvas.height);
+      staticCanvas.width = 640;
+      staticCanvas.height = 180;
+      staticContext.clearRect(0, 0, staticCanvas.width, staticCanvas.height);
+      staticContext.fillStyle = "#000000";
+      staticContext.fillRect(0, 0, staticCanvas.width, staticCanvas.height);
       return;
     }
     const segments = record.distributionSegments;
@@ -2683,36 +2840,66 @@ function createBmsInfoGraph({
     const maxNotesPerSecond = Math.max(40, Math.min(record.peakdensity || 0, 100));
     const canvasWidth = timeLength * (RECT_WIDTH + SPACING);
     const canvasHeight = maxNotesPerSecond * (RECT_HEIGHT + SPACING) - SPACING;
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
-    const context = canvas.getContext("2d");
+    staticCanvas.width = canvasWidth;
+    staticCanvas.height = canvasHeight;
+    staticContext.clearRect(0, 0, staticCanvas.width, staticCanvas.height);
+    staticContext.fillStyle = "#000000";
+    staticContext.fillRect(0, 0, staticCanvas.width, staticCanvas.height);
+    drawHorizontalGrid(staticContext, canvasWidth, canvasHeight, maxNotesPerSecond);
+    drawVerticalGrid(staticContext, canvasWidth, canvasHeight, timeLength);
+    drawDistributionBars(staticContext, segments, canvasHeight, maxNotesPerSecond);
+    drawSpeedChangeLines(staticContext, record, canvasWidth, canvasHeight, timeLength);
+  }
+  function renderDynamicScene() {
+    const targetWidth = Math.max(staticCanvas.width || 640, 1);
+    const targetHeight = Math.max(staticCanvas.height || 180, 1);
+    if (canvas.width !== targetWidth) {
+      canvas.width = targetWidth;
+    }
+    if (canvas.height !== targetHeight) {
+      canvas.height = targetHeight;
+    }
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#000000";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    drawHorizontalGrid(context, canvasWidth, canvasHeight, maxNotesPerSecond);
-    drawVerticalGrid(context, canvasWidth, canvasHeight, timeLength);
-    drawDistributionBars(context, segments, canvasHeight, maxNotesPerSecond);
-    drawSpeedChangeLines(context, record, canvasWidth, canvasHeight, timeLength);
-    drawSelectedTimeLine(context, timeToX(state2.selectedTimeSec), canvasHeight);
+    context.drawImage(staticCanvas, 0, 0);
+    drawSelectedTimeLine(context, timeToX(state2.selectedTimeSec), canvas.height);
   }
   function syncScrollToSelected() {
     if (!state2.record || !scrollHost) {
       return;
     }
     const x = timeToX(state2.selectedTimeSec);
-    const maxScrollLeft = Math.max(0, scrollHost.scrollWidth - scrollHost.clientWidth);
-    const desired = clamp2(x - scrollHost.clientWidth / 2, 0, maxScrollLeft);
-    if (Math.abs(scrollHost.scrollLeft - desired) > 8) {
+    const desired = getGraphFollowScrollLeft({
+      targetX: x,
+      currentScrollLeft: scrollHost.scrollLeft,
+      clientWidth: scrollHost.clientWidth,
+      scrollWidth: scrollHost.scrollWidth
+    });
+    if (Math.abs(scrollHost.scrollLeft - desired) > 1) {
       scrollHost.scrollLeft = desired;
     }
   }
-  render2();
+  renderStaticScene();
+  renderDynamicScene();
   return {
     setRecord,
     setSelectedTimeSec: setSelectedTimeSec2,
     setPinned,
-    render: render2
+    render() {
+      renderStaticScene();
+      renderDynamicScene();
+    },
+    destroy() {
+    }
   };
+}
+function createLayerCanvas(referenceCanvas) {
+  if (typeof referenceCanvas?.ownerDocument?.createElement === "function") {
+    return referenceCanvas.ownerDocument.createElement("canvas");
+  }
+  if (typeof document !== "undefined" && typeof document.createElement === "function") {
+    return document.createElement("canvas");
+  }
+  throw new Error("Canvas layer creation requires a document.");
 }
 function drawHorizontalGrid(context, canvasWidth, canvasHeight, maxNotesPerSecond) {
   context.strokeStyle = "#202080";
@@ -2841,6 +3028,22 @@ function logScaleY(bpm, mainBpm, canvasHeight) {
 function timeToX(timeSec) {
   return Math.round(timeSec * (RECT_WIDTH + SPACING)) + 1;
 }
+function getGraphFollowScrollLeft({
+  targetX,
+  currentScrollLeft,
+  clientWidth,
+  scrollWidth
+}) {
+  const safeClientWidth = Math.max(clientWidth ?? 0, 1);
+  const maxScrollLeft = Math.max(0, (scrollWidth ?? 0) - safeClientWidth);
+  const marginPx = clamp2(safeClientWidth * 0.2, GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX, GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX);
+  const leftBound = (currentScrollLeft ?? 0) + marginPx;
+  const rightBound = (currentScrollLeft ?? 0) + safeClientWidth - marginPx;
+  if (targetX >= leftBound && targetX <= rightBound) {
+    return clamp2(currentScrollLeft ?? 0, 0, maxScrollLeft);
+  }
+  return clamp2(targetX - safeClientWidth / 2, 0, maxScrollLeft);
+}
 function clamp2(value, minValue, maxValue) {
   return Math.min(Math.max(value, minValue), maxValue);
 }
@@ -2852,7 +3055,49 @@ var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
 var VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
 var INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibleNoteVisibility";
+var PREVIEW_RENDER_DIRTY = {
+  record: 1 << 0,
+  selection: 1 << 1,
+  viewerModel: 1 << 2,
+  playback: 1 << 3,
+  pin: 1 << 4,
+  viewerMode: 1 << 5,
+  invisible: 1 << 6,
+  viewerOpen: 1 << 7
+};
+var PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 var bmsSearchPatternAvailabilityCache = /* @__PURE__ */ new Map();
+function createPreviewPreferenceStorage({ read = () => null, write = () => {
+} } = {}) {
+  return {
+    getPersistedViewerMode() {
+      try {
+        return read(VIEWER_MODE_STORAGE_KEY, DEFAULT_VIEWER_MODE);
+      } catch (_error) {
+        return DEFAULT_VIEWER_MODE;
+      }
+    },
+    setPersistedViewerMode(nextViewerMode) {
+      try {
+        write(VIEWER_MODE_STORAGE_KEY, nextViewerMode);
+      } catch (_error) {
+      }
+    },
+    getPersistedInvisibleNoteVisibility() {
+      try {
+        return read(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, DEFAULT_INVISIBLE_NOTE_VISIBILITY);
+      } catch (_error) {
+        return DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+      }
+    },
+    setPersistedInvisibleNoteVisibility(nextVisibility) {
+      try {
+        write(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, nextVisibility);
+      } catch (_error) {
+      }
+    }
+  };
+}
 var BMSDATA_CSS = `
   .bmsdata {
     --bd-dctx: #333;
@@ -3168,6 +3413,7 @@ function createBmsInfoPreview({
     viewerModel: null,
     loadToken: 0,
     renderFrameId: null,
+    pendingRenderMask: 0,
     playbackFrameId: null,
     lastPlaybackTimestamp: null,
     lastViewerOpenState: false,
@@ -3207,7 +3453,7 @@ function createBmsInfoPreview({
       if (!state2.isPinned && !state2.isPlaying) {
         state2.isViewerOpen = false;
       }
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerOpen);
     },
     onSelectTime: (timeSec) => {
       state2.isPinned = true;
@@ -3224,7 +3470,7 @@ function createBmsInfoPreview({
       } else if (!state2.isGraphHovered && !state2.isPlaying) {
         state2.isViewerOpen = false;
       }
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.pin | PREVIEW_RENDER_DIRTY.viewerOpen);
     }
   });
   return {
@@ -3245,6 +3491,7 @@ function createBmsInfoPreview({
     const previousSha256 = state2.record?.sha256 ?? null;
     const nextSha256Value = normalizedRecord?.sha256 ?? null;
     const recordChanged = previousSha256 !== nextSha256Value || state2.record !== normalizedRecord;
+    let renderMask = 0;
     state2.record = normalizedRecord;
     if (!normalizedRecord) {
       state2.selectedSha256 = null;
@@ -3253,14 +3500,14 @@ function createBmsInfoPreview({
       state2.selectedTimeSec = 0;
       state2.selectedBeat = 0;
       state2.isViewerOpen = false;
-      graphController.setRecord(null);
-      scheduleRender();
+      renderMask |= PREVIEW_RENDER_ALL;
+      scheduleRender(renderMask);
       return;
     }
     if (recordChanged) {
       renderBmsData(container, normalizedRecord);
-      graphController.setRecord(normalizedRecord);
       shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(normalizedRecord.mode)}px`);
+      renderMask |= PREVIEW_RENDER_DIRTY.record;
     }
     const nextSha256 = normalizedRecord.sha256 ? normalizedRecord.sha256.toLowerCase() : null;
     if (parsedScore && nextSha256) {
@@ -3271,16 +3518,16 @@ function createBmsInfoPreview({
       state2.selectedSha256 = nextSha256;
       state2.selectedTimeSec = clampSelectedTimeSec(state2, state2.selectedTimeSec);
       state2.selectedBeat = getBeatAtTimeSec(state2.viewerModel, state2.selectedTimeSec);
+      renderMask |= PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection;
     } else if (state2.selectedSha256 !== nextSha256) {
       state2.parsedScore = null;
       state2.viewerModel = null;
       state2.selectedSha256 = nextSha256;
       state2.selectedTimeSec = clampSelectedTimeSec(state2, state2.selectedTimeSec);
       state2.selectedBeat = 0;
+      renderMask |= PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection;
     }
-    graphController.setPinned(state2.isPinned);
-    graphController.setSelectedTimeSec(state2.selectedTimeSec);
-    scheduleRender();
+    scheduleRender(renderMask || PREVIEW_RENDER_DIRTY.selection);
   }
   async function prefetch() {
     if (!state2.record?.sha256) {
@@ -3311,15 +3558,15 @@ function createBmsInfoPreview({
     if (!sha256) {
       state2.parsedScore = null;
       state2.viewerModel = null;
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.viewerOpen);
       return;
     }
     if (state2.selectedSha256 === sha256 && state2.viewerModel) {
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerOpen);
       return;
     }
     state2.selectedSha256 = sha256;
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerOpen);
     await loadSelectedRecord(state2.record);
   }
   async function loadSelectedRecord(normalizedRecord) {
@@ -3327,7 +3574,7 @@ function createBmsInfoPreview({
       state2.parsedScore = null;
       state2.viewerModel = null;
       state2.selectedBeat = 0;
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection);
       return;
     }
     const sha256 = normalizedRecord.sha256.toLowerCase();
@@ -3373,7 +3620,7 @@ function createBmsInfoPreview({
       state2.viewerModel = null;
       state2.selectedBeat = 0;
       state2.isViewerOpen = false;
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection | PREVIEW_RENDER_DIRTY.viewerOpen);
     }
   }
   function applyLoadedScore(parsedScore, viewerModel) {
@@ -3381,7 +3628,7 @@ function createBmsInfoPreview({
     state2.viewerModel = viewerModel;
     state2.selectedTimeSec = clampSelectedTimeSec(state2, state2.selectedTimeSec);
     state2.selectedBeat = getBeatAtTimeSec(state2.viewerModel, state2.selectedTimeSec);
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection);
   }
   function setSelectedTimeSec2(nextTimeSec, { openViewer = false, notify = false, beatHint = void 0, source = "external" } = {}) {
     const clampedTimeSec = clampSelectedTimeSec(state2, nextTimeSec);
@@ -3411,12 +3658,13 @@ function createBmsInfoPreview({
     if (!changed && !openViewer) {
       return;
     }
-    scheduleRender();
+    scheduleRender(
+      PREVIEW_RENDER_DIRTY.selection | (openViewer ? PREVIEW_RENDER_DIRTY.viewerOpen : 0)
+    );
   }
   function setViewerMode(nextViewerMode) {
     const normalizedMode = normalizeViewerMode(nextViewerMode);
     if (state2.viewerMode === normalizedMode) {
-      scheduleRender();
       return;
     }
     state2.viewerMode = normalizedMode;
@@ -3426,12 +3674,11 @@ function createBmsInfoPreview({
     } catch (error) {
       console.warn("Failed to persist viewer mode:", error);
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.selection);
   }
   function setInvisibleNoteVisibility(nextVisibility) {
     const normalizedVisibility = normalizeInvisibleNoteVisibility(nextVisibility);
     if (state2.invisibleNoteVisibility === normalizedVisibility) {
-      scheduleRender();
       return;
     }
     state2.invisibleNoteVisibility = normalizedVisibility;
@@ -3440,7 +3687,7 @@ function createBmsInfoPreview({
     } catch (error) {
       console.warn("Failed to persist invisible note visibility:", error);
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.invisible);
   }
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
@@ -3455,7 +3702,7 @@ function createBmsInfoPreview({
     } else if (!state2.isGraphHovered && !state2.isPlaying) {
       state2.isViewerOpen = false;
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.pin | PREVIEW_RENDER_DIRTY.viewerOpen);
   }
   function setPlaybackState(nextPlaying) {
     if (state2.isPlaying === Boolean(nextPlaying) && state2.viewerModel && state2.parsedScore) {
@@ -3463,7 +3710,7 @@ function createBmsInfoPreview({
     }
     if (!state2.viewerModel || !state2.parsedScore) {
       stopPlayback(false);
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.playback);
       return;
     }
     if (nextPlaying) {
@@ -3490,7 +3737,7 @@ function createBmsInfoPreview({
     if (state2.playbackFrameId !== null) {
       cancelAnimationFrame(state2.playbackFrameId);
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.playback | PREVIEW_RENDER_DIRTY.viewerOpen);
     state2.playbackFrameId = requestAnimationFrame(stepPlayback);
   }
   function stopPlayback(renderAfter = true) {
@@ -3504,7 +3751,7 @@ function createBmsInfoPreview({
       onPlaybackChange(false);
     }
     if (renderAfter) {
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.playback);
     }
   }
   function stepPlayback(timestamp) {
@@ -3542,33 +3789,59 @@ function createBmsInfoPreview({
         source: "playback"
       });
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.selection);
     if (nextTimeSec >= maxTimeSec - 5e-4) {
       stopPlayback(false);
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.selection | PREVIEW_RENDER_DIRTY.playback);
       return;
     }
     state2.playbackFrameId = requestAnimationFrame(stepPlayback);
   }
-  function scheduleRender() {
-    if (state2.isDestroyed || state2.renderFrameId !== null) {
+  function scheduleRender(renderMask = PREVIEW_RENDER_ALL) {
+    if (state2.isDestroyed) {
+      return;
+    }
+    state2.pendingRenderMask |= renderMask;
+    if (state2.renderFrameId !== null) {
       return;
     }
     state2.renderFrameId = requestAnimationFrame(() => {
       state2.renderFrameId = null;
-      flushRender();
+      flushRender(state2.pendingRenderMask);
+      state2.pendingRenderMask = 0;
     });
   }
-  function flushRender() {
-    graphController.setPinned(state2.isPinned);
-    graphController.setSelectedTimeSec(state2.selectedTimeSec);
-    viewerController.setPlaybackState(state2.isPlaying);
-    viewerController.setPinned(state2.isPinned);
-    viewerController.setModel(state2.viewerModel);
-    viewerController.setViewerMode(state2.viewerMode);
-    viewerController.setInvisibleNoteVisibility(state2.invisibleNoteVisibility);
-    viewerController.setSelectedTimeSec(state2.selectedTimeSec, { beatHint: state2.selectedBeat });
-    viewerController.setOpen(Boolean(state2.isViewerOpen && state2.viewerModel));
+  function flushRender(renderMask = PREVIEW_RENDER_ALL) {
+    if (renderMask & PREVIEW_RENDER_DIRTY.record) {
+      graphController.setRecord(state2.record);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.pin) {
+      graphController.setPinned(state2.isPinned);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.selection) {
+      graphController.setSelectedTimeSec(state2.selectedTimeSec);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+      viewerController.setModel(state2.viewerModel);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
+      viewerController.setViewerMode(state2.viewerMode);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.invisible) {
+      viewerController.setInvisibleNoteVisibility(state2.invisibleNoteVisibility);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.playback) {
+      viewerController.setPlaybackState(state2.isPlaying);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.pin) {
+      viewerController.setPinned(state2.isPinned);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.selection || renderMask & PREVIEW_RENDER_DIRTY.viewerModel || renderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
+      viewerController.setSelectedTimeSec(state2.selectedTimeSec, { beatHint: state2.selectedBeat });
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.viewerOpen || renderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+      viewerController.setOpen(Boolean(state2.isViewerOpen && state2.viewerModel));
+    }
     const isActuallyOpen = Boolean(state2.isViewerOpen && state2.viewerModel);
     if (state2.lastViewerOpenState !== isActuallyOpen) {
       state2.lastViewerOpenState = isActuallyOpen;
@@ -4166,6 +4439,15 @@ function ensurePreviewRuntime() {
   });
   elements.previewRoot.appendChild(previewContainer);
   state.previewContainer = previewContainer;
+  const previewPreferenceStorage = createPreviewPreferenceStorage({
+    read: (key, fallbackValue) => {
+      const value = localStorage.getItem(key);
+      return value ?? fallbackValue;
+    },
+    write: (key, value) => {
+      localStorage.setItem(key, value);
+    }
+  });
   state.previewRuntime = createBmsInfoPreview({
     container: previewContainer,
     documentRef: document,
@@ -4184,32 +4466,7 @@ function ensurePreviewRuntime() {
       const loaderContext = await getLoaderContext(state.parserVersion, state.scoreBaseUrl);
       await loaderContext.loader.prefetchScore(record.sha256.toLowerCase());
     },
-    getPersistedViewerMode: () => {
-      try {
-        return localStorage.getItem(VIEWER_MODE_STORAGE_KEY);
-      } catch (_error) {
-        return null;
-      }
-    },
-    setPersistedViewerMode: (nextViewerMode) => {
-      try {
-        localStorage.setItem(VIEWER_MODE_STORAGE_KEY, nextViewerMode);
-      } catch (_error) {
-      }
-    },
-    getPersistedInvisibleNoteVisibility: () => {
-      try {
-        return localStorage.getItem(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY);
-      } catch (_error) {
-        return null;
-      }
-    },
-    setPersistedInvisibleNoteVisibility: (nextVisibility) => {
-      try {
-        localStorage.setItem(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, nextVisibility);
-      } catch (_error) {
-      }
-    },
+    ...previewPreferenceStorage,
     onSelectedTimeChange: (selection) => {
       const nextTimeSec = typeof selection === "object" ? selection.timeSec : selection;
       const nextViewerMode = selection?.viewerMode ?? state.resolvedViewerMode;

@@ -1,9 +1,8 @@
 import {
   createBmsDataContainer,
   createBmsInfoPreview,
+  createPreviewPreferenceStorage,
   fetchBmsInfoRecordByIdentifiers,
-  INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
-  VIEWER_MODE_STORAGE_KEY,
 } from "../../../../shared/preview-runtime/index.js";
 import {
   createScoreViewerModel,
@@ -532,6 +531,15 @@ function ensurePreviewRuntime() {
   elements.previewRoot.appendChild(previewContainer);
 
   state.previewContainer = previewContainer;
+  const previewPreferenceStorage = createPreviewPreferenceStorage({
+    read: (key, fallbackValue) => {
+      const value = localStorage.getItem(key);
+      return value ?? fallbackValue;
+    },
+    write: (key, value) => {
+      localStorage.setItem(key, value);
+    },
+  });
   state.previewRuntime = createBmsInfoPreview({
     container: previewContainer,
     documentRef: document,
@@ -550,34 +558,7 @@ function ensurePreviewRuntime() {
       const loaderContext = await getLoaderContext(state.parserVersion, state.scoreBaseUrl);
       await loaderContext.loader.prefetchScore(record.sha256.toLowerCase());
     },
-    getPersistedViewerMode: () => {
-      try {
-        return localStorage.getItem(VIEWER_MODE_STORAGE_KEY);
-      } catch (_error) {
-        return null;
-      }
-    },
-    setPersistedViewerMode: (nextViewerMode) => {
-      try {
-        localStorage.setItem(VIEWER_MODE_STORAGE_KEY, nextViewerMode);
-      } catch (_error) {
-        // Ignore storage failures in private mode or restricted contexts.
-      }
-    },
-    getPersistedInvisibleNoteVisibility: () => {
-      try {
-        return localStorage.getItem(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY);
-      } catch (_error) {
-        return null;
-      }
-    },
-    setPersistedInvisibleNoteVisibility: (nextVisibility) => {
-      try {
-        localStorage.setItem(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, nextVisibility);
-      } catch (_error) {
-        // Ignore storage failures in private mode or restricted contexts.
-      }
-    },
+    ...previewPreferenceStorage,
     onSelectedTimeChange: (selection) => {
       const nextTimeSec = typeof selection === "object" ? selection.timeSec : selection;
       const nextViewerMode = selection?.viewerMode ?? state.resolvedViewerMode;

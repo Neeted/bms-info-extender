@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createPreviewPreferenceStorage,
   DEFAULT_VIEWER_MODE,
   DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
@@ -24,4 +25,23 @@ test("invisible note visibility defaults to hide and restores persisted show val
   assert.equal(getInitialInvisibleNoteVisibility(() => null), "hide");
   assert.equal(getInitialInvisibleNoteVisibility(() => "show"), "show");
   assert.equal(getInitialInvisibleNoteVisibility(() => "invalid"), "hide");
+});
+
+test("preview preference storage shares persistence wiring for both viewer mode and invisible note visibility", () => {
+  const store = new Map();
+  const preferences = createPreviewPreferenceStorage({
+    read: (key, fallbackValue) => store.has(key) ? store.get(key) : fallbackValue,
+    write: (key, value) => store.set(key, value),
+  });
+
+  assert.equal(preferences.getPersistedViewerMode(), "time");
+  assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "hide");
+
+  preferences.setPersistedViewerMode("game");
+  preferences.setPersistedInvisibleNoteVisibility("show");
+
+  assert.equal(store.get(VIEWER_MODE_STORAGE_KEY), "game");
+  assert.equal(store.get(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY), "show");
+  assert.equal(preferences.getPersistedViewerMode(), "game");
+  assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "show");
 });

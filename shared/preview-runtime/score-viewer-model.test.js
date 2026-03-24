@@ -15,8 +15,11 @@ import {
   getEditorContentHeightPx,
   getEditorScrollTopForBeat,
   getEditorScrollTopForTimeSec,
+  getGameVisibleTrackRange,
   getGameTrackPositionAtTimeSec,
   getGameTrackPositionForBeat,
+  getLongBodyTrackWindow,
+  getTrackWindowIndices,
   hasViewerSelectionChanged,
   getMeasureIndexAtTime,
   getScrollTopForTimeSec,
@@ -274,6 +277,81 @@ test("viewer model applies the last same-beat scroll change to subsequent game d
 
   assert.equal(getGameTrackPositionForBeat(model, 4), 4);
   assert.equal(getGameTrackPositionForBeat(model, 5), 2);
+});
+
+test("viewer model exposes game-mode visible slices by track position", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 3, normal: 2, long: 1, invisible: 1, mine: 0, all: 4 },
+    notes: [
+      { lane: 1, beat: 4, timeSec: 2, kind: "normal" },
+      { lane: 2, beat: 6, endBeat: 10, timeSec: 3, endTimeSec: 5, kind: "long" },
+      { lane: 3, beat: 7, timeSec: 3.5, kind: "normal" },
+      { lane: 4, beat: 9, timeSec: 4.5, kind: "invisible" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 4, timeSec: 2, kind: "normal" },
+      { lane: 2, beat: 6, timeSec: 3, kind: "long-start" },
+      { lane: 2, beat: 10, timeSec: 5, kind: "long-end" },
+      { lane: 3, beat: 7, timeSec: 3.5, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 4, timeSec: 2, rate: 0 },
+      { beat: 8, timeSec: 4, rate: 2 },
+    ],
+    warnings: [],
+  });
+
+  const visibleTrackRange = getGameVisibleTrackRange(4, 320, 64);
+  const noteWindow = getTrackWindowIndices(
+    model.gameNotesByTrack,
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition,
+  );
+  assert.deepEqual(
+    model.gameNotesByTrack.slice(noteWindow.startIndex, noteWindow.endIndex).map((note) => ({
+      lane: note.lane,
+      trackPosition: note.trackPosition,
+    })),
+    [
+      { lane: 1, trackPosition: 4 },
+      { lane: 2, trackPosition: 4 },
+      { lane: 3, trackPosition: 4 },
+    ],
+  );
+
+  const invisibleWindow = getTrackWindowIndices(
+    model.gameInvisibleNotesByTrack,
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition,
+  );
+  assert.deepEqual(
+    model.gameInvisibleNotesByTrack.slice(invisibleWindow.startIndex, invisibleWindow.endIndex).map((note) => note.lane),
+    [4],
+  );
+
+  const longBodyWindow = getLongBodyTrackWindow(
+    model,
+    visibleTrackRange.startTrackPosition,
+    visibleTrackRange.endTrackPosition,
+  );
+  assert.deepEqual(
+    longBodyWindow.items.slice(longBodyWindow.startIndex, longBodyWindow.endIndex).map((note) => ({
+      lane: note.lane,
+      startTrackPosition: note.trackPosition,
+      endTrackPosition: note.endTrackPosition,
+    })),
+    [{ lane: 2, startTrackPosition: 4, endTrackPosition: 8 }],
+  );
 });
 
 test("viewer model editor scroll mapping uses beat axis", () => {

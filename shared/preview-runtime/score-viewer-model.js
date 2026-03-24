@@ -67,6 +67,10 @@ export function createScoreViewerModel(score) {
   const bpmChanges = annotateEventsWithGameTrackPosition(rawBpmChanges, gameScrollIndex);
   const stops = annotateEventsWithGameTrackPosition(rawStops, gameScrollIndex);
   const scrollChanges = annotateEventsWithGameTrackPosition(rawScrollChanges, gameScrollIndex);
+  const gameBarLinesByTrack = createGamePointIndex(barLines);
+  const gameBpmChangesByTrack = createGamePointIndex(bpmChanges);
+  const gameStopsByTrack = createGamePointIndex(stops);
+  const gameScrollChangesByTrack = createGamePointIndex(scrollChanges);
   const totalBeat = getScoreTotalBeat(score);
   const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
   const editorInvisibleNotes = invisibleNotes.filter((note) => Number.isFinite(note.beat));
@@ -74,6 +78,11 @@ export function createScoreViewerModel(score) {
   const invisibleNotesByBeat = [...editorInvisibleNotes].sort(compareBeatNoteLike);
   const longNotesByBeat = notesByBeat.filter((note) => note.kind === "long" && Number.isFinite(note.endBeat ?? note.beat));
   const longNotesByEndBeat = [...longNotesByBeat].sort(compareLongNoteEndBeat);
+  const gameNotesByTrack = createGamePointIndex(notes);
+  const gameInvisibleNotesByTrack = createGamePointIndex(invisibleNotes);
+  const gameLongNotesByEndTrack = createGameLongEndIndex(notes);
+  const gameLongBodiesByStartTrack = createGameLongBodyStartIndex(notes);
+  const gameLongBodiesByEndTrack = [...gameLongBodiesByStartTrack].sort(compareGameLongBodyEndTrack);
   const measureRanges = createEditorMeasureRanges(barLines, totalBeat);
 
   return {
@@ -84,6 +93,11 @@ export function createScoreViewerModel(score) {
     invisibleNotesByBeat,
     longNotesByBeat,
     longNotesByEndBeat,
+    gameNotesByTrack,
+    gameInvisibleNotesByTrack,
+    gameLongNotesByEndTrack,
+    gameLongBodiesByStartTrack,
+    gameLongBodiesByEndTrack,
     measureRanges,
     comboEvents,
     longEndEventKeys,
@@ -91,6 +105,10 @@ export function createScoreViewerModel(score) {
     bpmChanges,
     stops,
     scrollChanges,
+    gameBarLinesByTrack,
+    gameBpmChangesByTrack,
+    gameStopsByTrack,
+    gameScrollChangesByTrack,
     totalCombo: comboEvents.length,
     beatTimingIndex,
     gameScrollIndex,
@@ -302,6 +320,21 @@ export function getEditorFrameState(
     viewportHeight,
     pixelsPerBeat,
   );
+}
+
+export function getGameVisibleTrackRange(
+  selectedTrackPosition,
+  viewportHeight,
+  pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
+) {
+  const normalizedTrackPosition = Number.isFinite(selectedTrackPosition) ? selectedTrackPosition : 0;
+  const normalizedViewportHeight = Math.max(viewportHeight, 0);
+  const halfViewportTrack = normalizedViewportHeight / Math.max(pixelsPerBeat, 1e-9) / 2;
+  const overscanTrack = Math.max(halfViewportTrack * 0.35, 1);
+  return {
+    startTrackPosition: normalizedTrackPosition - halfViewportTrack - overscanTrack,
+    endTrackPosition: normalizedTrackPosition + halfViewportTrack + overscanTrack,
+  };
 }
 
 export function hasViewerSelectionChanged(
@@ -668,6 +701,27 @@ function createGameScrollIndex(scrollChanges) {
   };
 }
 
+function createGamePointIndex(items) {
+  return [...(items ?? [])]
+    .filter((item) => Number.isFinite(item?.trackPosition))
+    .sort(compareTrackEvent);
+}
+
+function createGameLongBodyStartIndex(notes) {
+  return [...(notes ?? [])]
+    .filter((note) => note?.kind === "long"
+      && Number.isFinite(note?.trackPosition)
+      && Number.isFinite(note?.endTrackPosition)
+      && note.endTrackPosition > note.trackPosition)
+    .sort(compareTrackEvent);
+}
+
+function createGameLongEndIndex(notes) {
+  return [...(notes ?? [])]
+    .filter((note) => note?.kind === "long" && Number.isFinite(note?.endTrackPosition))
+    .sort(compareGameLongBodyEndTrack);
+}
+
 function annotateEventsWithGameTrackPosition(events, gameScrollIndex) {
   if (!gameScrollIndex) {
     return [...events];
@@ -703,6 +757,33 @@ function upperBoundByTime(items, timeSec) {
   return low;
 }
 
+export function getTrackWindowIndices(items, startTrackPosition, endTrackPosition, getTrackPosition = getEventTrackPosition) {
+  return {
+    startIndex: lowerBoundByTrackPosition(items, startTrackPosition, getTrackPosition),
+    endIndex: upperBoundByTrackPosition(items, endTrackPosition, getTrackPosition),
+  };
+}
+
+export function getLongBodyTrackWindow(model, startTrackPosition, endTrackPosition) {
+  const startItems = model?.gameLongBodiesByStartTrack ?? [];
+  const endItems = model?.gameLongBodiesByEndTrack ?? [];
+  const visibleStartCount = upperBoundByTrackPosition(startItems, endTrackPosition, getEventTrackPosition);
+  const visibleEndStartIndex = lowerBoundByTrackPosition(endItems, startTrackPosition, getNoteEndTrackPosition);
+  const remainingEndCount = endItems.length - visibleEndStartIndex;
+  if (visibleStartCount <= remainingEndCount) {
+    return {
+      items: startItems,
+      startIndex: 0,
+      endIndex: visibleStartCount,
+    };
+  }
+  return {
+    items: endItems,
+    startIndex: visibleEndStartIndex,
+    endIndex: endItems.length,
+  };
+}
+
 function upperBoundActionsByBeat(actions, beat) {
   let low = 0;
   let high = actions.length;
@@ -723,6 +804,34 @@ function upperBoundSegmentsByStartSec(segments, seconds) {
   while (low < high) {
     const mid = Math.floor((low + high) / 2);
     if (segments[mid].startSec <= seconds) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+function lowerBoundByTrackPosition(items, trackPosition, getTrackPosition = getEventTrackPosition) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getTrackPosition(items[mid]) < trackPosition) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+function upperBoundByTrackPosition(items, trackPosition, getTrackPosition = getEventTrackPosition) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (getTrackPosition(items[mid]) <= trackPosition) {
       low = mid + 1;
     } else {
       high = mid;
@@ -775,6 +884,26 @@ function compareLongNoteEndBeat(left, right) {
   return (left.timeSec ?? 0) - (right.timeSec ?? 0);
 }
 
+function compareTrackEvent(left, right) {
+  if (finiteOrZero(left?.trackPosition) !== finiteOrZero(right?.trackPosition)) {
+    return finiteOrZero(left?.trackPosition) - finiteOrZero(right?.trackPosition);
+  }
+  if (finiteOrZero(left?.timeSec) !== finiteOrZero(right?.timeSec)) {
+    return finiteOrZero(left?.timeSec) - finiteOrZero(right?.timeSec);
+  }
+  if (finiteOrZero(left?.beat) !== finiteOrZero(right?.beat)) {
+    return finiteOrZero(left?.beat) - finiteOrZero(right?.beat);
+  }
+  return (left?.lane ?? 0) - (right?.lane ?? 0);
+}
+
+function compareGameLongBodyEndTrack(left, right) {
+  if (finiteOrZero(left?.endTrackPosition) !== finiteOrZero(right?.endTrackPosition)) {
+    return finiteOrZero(left?.endTrackPosition) - finiteOrZero(right?.endTrackPosition);
+  }
+  return compareTrackEvent(left, right);
+}
+
 function compareTimedBeatLike(left, right) {
   if (Number.isFinite(left?.beat) && Number.isFinite(right?.beat) && left.beat !== right.beat) {
     return left.beat - right.beat;
@@ -807,6 +936,14 @@ function createTimedLaneKey(input, timeSec, side = undefined) {
     return createTimedLaneKey(input.lane, input.timeSec ?? input.endTimeSec, input.side);
   }
   return `${side ?? "-"}:${input}:${Math.round((timeSec ?? 0) * 1000000)}`;
+}
+
+function getEventTrackPosition(item) {
+  return Number.isFinite(item?.trackPosition) ? item.trackPosition : 0;
+}
+
+function getNoteEndTrackPosition(note) {
+  return Number.isFinite(note?.endTrackPosition) ? note.endTrackPosition : getEventTrackPosition(note);
 }
 
 function finiteOrZero(value) {

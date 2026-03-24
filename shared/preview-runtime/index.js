@@ -28,7 +28,52 @@ export const INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibl
 export { DEFAULT_VIEWER_MODE };
 export { DEFAULT_INVISIBLE_NOTE_VISIBILITY };
 
+const PREVIEW_RENDER_DIRTY = {
+  record: 1 << 0,
+  selection: 1 << 1,
+  viewerModel: 1 << 2,
+  playback: 1 << 3,
+  pin: 1 << 4,
+  viewerMode: 1 << 5,
+  invisible: 1 << 6,
+  viewerOpen: 1 << 7,
+};
+const PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
+
 const bmsSearchPatternAvailabilityCache = new Map();
+
+export function createPreviewPreferenceStorage({ read = () => null, write = () => {} } = {}) {
+  return {
+    getPersistedViewerMode() {
+      try {
+        return read(VIEWER_MODE_STORAGE_KEY, DEFAULT_VIEWER_MODE);
+      } catch (_error) {
+        return DEFAULT_VIEWER_MODE;
+      }
+    },
+    setPersistedViewerMode(nextViewerMode) {
+      try {
+        write(VIEWER_MODE_STORAGE_KEY, nextViewerMode);
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedInvisibleNoteVisibility() {
+      try {
+        return read(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, DEFAULT_INVISIBLE_NOTE_VISIBILITY);
+      } catch (_error) {
+        return DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+      }
+    },
+    setPersistedInvisibleNoteVisibility(nextVisibility) {
+      try {
+        write(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, nextVisibility);
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+  };
+}
 
 export const BMSDATA_CSS = `
   .bmsdata {
@@ -358,6 +403,7 @@ export function createBmsInfoPreview({
     viewerModel: null,
     loadToken: 0,
     renderFrameId: null,
+    pendingRenderMask: 0,
     playbackFrameId: null,
     lastPlaybackTimestamp: null,
     lastViewerOpenState: false,
@@ -399,7 +445,7 @@ export function createBmsInfoPreview({
       if (!state.isPinned && !state.isPlaying) {
         state.isViewerOpen = false;
       }
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerOpen);
     },
     onSelectTime: (timeSec) => {
       state.isPinned = true;
@@ -416,7 +462,7 @@ export function createBmsInfoPreview({
       } else if (!state.isGraphHovered && !state.isPlaying) {
         state.isViewerOpen = false;
       }
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.pin | PREVIEW_RENDER_DIRTY.viewerOpen);
     },
   });
 
@@ -439,6 +485,7 @@ export function createBmsInfoPreview({
     const previousSha256 = state.record?.sha256 ?? null;
     const nextSha256Value = normalizedRecord?.sha256 ?? null;
     const recordChanged = previousSha256 !== nextSha256Value || state.record !== normalizedRecord;
+    let renderMask = 0;
     state.record = normalizedRecord;
     if (!normalizedRecord) {
       state.selectedSha256 = null;
@@ -447,15 +494,15 @@ export function createBmsInfoPreview({
       state.selectedTimeSec = 0;
       state.selectedBeat = 0;
       state.isViewerOpen = false;
-      graphController.setRecord(null);
-      scheduleRender();
+      renderMask |= PREVIEW_RENDER_ALL;
+      scheduleRender(renderMask);
       return;
     }
 
     if (recordChanged) {
       renderBmsData(container, normalizedRecord);
-      graphController.setRecord(normalizedRecord);
       shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(normalizedRecord.mode)}px`);
+      renderMask |= PREVIEW_RENDER_DIRTY.record;
     }
 
     const nextSha256 = normalizedRecord.sha256 ? normalizedRecord.sha256.toLowerCase() : null;
@@ -467,17 +514,17 @@ export function createBmsInfoPreview({
       state.selectedSha256 = nextSha256;
       state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
       state.selectedBeat = getBeatAtTimeSec(state.viewerModel, state.selectedTimeSec);
+      renderMask |= PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection;
     } else if (state.selectedSha256 !== nextSha256) {
       state.parsedScore = null;
       state.viewerModel = null;
       state.selectedSha256 = nextSha256;
       state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
       state.selectedBeat = 0;
+      renderMask |= PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection;
     }
 
-    graphController.setPinned(state.isPinned);
-    graphController.setSelectedTimeSec(state.selectedTimeSec);
-    scheduleRender();
+    scheduleRender(renderMask || PREVIEW_RENDER_DIRTY.selection);
   }
 
   async function prefetch() {
@@ -512,17 +559,17 @@ export function createBmsInfoPreview({
     if (!sha256) {
       state.parsedScore = null;
       state.viewerModel = null;
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.viewerOpen);
       return;
     }
 
     if (state.selectedSha256 === sha256 && state.viewerModel) {
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerOpen);
       return;
     }
 
     state.selectedSha256 = sha256;
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerOpen);
     await loadSelectedRecord(state.record);
   }
 
@@ -531,7 +578,7 @@ export function createBmsInfoPreview({
       state.parsedScore = null;
       state.viewerModel = null;
       state.selectedBeat = 0;
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection);
       return;
     }
 
@@ -583,7 +630,7 @@ export function createBmsInfoPreview({
       state.viewerModel = null;
       state.selectedBeat = 0;
       state.isViewerOpen = false;
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection | PREVIEW_RENDER_DIRTY.viewerOpen);
     }
   }
 
@@ -592,7 +639,7 @@ export function createBmsInfoPreview({
     state.viewerModel = viewerModel;
     state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
     state.selectedBeat = getBeatAtTimeSec(state.viewerModel, state.selectedTimeSec);
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection);
   }
 
   function setSelectedTimeSec(nextTimeSec, { openViewer = false, notify = false, beatHint = undefined, source = "external" } = {}) {
@@ -623,13 +670,15 @@ export function createBmsInfoPreview({
     if (!changed && !openViewer) {
       return;
     }
-    scheduleRender();
+    scheduleRender(
+      PREVIEW_RENDER_DIRTY.selection
+      | (openViewer ? PREVIEW_RENDER_DIRTY.viewerOpen : 0),
+    );
   }
 
   function setViewerMode(nextViewerMode) {
     const normalizedMode = normalizeViewerMode(nextViewerMode);
     if (state.viewerMode === normalizedMode) {
-      scheduleRender();
       return;
     }
     state.viewerMode = normalizedMode;
@@ -639,13 +688,12 @@ export function createBmsInfoPreview({
     } catch (error) {
       console.warn("Failed to persist viewer mode:", error);
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.selection);
   }
 
   function setInvisibleNoteVisibility(nextVisibility) {
     const normalizedVisibility = normalizeInvisibleNoteVisibility(nextVisibility);
     if (state.invisibleNoteVisibility === normalizedVisibility) {
-      scheduleRender();
       return;
     }
     state.invisibleNoteVisibility = normalizedVisibility;
@@ -654,7 +702,7 @@ export function createBmsInfoPreview({
     } catch (error) {
       console.warn("Failed to persist invisible note visibility:", error);
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.invisible);
   }
 
   function setPinned(nextPinned) {
@@ -670,7 +718,7 @@ export function createBmsInfoPreview({
     } else if (!state.isGraphHovered && !state.isPlaying) {
       state.isViewerOpen = false;
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.pin | PREVIEW_RENDER_DIRTY.viewerOpen);
   }
 
   function setPlaybackState(nextPlaying) {
@@ -679,7 +727,7 @@ export function createBmsInfoPreview({
     }
     if (!state.viewerModel || !state.parsedScore) {
       stopPlayback(false);
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.playback);
       return;
     }
     if (nextPlaying) {
@@ -707,7 +755,7 @@ export function createBmsInfoPreview({
     if (state.playbackFrameId !== null) {
       cancelAnimationFrame(state.playbackFrameId);
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.playback | PREVIEW_RENDER_DIRTY.viewerOpen);
     state.playbackFrameId = requestAnimationFrame(stepPlayback);
   }
 
@@ -722,7 +770,7 @@ export function createBmsInfoPreview({
       onPlaybackChange(false);
     }
     if (renderAfter) {
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.playback);
     }
   }
 
@@ -761,35 +809,61 @@ export function createBmsInfoPreview({
         source: "playback",
       });
     }
-    scheduleRender();
+    scheduleRender(PREVIEW_RENDER_DIRTY.selection);
     if (nextTimeSec >= maxTimeSec - 0.0005) {
       stopPlayback(false);
-      scheduleRender();
+      scheduleRender(PREVIEW_RENDER_DIRTY.selection | PREVIEW_RENDER_DIRTY.playback);
       return;
     }
     state.playbackFrameId = requestAnimationFrame(stepPlayback);
   }
 
-  function scheduleRender() {
-    if (state.isDestroyed || state.renderFrameId !== null) {
+  function scheduleRender(renderMask = PREVIEW_RENDER_ALL) {
+    if (state.isDestroyed) {
+      return;
+    }
+    state.pendingRenderMask |= renderMask;
+    if (state.renderFrameId !== null) {
       return;
     }
     state.renderFrameId = requestAnimationFrame(() => {
       state.renderFrameId = null;
-      flushRender();
+      flushRender(state.pendingRenderMask);
+      state.pendingRenderMask = 0;
     });
   }
 
-  function flushRender() {
-    graphController.setPinned(state.isPinned);
-    graphController.setSelectedTimeSec(state.selectedTimeSec);
-    viewerController.setPlaybackState(state.isPlaying);
-    viewerController.setPinned(state.isPinned);
-    viewerController.setModel(state.viewerModel);
-    viewerController.setViewerMode(state.viewerMode);
-    viewerController.setInvisibleNoteVisibility(state.invisibleNoteVisibility);
-    viewerController.setSelectedTimeSec(state.selectedTimeSec, { beatHint: state.selectedBeat });
-    viewerController.setOpen(Boolean(state.isViewerOpen && state.viewerModel));
+  function flushRender(renderMask = PREVIEW_RENDER_ALL) {
+    if (renderMask & PREVIEW_RENDER_DIRTY.record) {
+      graphController.setRecord(state.record);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.pin) {
+      graphController.setPinned(state.isPinned);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.selection) {
+      graphController.setSelectedTimeSec(state.selectedTimeSec);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+      viewerController.setModel(state.viewerModel);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
+      viewerController.setViewerMode(state.viewerMode);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.invisible) {
+      viewerController.setInvisibleNoteVisibility(state.invisibleNoteVisibility);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.playback) {
+      viewerController.setPlaybackState(state.isPlaying);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.pin) {
+      viewerController.setPinned(state.isPinned);
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.selection || renderMask & PREVIEW_RENDER_DIRTY.viewerModel || renderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
+      viewerController.setSelectedTimeSec(state.selectedTimeSec, { beatHint: state.selectedBeat });
+    }
+    if (renderMask & PREVIEW_RENDER_DIRTY.viewerOpen || renderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
+      viewerController.setOpen(Boolean(state.isViewerOpen && state.viewerModel));
+    }
 
     const isActuallyOpen = Boolean(state.isViewerOpen && state.viewerModel);
     if (state.lastViewerOpenState !== isActuallyOpen) {

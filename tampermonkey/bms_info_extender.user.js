@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      1.6.0
+// @version      1.6.1
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -109,6 +109,9 @@
       maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
     }
     for (const event of score.scrollChanges ?? []) {
+      maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
+    }
+    for (const event of score.timingActions ?? []) {
       maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
     }
     return Math.max(maxBeat, 0);
@@ -330,17 +333,7 @@
     if (!initialBpm) {
       return null;
     }
-    const actions = [];
-    for (const event of score.bpmChanges ?? []) {
-      if (Number.isFinite(event?.beat) && Number.isFinite(event?.bpm) && event.bpm > 0) {
-        actions.push({ type: "bpm", beat: event.beat, bpm: event.bpm });
-      }
-    }
-    for (const event of score.stops ?? []) {
-      if (Number.isFinite(event?.beat) && Number.isFinite(event?.stopBeats) && event.stopBeats > 0) {
-        actions.push({ type: "stop", beat: event.beat, stopBeats: event.stopBeats });
-      }
-    }
+    const actions = createTimingActions(score);
     actions.sort(compareTimingAction);
     const stateBeats = new Array(actions.length);
     const stateSeconds = new Array(actions.length);
@@ -351,23 +344,29 @@
     let currentBpm = initialBpm;
     for (let index = 0; index < actions.length; index += 1) {
       const action = actions[index];
-      if (action.beat > currentBeat) {
-        const nextSeconds = currentSeconds + (action.beat - currentBeat) * 60 / currentBpm;
+      const actionBeat = Number.isFinite(action.beat) ? Math.max(action.beat, currentBeat) : currentBeat;
+      let actionTimeSec = Number.isFinite(action.timeSec) ? Math.max(action.timeSec, currentSeconds) : currentSeconds + (actionBeat - currentBeat) * 60 / currentBpm;
+      if (actionBeat > currentBeat && actionTimeSec <= currentSeconds) {
+        actionTimeSec = currentSeconds + (actionBeat - currentBeat) * 60 / currentBpm;
+      }
+      if (actionBeat > currentBeat) {
+        const nextSeconds = actionTimeSec;
         segments.push({
           type: "linear",
           startSec: currentSeconds,
           endSec: nextSeconds,
           startBeat: currentBeat,
-          endBeat: action.beat,
-          bpm: currentBpm
+          endBeat: actionBeat
         });
-        currentBeat = action.beat;
+        currentBeat = actionBeat;
         currentSeconds = nextSeconds;
+      } else {
+        currentSeconds = actionTimeSec;
       }
       if (action.type === "bpm") {
         currentBpm = action.bpm;
       } else {
-        const stopDurationSec = (action.stopBeats ?? 0) * 60 / currentBpm;
+        const stopDurationSec = Number.isFinite(action.durationSec) && action.durationSec > 0 ? action.durationSec : (action.stopBeats ?? 0) * 60 / currentBpm;
         if (stopDurationSec > 0) {
           segments.push({
             type: "stop",
@@ -409,12 +408,73 @@
             if (segment.type === "stop") {
               return segment.beat;
             }
-            return segment.startBeat + (normalizedSeconds - segment.startSec) * segment.bpm / 60;
+            const secSpan = segment.endSec - segment.startSec;
+            if (secSpan <= 0) {
+              return segment.endBeat;
+            }
+            return segment.startBeat + (normalizedSeconds - segment.startSec) * (segment.endBeat - segment.startBeat) / secSpan;
           }
         }
         return currentBeat + (normalizedSeconds - currentSeconds) * currentBpm / 60;
       }
     };
+  }
+  function createTimingActions(score) {
+    const timingActions = createTimingActionsFromCanonicalScore(score);
+    if (timingActions.length > 0) {
+      return timingActions;
+    }
+    return createFallbackTimingActions(score);
+  }
+  function createTimingActionsFromCanonicalScore(score) {
+    return [...score?.timingActions ?? []].filter((action) => Number.isFinite(action?.beat) && action.type === "bpm" && Number.isFinite(action?.bpm) && action.bpm > 0 || Number.isFinite(action?.beat) && action.type === "stop" && Number.isFinite(action?.stopBeats) && action.stopBeats > 0).map((action) => {
+      if (action.type === "bpm") {
+        return {
+          type: "bpm",
+          beat: action.beat,
+          timeSec: action.timeSec,
+          bpm: action.bpm
+        };
+      }
+      return {
+        type: "stop",
+        beat: action.beat,
+        timeSec: action.timeSec,
+        stopBeats: action.stopBeats,
+        durationSec: action.durationSec
+      };
+    });
+  }
+  function createFallbackTimingActions(score) {
+    const actions = [];
+    for (const event of score?.bpmChanges ?? []) {
+      if (Number.isFinite(event?.beat) && Number.isFinite(event?.bpm) && event.bpm > 0) {
+        actions.push({
+          type: "bpm",
+          beat: event.beat,
+          timeSec: event.timeSec,
+          bpm: event.bpm
+        });
+      }
+    }
+    for (const event of score?.stops ?? []) {
+      if (!Number.isFinite(event?.beat) || !Number.isFinite(event?.stopBeats) || event.stopBeats <= 0) {
+        continue;
+      }
+      const action = {
+        type: "stop",
+        beat: event.beat,
+        stopBeats: event.stopBeats
+      };
+      if (Number.isFinite(event?.durationSec) && event.durationSec > 0) {
+        action.durationSec = event.durationSec;
+        if (Number.isFinite(event?.timeSec)) {
+          action.timeSec = event.timeSec - event.durationSec;
+        }
+      }
+      actions.push(action);
+    }
+    return actions;
   }
   function upperBoundByTime(items, timeSec) {
     let low = 0;
@@ -3210,7 +3270,7 @@
     GM_addStyle(fontCSS);
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-    const SCORE_PARSER_VERSION = "0.6.0";
+    const SCORE_PARSER_VERSION = "0.6.1";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
     let scoreLoaderContextPromise = null;
     let activeBmsPreviewRuntime = null;

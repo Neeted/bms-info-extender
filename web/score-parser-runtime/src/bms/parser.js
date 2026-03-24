@@ -1,5 +1,11 @@
 import { createEmptyScore, createWarning, failure, success } from "../dto.js";
-import { TimeSignatures, Timing } from "../shared/timing.js";
+import {
+  TimeSignatures,
+  Timing,
+  buildBpmChangesFromTimingActions,
+  buildStopsFromTimingActions,
+  materializeTimingActions,
+} from "../shared/timing.js";
 import { compileBms } from "./compiler.js";
 import {
   detectBmsMode,
@@ -24,6 +30,7 @@ export function parseBmsText(text, options) {
 
   const timingWarnings = [];
   const timing = buildTiming(chart, timingWarnings);
+  const timingActions = materializeTimingActions(timing);
   const timelineObjects = chart.objects.map((object) => {
     const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
     return {
@@ -37,8 +44,8 @@ export function parseBmsText(text, options) {
   const noteWarnings = [];
   const { notes, comboEvents, lastPlayableTimeSec } = buildNotes(timelineObjects, mode, chart.headers, noteWarnings);
   const barLines = buildBarLines(chart.timeSignatures, timing, timelineObjects);
-  const bpmChanges = buildBpmChanges(chart, timingWarnings, timing);
-  const stops = buildStops(chart, timingWarnings, timing);
+  const bpmChanges = buildBpmChangesFromTimingActions(timing.initialBpm, timingActions);
+  const stops = buildStopsFromTimingActions(timingActions);
   const scrollChanges = buildScrollChanges(chart, timingWarnings, timing);
   const lastTimelineTimeSec = computeLastTimelineTimeSec(timelineObjects, notes, lastPlayableTimeSec);
 
@@ -54,6 +61,7 @@ export function parseBmsText(text, options) {
     bpmChanges,
     stops,
     scrollChanges,
+    timingActions,
     warnings: [...warnings, ...timingWarnings, ...noteWarnings],
     lastPlayableTimeSec,
     lastTimelineTimeSec,
@@ -101,67 +109,6 @@ function buildTiming(chart, warnings) {
   }
 
   return new Timing(initialBpm, actions);
-}
-
-function buildBpmChanges(chart, warnings, timing) {
-  const changes = [];
-  let currentBpm = Number.parseFloat(chart.headers.get("BPM") ?? "60");
-  if (!Number.isFinite(currentBpm) || currentBpm <= 0) {
-    currentBpm = 60;
-  }
-
-  const extendedBpmCache = new Map();
-  for (const object of chart.objects) {
-    const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
-    let nextBpm = null;
-    if (object.channel === "03") {
-      const bpm = Number.parseInt(object.value, 16);
-      if (Number.isFinite(bpm) && bpm > 0) {
-        nextBpm = bpm;
-      }
-    } else if (object.channel === "08") {
-      const bpm = resolveExtendedBpm(chart.headers, object.value, extendedBpmCache);
-      if (bpm !== null) {
-        nextBpm = bpm;
-      } else {
-        warnings.push(createWarning("parse_warning", `Ignored invalid BPM change reference BPM${object.value}.`));
-      }
-    }
-
-    if (nextBpm !== null && nextBpm !== currentBpm) {
-      changes.push({ beat, timeSec: timing.beatToSeconds(beat), bpm: nextBpm });
-      currentBpm = nextBpm;
-    } else if (nextBpm !== null) {
-      currentBpm = nextBpm;
-    }
-  }
-  changes.sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec || left.bpm - right.bpm);
-  return changes;
-}
-
-function buildStops(chart, warnings, timing) {
-  const stops = [];
-  const stopBeatsCache = new Map();
-  for (const object of chart.objects) {
-    if (object.channel !== "09") {
-      continue;
-    }
-    const stopBeats = resolveStopBeats(chart.headers, object.value, stopBeatsCache);
-    if (stopBeats === null) {
-      warnings.push(createWarning("parse_warning", `Ignored invalid STOP reference STOP${object.value}.`));
-      continue;
-    }
-    const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
-    const bpm = timing.getBpmAtBeat(beat);
-    stops.push({
-      beat,
-      timeSec: timing.beatToSeconds(beat),
-      stopBeats,
-      durationSec: (stopBeats * 60) / bpm,
-    });
-  }
-  stops.sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
-  return stops;
 }
 
 function buildScrollChanges(chart, warnings, timing) {

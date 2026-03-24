@@ -50,6 +50,33 @@ test("BMS applies extended BPM changes", () => {
   assert.equal(result.score.notes[0].timeSec, 3);
 });
 
+test("BMS exposes canonical timingActions and preserves reset BPM changes across source order", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#BPM01 240",
+    "#00103:0078",
+    "#00108:0100",
+    "#00211:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "12".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.timingActions, [
+    { type: "bpm", beat: 4, timeSec: 2, bpm: 240 },
+    { type: "bpm", beat: 6, timeSec: 2.5, bpm: 120 },
+  ]);
+  assert.deepEqual(result.score.bpmChanges, [
+    { beat: 4, timeSec: 2, bpm: 240 },
+    { beat: 6, timeSec: 2.5, bpm: 120 },
+  ]);
+  assert.equal(result.score.notes[0].beat, 8);
+  assert.equal(result.score.notes[0].timeSec, 3.5);
+});
+
 test("BMS applies STOP timing", () => {
   const chart = [
     "#PLAYER 1",
@@ -66,6 +93,9 @@ test("BMS applies STOP timing", () => {
   assert.equal(result.ok, true);
   assert.equal(result.score.stops.length, 1);
   assert.deepEqual(result.score.stops[0], { beat: 4, timeSec: 2.5, stopBeats: 1, durationSec: 0.5 });
+  assert.deepEqual(result.score.timingActions, [
+    { type: "stop", beat: 4, timeSec: 2, stopBeats: 1, durationSec: 0.5 },
+  ]);
   assert.equal(result.score.notes[0].timeSec, 4.5);
 });
 
@@ -463,6 +493,10 @@ test("BMSON exposes separate playable and timeline durations", () => {
   assert.equal(result.score.notes[1].endBeat, 5);
   assert.deepEqual(result.score.bpmChanges[0], { beat: 2, timeSec: 1, bpm: 180 });
   assert.deepEqual(result.score.stops[0], { beat: 3, timeSec: 1.5, stopBeats: 0.5, durationSec: 1 / 6 });
+  assert.deepEqual(result.score.timingActions, [
+    { type: "bpm", beat: 2, timeSec: 1, bpm: 180 },
+    { type: "stop", beat: 3, timeSec: 4 / 3, stopBeats: 0.5, durationSec: 1 / 6 },
+  ]);
   assert.deepEqual(result.score.barLines[0], { beat: 0, timeSec: 0 });
   assert.deepEqual(result.score.barLines[1], { beat: 4, timeSec: 11 / 6 });
   assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["normal", "long-start"]);

@@ -108,6 +108,9 @@ export function getScoreTotalBeat(score) {
   for (const event of score.scrollChanges ?? []) {
     maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
   }
+  for (const event of score.timingActions ?? []) {
+    maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
+  }
   return Math.max(maxBeat, 0);
 }
 
@@ -407,18 +410,7 @@ function createBeatTimingIndex(score) {
     return null;
   }
 
-  const actions = [];
-  for (const event of score.bpmChanges ?? []) {
-    if (Number.isFinite(event?.beat) && Number.isFinite(event?.bpm) && event.bpm > 0) {
-      actions.push({ type: "bpm", beat: event.beat, bpm: event.bpm });
-    }
-  }
-  for (const event of score.stops ?? []) {
-    if (Number.isFinite(event?.beat) && Number.isFinite(event?.stopBeats) && event.stopBeats > 0) {
-      actions.push({ type: "stop", beat: event.beat, stopBeats: event.stopBeats });
-    }
-  }
-
+  const actions = createTimingActions(score);
   actions.sort(compareTimingAction);
 
   const stateBeats = new Array(actions.length);
@@ -432,24 +424,36 @@ function createBeatTimingIndex(score) {
 
   for (let index = 0; index < actions.length; index += 1) {
     const action = actions[index];
-    if (action.beat > currentBeat) {
-      const nextSeconds = currentSeconds + ((action.beat - currentBeat) * 60) / currentBpm;
+    const actionBeat = Number.isFinite(action.beat) ? Math.max(action.beat, currentBeat) : currentBeat;
+    let actionTimeSec = Number.isFinite(action.timeSec)
+      ? Math.max(action.timeSec, currentSeconds)
+      : currentSeconds + ((actionBeat - currentBeat) * 60) / currentBpm;
+
+    if (actionBeat > currentBeat && actionTimeSec <= currentSeconds) {
+      actionTimeSec = currentSeconds + ((actionBeat - currentBeat) * 60) / currentBpm;
+    }
+
+    if (actionBeat > currentBeat) {
+      const nextSeconds = actionTimeSec;
       segments.push({
         type: "linear",
         startSec: currentSeconds,
         endSec: nextSeconds,
         startBeat: currentBeat,
-        endBeat: action.beat,
-        bpm: currentBpm,
+        endBeat: actionBeat,
       });
-      currentBeat = action.beat;
+      currentBeat = actionBeat;
       currentSeconds = nextSeconds;
+    } else {
+      currentSeconds = actionTimeSec;
     }
 
     if (action.type === "bpm") {
       currentBpm = action.bpm;
     } else {
-      const stopDurationSec = ((action.stopBeats ?? 0) * 60) / currentBpm;
+      const stopDurationSec = Number.isFinite(action.durationSec) && action.durationSec > 0
+        ? action.durationSec
+        : ((action.stopBeats ?? 0) * 60) / currentBpm;
       if (stopDurationSec > 0) {
         segments.push({
           type: "stop",
@@ -493,12 +497,82 @@ function createBeatTimingIndex(score) {
           if (segment.type === "stop") {
             return segment.beat;
           }
-          return segment.startBeat + ((normalizedSeconds - segment.startSec) * segment.bpm) / 60;
+          const secSpan = segment.endSec - segment.startSec;
+          if (secSpan <= 0) {
+            return segment.endBeat;
+          }
+          return segment.startBeat + ((normalizedSeconds - segment.startSec) * (segment.endBeat - segment.startBeat)) / secSpan;
         }
       }
       return currentBeat + ((normalizedSeconds - currentSeconds) * currentBpm) / 60;
     },
   };
+}
+
+function createTimingActions(score) {
+  const timingActions = createTimingActionsFromCanonicalScore(score);
+  if (timingActions.length > 0) {
+    return timingActions;
+  }
+  return createFallbackTimingActions(score);
+}
+
+function createTimingActionsFromCanonicalScore(score) {
+  return [...(score?.timingActions ?? [])]
+    .filter((action) => Number.isFinite(action?.beat) && action.type === "bpm" && Number.isFinite(action?.bpm) && action.bpm > 0
+      || Number.isFinite(action?.beat) && action.type === "stop" && Number.isFinite(action?.stopBeats) && action.stopBeats > 0)
+    .map((action) => {
+      if (action.type === "bpm") {
+        return {
+          type: "bpm",
+          beat: action.beat,
+          timeSec: action.timeSec,
+          bpm: action.bpm,
+        };
+      }
+      return {
+        type: "stop",
+        beat: action.beat,
+        timeSec: action.timeSec,
+        stopBeats: action.stopBeats,
+        durationSec: action.durationSec,
+      };
+    });
+}
+
+function createFallbackTimingActions(score) {
+  const actions = [];
+
+  for (const event of score?.bpmChanges ?? []) {
+    if (Number.isFinite(event?.beat) && Number.isFinite(event?.bpm) && event.bpm > 0) {
+      actions.push({
+        type: "bpm",
+        beat: event.beat,
+        timeSec: event.timeSec,
+        bpm: event.bpm,
+      });
+    }
+  }
+
+  for (const event of score?.stops ?? []) {
+    if (!Number.isFinite(event?.beat) || !Number.isFinite(event?.stopBeats) || event.stopBeats <= 0) {
+      continue;
+    }
+    const action = {
+      type: "stop",
+      beat: event.beat,
+      stopBeats: event.stopBeats,
+    };
+    if (Number.isFinite(event?.durationSec) && event.durationSec > 0) {
+      action.durationSec = event.durationSec;
+      if (Number.isFinite(event?.timeSec)) {
+        action.timeSec = event.timeSec - event.durationSec;
+      }
+    }
+    actions.push(action);
+  }
+
+  return actions;
 }
 
 function upperBoundByTime(items, timeSec) {

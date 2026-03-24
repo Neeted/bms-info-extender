@@ -102,6 +102,33 @@ test("viewer model converts between seconds and beats across BPM changes and STO
   assert.equal(getTimeSecForBeat(model, 10), 4.5);
 });
 
+test("viewer model prefers parser timingActions over lossy bpmChanges", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 5.75,
+    lastPlayableTimeSec: 5.75,
+    lastTimelineTimeSec: 5.75,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 3.75 }, { beat: 12, timeSec: 5.75 }],
+    bpmChanges: [{ beat: 4, timeSec: 2, bpm: 240 }],
+    stops: [],
+    scrollChanges: [],
+    timingActions: [
+      { type: "bpm", beat: 4, timeSec: 2, bpm: 240 },
+      { type: "bpm", beat: 5, timeSec: 2.25, bpm: 120 },
+    ],
+    warnings: [],
+  });
+
+  assert.equal(getBeatAtTimeSec(model, 3), 6.5);
+  assert.equal(getTimeSecForBeat(model, 6.5), 3);
+});
+
 test("viewer model editor scroll mapping uses beat axis", () => {
   const model = createScoreViewerModel({
     format: "bms",

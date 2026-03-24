@@ -1,5 +1,6 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
+// 1.6.1 Editor モードの timing を parser 由来の正規 action に切り替え、ギミック譜面で停止する不具合を修正
 // 1.6.0 譜面ビューワへ Time / Editor / Game モード切替を追加
 // 1.5.0 preview/runtime の source を shared/dev/userscript へ分離し、build 生成へ移行
 // 1.4.0 preview runtime を dev page と共通化し、graph hover 時の無駄な再描画を削減
@@ -20,7 +21,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-  const SCORE_PARSER_VERSION = "0.6.0";
+  const SCORE_PARSER_VERSION = "0.6.1";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   let scoreLoaderContextPromise = null;
   let activeBmsPreviewRuntime = null;

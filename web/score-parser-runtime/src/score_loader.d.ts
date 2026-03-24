@@ -68,6 +68,15 @@ export type ParsedScrollChange = {
     rate: number;
 };
 
+export type ParsedTimingAction = {
+    type: "bpm" | "stop";
+    beat: number;
+    timeSec: number;
+    bpm?: number;
+    stopBeats?: number;
+    durationSec?: number;
+};
+
 export type ParsedWarning = {
     type: ParsedWarningType;
     message: string;
@@ -103,6 +112,7 @@ export type ParsedScore = {
     bpmChanges: ParsedBpmChange[];
     stops: ParsedStop[];
     scrollChanges: ParsedScrollChange[];
+    timingActions: ParsedTimingAction[];
     warnings: ParsedWarning[];
 };
 

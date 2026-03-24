@@ -1,5 +1,10 @@
 import { createEmptyScore, createWarning, failure, success } from "../dto.js";
-import { Timing } from "../shared/timing.js";
+import {
+  Timing,
+  buildBpmChangesFromTimingActions,
+  buildStopsFromTimingActions,
+  materializeTimingActions,
+} from "../shared/timing.js";
 
 export function parseBmsonText(text, options) {
   let bmson;
@@ -56,6 +61,7 @@ export function parseBmsonText(text, options) {
   }
 
   const timing = new Timing(initialBpm, actions);
+  const timingActions = materializeTimingActions(timing);
   const notes = [];
   const comboEvents = [];
   let lastPlayableTimeSec = 0;
@@ -115,24 +121,8 @@ export function parseBmsonText(text, options) {
     return left.lane - right.lane;
   });
 
-  const bpmChanges = (bmson.bpm_events ?? [])
-    .filter((event) => Number.isFinite(event?.bpm) && event.bpm > 0 && Number.isFinite(event?.y))
-    .map((event) => ({
-      beat: event.y / resolution,
-      timeSec: timing.beatToSeconds(event.y / resolution),
-      bpm: event.bpm,
-    }))
-    .sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
-
-  const stops = (bmson.stop_events ?? [])
-    .filter((event) => Number.isFinite(event?.duration) && event.duration > 0 && Number.isFinite(event?.y))
-    .map((event) => ({
-      beat: event.y / resolution,
-      timeSec: timing.beatToSeconds(event.y / resolution),
-      stopBeats: event.duration / resolution,
-      durationSec: (event.duration / resolution) * 60 / effectiveBmsonBpmAtBeat(initialBpm, bmson.bpm_events ?? [], event.y / resolution, resolution),
-    }))
-    .sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
+  const bpmChanges = buildBpmChangesFromTimingActions(initialBpm, timingActions);
+  const stops = buildStopsFromTimingActions(timingActions);
 
   const scrollChanges = (bmson.scroll_events ?? [])
     .filter((event) => Number.isFinite(event?.rate) && Number.isFinite(event?.y))
@@ -195,6 +185,7 @@ export function parseBmsonText(text, options) {
     bpmChanges,
     stops,
     scrollChanges,
+    timingActions,
     warnings,
     lastPlayableTimeSec,
     lastTimelineTimeSec,
@@ -330,19 +321,6 @@ function mapBmsonLane(mode, xValue) {
     default:
       return null;
   }
-}
-
-function effectiveBmsonBpmAtBeat(initialBpm, bpmEvents, beat, resolution) {
-  let bpm = initialBpm;
-  for (const event of bpmEvents) {
-    if (!Number.isFinite(event?.y) || !Number.isFinite(event?.bpm) || event.bpm <= 0) {
-      continue;
-    }
-    if ((event.y / resolution) <= beat) {
-      bpm = event.bpm;
-    }
-  }
-  return bpm;
 }
 
 function shouldCountBmsonLongEnd(note) {

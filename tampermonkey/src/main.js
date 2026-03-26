@@ -1,5 +1,6 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
+// 2.0.1 STELLAVERSE SPA遷移時、前回URLの拡張情報DOMが残っている場合にスキップするガードを追加
 // 2.0.0 Gameモードを beatoraja 寄りの前方スイープ描画へ切り替え
 // 1.7.1 Game モード再生の hot path を軽量化し、graph の static/dynamic 分離と shared persistence helper を追加
 // 1.7.0 Game モードへ SCROLL 対応を追加し、beatoraja 寄りの signed displacement 描画を実装
@@ -505,6 +506,12 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         return;
       }
       console.info("スレッドページの書き換え処理に入りました");
+      // SPA遷移直後、前回URLで挿入した拡張情報DOMがまだ残っている場合は、
+      // ReactのDOM差し替え完了を待つため処理をスキップする。
+      if (document.getElementById('bmsdata-container')) {
+        console.info('前回の拡張情報がまだ残っているためスキップします');
+        return;
+      }
       // 投稿日時、経過時間の差し込み先、譜面情報テーブルをまとめて取得する。
       const stellaverseRefs = getStellaverseDomRefs();
       const { datetimeElem, targetElem, tableContainer, anchors } = stellaverseRefs;

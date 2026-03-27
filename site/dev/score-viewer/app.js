@@ -3428,6 +3428,7 @@ function createBmsInfoPreview({
   documentRef.body.appendChild(shell);
   const parsedScoreCache = /* @__PURE__ */ new Map();
   const loadPromiseCache = /* @__PURE__ */ new Map();
+  const compressedAvailabilityBySha256 = /* @__PURE__ */ new Map();
   const state2 = {
     record: null,
     selectedSha256: null,
@@ -3543,6 +3544,7 @@ function createBmsInfoPreview({
     if (parsedScore && nextSha256) {
       const viewerModel = createScoreViewerModel(parsedScore);
       parsedScoreCache.set(nextSha256, { score: parsedScore, viewerModel });
+      compressedAvailabilityBySha256.set(nextSha256, { status: "ready" });
       state2.parsedScore = parsedScore;
       state2.viewerModel = viewerModel;
       state2.selectedSha256 = nextSha256;
@@ -3563,11 +3565,7 @@ function createBmsInfoPreview({
     if (!state2.record?.sha256) {
       return;
     }
-    try {
-      await prefetchParsedScore(state2.record);
-    } catch (error) {
-      console.warn("Score prefetch failed:", error);
-    }
+    await ensureCompressedScoreAvailability(state2.record);
   }
   function handleGraphHover(timeSec) {
     state2.isGraphHovered = true;
@@ -3597,6 +3595,18 @@ function createBmsInfoPreview({
     }
     state2.selectedSha256 = sha256;
     scheduleRender(PREVIEW_RENDER_DIRTY.viewerOpen);
+    const isCompressedScoreAvailable = await ensureCompressedScoreAvailability(state2.record);
+    if (state2.isDestroyed || getNormalizedRecordSha256(state2.record) !== sha256) {
+      return;
+    }
+    if (!isCompressedScoreAvailable) {
+      state2.parsedScore = null;
+      state2.viewerModel = null;
+      state2.selectedBeat = 0;
+      state2.isViewerOpen = false;
+      scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection | PREVIEW_RENDER_DIRTY.viewerOpen);
+      return;
+    }
     await loadSelectedRecord(state2.record);
   }
   async function loadSelectedRecord(normalizedRecord) {
@@ -3656,9 +3666,48 @@ function createBmsInfoPreview({
   function applyLoadedScore(parsedScore, viewerModel) {
     state2.parsedScore = parsedScore;
     state2.viewerModel = viewerModel;
+    if (state2.selectedSha256) {
+      compressedAvailabilityBySha256.set(state2.selectedSha256, { status: "ready" });
+    }
     state2.selectedTimeSec = clampSelectedTimeSec(state2, state2.selectedTimeSec);
     state2.selectedBeat = getBeatAtTimeSec(state2.viewerModel, state2.selectedTimeSec);
     scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection);
+  }
+  function getNormalizedRecordSha256(record) {
+    return record?.sha256 ? record.sha256.toLowerCase() : null;
+  }
+  async function ensureCompressedScoreAvailability(record) {
+    const sha256 = getNormalizedRecordSha256(record);
+    if (!sha256) {
+      return false;
+    }
+    if (parsedScoreCache.has(sha256)) {
+      compressedAvailabilityBySha256.set(sha256, { status: "ready" });
+      return true;
+    }
+    const existingAvailability = compressedAvailabilityBySha256.get(sha256);
+    if (existingAvailability?.status === "ready") {
+      return true;
+    }
+    if (existingAvailability?.status === "unavailable") {
+      return false;
+    }
+    if (existingAvailability?.status === "pending" && existingAvailability.promise) {
+      return existingAvailability.promise;
+    }
+    const availabilityPromise = Promise.resolve(prefetchParsedScore(record)).then(() => {
+      compressedAvailabilityBySha256.set(sha256, { status: "ready" });
+      return true;
+    }).catch((error) => {
+      compressedAvailabilityBySha256.set(sha256, { status: "unavailable" });
+      console.warn("Score prefetch failed:", error);
+      return false;
+    });
+    compressedAvailabilityBySha256.set(sha256, {
+      status: "pending",
+      promise: availabilityPromise
+    });
+    return availabilityPromise;
   }
   function setSelectedTimeSec2(nextTimeSec, { openViewer = false, notify = false, beatHint = void 0, source = "external" } = {}) {
     const clampedTimeSec = clampSelectedTimeSec(state2, nextTimeSec);

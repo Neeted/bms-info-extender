@@ -11,6 +11,7 @@ export const SCORE_LOADER_DB_NAME = "bms-info-extender-score-cache-v1";
 export const SCORE_LOADER_STORE_NAME = "compressed_scores";
 
 const DEFAULT_SCORE_BASE_URL = "/score";
+const DEFAULT_SCORE_PATH_STYLE = "sharded";
 const DEFAULT_FORMAT_HINT = "auto";
 const DEFAULT_TEXT_ENCODING = "auto";
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
@@ -43,6 +44,40 @@ function normalizeScoreBaseUrl(scoreBaseUrl) {
   }
   const trimmed = scoreBaseUrl.replace(/\/+$/, "");
   return trimmed === "" ? "/" : trimmed;
+}
+
+function normalizeScorePathStyle(pathStyle) {
+  return pathStyle === "flat" ? "flat" : DEFAULT_SCORE_PATH_STYLE;
+}
+
+function normalizeScoreSources(config = {}) {
+  if (Array.isArray(config.scoreSources) && config.scoreSources.length > 0) {
+    return config.scoreSources.map((source) => ({
+      baseUrl: normalizeScoreBaseUrl(source?.baseUrl),
+      pathStyle: normalizeScorePathStyle(source?.pathStyle),
+    }));
+  }
+
+  return [{
+    baseUrl: normalizeScoreBaseUrl(config.scoreBaseUrl),
+    pathStyle: DEFAULT_SCORE_PATH_STYLE,
+  }];
+}
+
+function buildScoreUrl(baseUrl, sha256, pathStyle) {
+  const normalizedSha256 = normalizeSha256(sha256);
+  if (pathStyle === "flat") {
+    if (baseUrl === "/") {
+      return `/${normalizedSha256}.gz`;
+    }
+    return `${baseUrl}/${normalizedSha256}.gz`;
+  }
+
+  const prefix = normalizedSha256.slice(0, 2);
+  if (baseUrl === "/") {
+    return `/${prefix}/${normalizedSha256}.gz`;
+  }
+  return `${baseUrl}/${prefix}/${normalizedSha256}.gz`;
 }
 
 function normalizeEnumValue(value, allowedValues, fallbackValue) {
@@ -201,7 +236,7 @@ function buildParsedCacheKey(sha256, formatHint, textEncoding) {
 }
 
 export function createScoreLoader(config = {}) {
-  const scoreBaseUrl = normalizeScoreBaseUrl(config.scoreBaseUrl);
+  const scoreSources = normalizeScoreSources(config);
   const dbName = typeof config.dbName === "string" && config.dbName.length > 0
     ? config.dbName
     : SCORE_LOADER_DB_NAME;
@@ -215,12 +250,11 @@ export function createScoreLoader(config = {}) {
   const parsedValueCache = new Map();
 
   function resolveScoreUrl(sha256) {
-    const normalizedSha256 = normalizeSha256(sha256);
-    const prefix = normalizedSha256.slice(0, 2);
-    if (scoreBaseUrl === "/") {
-      return `/${prefix}/${normalizedSha256}.gz`;
-    }
-    return `${scoreBaseUrl}/${prefix}/${normalizedSha256}.gz`;
+    return buildScoreUrl(scoreSources[0].baseUrl, sha256, scoreSources[0].pathStyle);
+  }
+
+  function resolveScoreUrls(sha256) {
+    return scoreSources.map((source) => buildScoreUrl(source.baseUrl, sha256, source.pathStyle));
   }
 
   async function loadCompressedScore(sha256) {
@@ -241,15 +275,18 @@ export function createScoreLoader(config = {}) {
       return pendingPromise;
     }
 
-    const url = resolveScoreUrl(normalizedSha256);
+    const candidateUrls = resolveScoreUrls(normalizedSha256);
     const loadPromise = (async () => {
       try {
         try {
           const idbRecord = await idbStore.get(normalizedSha256);
           if (idbRecord !== null) {
             const gzipBytes = toOwnedArrayBuffer(idbRecord.gzipBytes);
+            const cachedUrl = typeof idbRecord.url === "string" && idbRecord.url.length > 0
+              ? idbRecord.url
+              : candidateUrls[0];
             compressedValueCache.set(normalizedSha256, {
-              url,
+              url: cachedUrl,
               gzipBytes,
               gzipByteLength: gzipBytes.byteLength,
               fetchedAt: idbRecord.fetchedAt ?? Date.now(),
@@ -259,52 +296,69 @@ export function createScoreLoader(config = {}) {
               source: "idb",
               bytes: cloneBytes(gzipBytes),
               byteLength: gzipBytes.byteLength,
-              url,
+              url: cachedUrl,
             };
           }
         } catch (error) {
           warnIdbFailure("IndexedDB read failed, continuing with network fetch.", error);
         }
 
-        let response;
-        try {
-          response = await fetch(url);
-        } catch (error) {
-          throw new ScoreLoaderError("network_failure", `Failed to fetch compressed score: ${url}`, { cause: error });
-        }
+        let lastFailure = null;
+        for (const url of candidateUrls) {
+          let response;
+          try {
+            response = await fetch(url);
+          } catch (error) {
+            lastFailure = new ScoreLoaderError("network_failure", `Failed to fetch compressed score: ${url}`, { cause: error });
+            continue;
+          }
 
-        if (!response.ok) {
-          throw new ScoreLoaderError("network_failure", `Failed to fetch compressed score: ${url} (${response.status} ${response.statusText})`);
-        }
+          if (!response.ok) {
+            lastFailure = new ScoreLoaderError(
+              "network_failure",
+              `Failed to fetch compressed score: ${url} (${response.status} ${response.statusText})`,
+            );
+            continue;
+          }
 
-        const gzipBytes = await response.arrayBuffer();
-        const memoryRecord = {
-          url,
-          gzipBytes: cloneArrayBuffer(gzipBytes),
-          gzipByteLength: gzipBytes.byteLength,
-          fetchedAt: Date.now(),
-        };
-        compressedValueCache.set(normalizedSha256, memoryRecord);
+          let gzipBytes;
+          try {
+            gzipBytes = await response.arrayBuffer();
+          } catch (error) {
+            lastFailure = new ScoreLoaderError("network_failure", `Failed to read compressed score body: ${url}`, { cause: error });
+            continue;
+          }
 
-        try {
-          await idbStore.put({
-            sha256: normalizedSha256,
+          const memoryRecord = {
             url,
             gzipBytes: cloneArrayBuffer(gzipBytes),
             gzipByteLength: gzipBytes.byteLength,
-            fetchedAt: memoryRecord.fetchedAt,
-          });
-        } catch (error) {
-          warnIdbFailure("IndexedDB write failed, keeping memory cache only.", error);
+            fetchedAt: Date.now(),
+          };
+          compressedValueCache.set(normalizedSha256, memoryRecord);
+
+          try {
+            await idbStore.put({
+              sha256: normalizedSha256,
+              url,
+              gzipBytes: cloneArrayBuffer(gzipBytes),
+              gzipByteLength: gzipBytes.byteLength,
+              fetchedAt: memoryRecord.fetchedAt,
+            });
+          } catch (error) {
+            warnIdbFailure("IndexedDB write failed, keeping memory cache only.", error);
+          }
+
+          return {
+            sha256: normalizedSha256,
+            source: "network",
+            bytes: new Uint8Array(gzipBytes),
+            byteLength: gzipBytes.byteLength,
+            url,
+          };
         }
 
-        return {
-          sha256: normalizedSha256,
-          source: "network",
-          bytes: new Uint8Array(gzipBytes),
-          byteLength: gzipBytes.byteLength,
-          url,
-        };
+        throw lastFailure ?? new ScoreLoaderError("network_failure", `Failed to fetch compressed score: ${candidateUrls[0]}`);
       } finally {
         compressedPromiseCache.delete(normalizedSha256);
       }

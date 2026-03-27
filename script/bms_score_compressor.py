@@ -1,5 +1,5 @@
 """
-BMS本体ファイルをgzip圧縮して保存するスクリプト
+BMS本体ファイルを gzip 圧縮し、R2 と Netlify 配信用成果物へ反映するスクリプト
 
 入力データ:
 - BMSプレイヤーのDBデータ (song.db, songdata.db)
@@ -7,11 +7,14 @@ BMS本体ファイルをgzip圧縮して保存するスクリプト
 処理内容:
 - DBから md5 / sha256 / path を取得
 - 前回キャッシュ(Arrow)と照合して増分のみ処理
-- 必要なBMS本体ファイルをgzip圧縮して site/score/<sha256[:2]>/<sha256>.gz に保存
+- 必要なBMS本体ファイルをgzip圧縮して staging へ保存
+- staging または既存 gzip を R2 へアップロード
+- R2 アップロード成功分のみ site/score/<sha256[:2]>/<sha256>.gz へ反映
 - 圧縮済みファイルが存在する場合はArrowキャッシュを補完
 
 出力:
 - site/score/<sha256[:2]>/<sha256>.gz にgzip圧縮済みファイル
+- data/score_staging/<sha256>.gz にアップロード待ち gzip
 - data/score_processed.arrow に処理済みキャッシュ
 """
 from __future__ import annotations
@@ -22,7 +25,8 @@ import hashlib
 import logging
 import os
 import sqlite3
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import threading
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +35,7 @@ import polars as pl
 from tqdm import tqdm
 
 from common import DATA_DIR, ROOT_DIR, load_config, setup_logging, write_arrow_safe
+from r2_common import create_r2_client
 
 
 QUERY = """
@@ -61,7 +66,11 @@ CACHE_SCHEMA: dict[str, pl.DataType] = {
 }
 
 OUTPUT_DIR = ROOT_DIR / "site" / "score"
+STAGING_DIR = DATA_DIR / "score_staging"
 CACHE_PATH = DATA_DIR / "score_processed.arrow"
+R2_SCORE_PREFIX = "score"
+R2_CACHE_CONTROL = "public, max-age=31536000, immutable"
+R2_UPLOAD_WORKERS = 16
 
 ACTION_PRIORITY = {
     "skipped": 0,
@@ -196,6 +205,16 @@ def score_file_path(sha256: str) -> Path:
     return OUTPUT_DIR / sha256[:2] / f"{sha256}.gz"
 
 
+def staging_file_path(sha256: str) -> Path:
+    """staging 上の gzip パスを返す。"""
+    return STAGING_DIR / f"{sha256}.gz"
+
+
+def score_r2_key(sha256: str) -> str:
+    """譜面 gzip の R2 オブジェクトキーを返す。"""
+    return f"{R2_SCORE_PREFIX}/{sha256}.gz"
+
+
 def file_size_if_exists(path: str | Path | None) -> int | None:
     """ファイルが存在する場合のみサイズを返す。"""
     if not path:
@@ -230,6 +249,30 @@ def build_cache_record(
     }
 
 
+def build_upload_candidate(
+    *,
+    md5: str | None,
+    sha256: str,
+    path: str,
+    source_size: int | None,
+    compressed_size: int | None,
+    action: str,
+    upload_path: str | Path,
+    finalize_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """R2 アップロード待ちの成果物情報を組み立てる。"""
+    return {
+        "md5": normalize_hash(md5),
+        "sha256": sha256,
+        "path": path,
+        "source_size": source_size,
+        "compressed_size": compressed_size,
+        "action": action,
+        "upload_path": str(upload_path),
+        "finalize_path": str(finalize_path) if finalize_path else None,
+    }
+
+
 def merge_candidate_records(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     """同じsha256またはmd5へ収束した候補行をマージする。"""
     existing_priority = ACTION_PRIORITY.get(existing.get("action", "skipped"), -1)
@@ -260,6 +303,39 @@ def merge_candidate_records(existing: dict[str, Any], incoming: dict[str, Any]) 
         preferred["action"] = existing.get("action", preferred.get("action"))
 
     return preferred
+
+
+def merge_upload_candidates(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """同じ sha256 のアップロード候補をマージする。"""
+    merged = merge_candidate_records(existing, incoming)
+    for field in ("upload_path", "finalize_path"):
+        if merged.get(field) is None:
+            merged[field] = existing.get(field) or incoming.get(field)
+    return merged
+
+
+def deduplicate_upload_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """アップロード候補を sha256 単位で 1 件にまとめる。"""
+    unique_candidates: dict[str, dict[str, Any]] = {}
+    for candidate in candidates:
+        sha256 = normalize_hash(candidate.get("sha256"))
+        if sha256 is None:
+            continue
+
+        cleaned = {
+            "md5": normalize_hash(candidate.get("md5")),
+            "sha256": sha256,
+            "path": normalize_path(candidate.get("path")),
+            "source_size": candidate.get("source_size"),
+            "compressed_size": candidate.get("compressed_size"),
+            "action": candidate.get("action", "backfilled"),
+            "upload_path": normalize_path(candidate.get("upload_path")),
+            "finalize_path": normalize_path(candidate.get("finalize_path")),
+        }
+        existing = unique_candidates.get(sha256)
+        unique_candidates[sha256] = cleaned if existing is None else merge_upload_candidates(existing, cleaned)
+
+    return [unique_candidates[sha256] for sha256 in sorted(unique_candidates)]
 
 
 def deduplicate_candidate_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -331,10 +407,10 @@ def hash_file_sha256(path: str) -> tuple[str, int]:
 
 
 def compress_file(task: dict[str, Any]) -> dict[str, Any]:
-    """1ファイルをgzip圧縮して保存する。"""
+    """1ファイルをgzip圧縮して staging へ保存する。"""
     sha256 = task["sha256"]
     source_path = Path(task["path"])
-    destination = score_file_path(sha256)
+    destination = staging_file_path(sha256)
     temp_path = destination.with_name(f"{destination.name}.tmp-{os.getpid()}")
 
     try:
@@ -379,15 +455,60 @@ def compress_file(task: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "status": "compressed",
-        "record": build_cache_record(
+        "candidate": build_upload_candidate(
             md5=task.get("md5"),
             sha256=sha256,
             path=task["path"],
             source_size=len(raw),
             compressed_size=len(compressed),
             action="compressed",
+            upload_path=destination,
+            finalize_path=score_file_path(sha256),
         ),
     }
+
+
+def build_existing_score_upload_candidate(
+    *,
+    md5: str | None,
+    sha256: str,
+    path: str,
+    source_size: int | None,
+    action: str,
+) -> dict[str, Any]:
+    """既存の gzip を R2 へ送る候補を組み立てる。"""
+    local_score_path = score_file_path(sha256)
+    return build_upload_candidate(
+        md5=md5,
+        sha256=sha256,
+        path=path,
+        source_size=source_size,
+        compressed_size=file_size_if_exists(local_score_path),
+        action=action,
+        upload_path=local_score_path,
+    )
+
+
+def build_staged_score_upload_candidate(
+    *,
+    md5: str | None,
+    sha256: str,
+    path: str,
+    source_size: int | None,
+    action: str = "compressed",
+) -> dict[str, Any]:
+    """既存 staging gzip を R2 へ送り、成功後に site/score へ反映する候補を返す。"""
+    staged_path = staging_file_path(sha256)
+    return build_upload_candidate(
+        md5=md5,
+        sha256=sha256,
+        path=path,
+        source_size=source_size,
+        compressed_size=file_size_if_exists(staged_path),
+        action=action,
+        upload_path=staged_path,
+        finalize_path=score_file_path(sha256),
+    )
 
 
 def resolve_sha256_candidates(
@@ -395,15 +516,16 @@ def resolve_sha256_candidates(
     *,
     regenerate_all: bool,
     rebuild_cache: bool,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
-    """sha256未確定の行を順次処理して圧縮 or キャッシュ補完候補へ分配する。"""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], int, int]:
+    """sha256未確定の行を順次処理して backfill / upload / compress 候補へ分配する。"""
     backfill_candidates: list[dict[str, Any]] = []
+    upload_candidates: list[dict[str, Any]] = []
     compress_candidates: list[dict[str, Any]] = []
     missing_count = 0
     error_count = 0
 
     if not rows:
-        return backfill_candidates, compress_candidates, missing_count, error_count
+        return backfill_candidates, upload_candidates, compress_candidates, missing_count, error_count
 
     for row in tqdm(rows, total=len(rows), desc="Resolving SHA256"):
         path = row["path"]
@@ -446,14 +568,22 @@ def resolve_sha256_candidates(
             continue
 
         if score_path.exists():
-            backfill_candidates.append(
-                build_cache_record(
+            upload_candidates.append(
+                build_existing_score_upload_candidate(
                     md5=row.get("md5"),
                     sha256=sha256,
                     path=path,
                     source_size=source_size,
-                    compressed_size=score_path.stat().st_size,
                     action="backfilled",
+                )
+            )
+        elif staging_file_path(sha256).exists():
+            upload_candidates.append(
+                build_staged_score_upload_candidate(
+                    md5=row.get("md5"),
+                    sha256=sha256,
+                    path=path,
+                    source_size=source_size,
                 )
             )
         else:
@@ -465,7 +595,7 @@ def resolve_sha256_candidates(
                 }
             )
 
-    return backfill_candidates, compress_candidates, missing_count, error_count
+    return backfill_candidates, upload_candidates, compress_candidates, missing_count, error_count
 
 
 def prepare_worklists(
@@ -475,10 +605,11 @@ def prepare_worklists(
     *,
     regenerate_all: bool,
     rebuild_cache: bool,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], int]:
-    """DB行を skipped / backfilled / compress / sha256解決待ち に振り分ける。"""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], int]:
+    """DB行を skipped / backfilled / upload / compress / sha256解決待ち に振り分ける。"""
     skipped_candidates: list[dict[str, Any]] = []
     backfill_candidates: list[dict[str, Any]] = []
+    upload_candidates: list[dict[str, Any]] = []
     hash_needed_rows: list[dict[str, Any]] = []
     compress_candidates: list[dict[str, Any]] = []
     missing_count = 0
@@ -523,6 +654,7 @@ def prepare_worklists(
 
         if sha256:
             score_path = score_file_path(sha256)
+            staged_path = staging_file_path(sha256)
             prev_row = prev_by_sha.get(sha256)
             if prev_row and score_path.exists():
                 skipped_candidates.append(
@@ -536,14 +668,22 @@ def prepare_worklists(
                     )
                 )
             elif score_path.exists():
-                backfill_candidates.append(
-                    build_cache_record(
+                upload_candidates.append(
+                    build_existing_score_upload_candidate(
                         md5=md5,
                         sha256=sha256,
                         path=path,
                         source_size=file_size_if_exists(path),
-                        compressed_size=score_path.stat().st_size,
                         action="backfilled",
+                    )
+                )
+            elif staged_path.exists():
+                upload_candidates.append(
+                    build_staged_score_upload_candidate(
+                        md5=md5,
+                        sha256=sha256,
+                        path=path,
+                        source_size=file_size_if_exists(path),
                     )
                 )
             else:
@@ -554,26 +694,39 @@ def prepare_worklists(
             prev_row = prev_by_md5.get(md5)
             if prev_row:
                 prev_sha256 = normalize_hash(prev_row.get("sha256"))
-                if prev_sha256 and score_file_path(prev_sha256).exists():
-                    skipped_candidates.append(
-                        build_cache_record(
-                            md5=md5,
-                            sha256=prev_sha256,
-                            path=path,
-                            source_size=prev_row.get("source_size"),
-                            compressed_size=prev_row.get("compressed_size") or file_size_if_exists(score_file_path(prev_sha256)),
-                            action="skipped",
+                if prev_sha256:
+                    score_path = score_file_path(prev_sha256)
+                    staged_path = staging_file_path(prev_sha256)
+                    if score_path.exists():
+                        skipped_candidates.append(
+                            build_cache_record(
+                                md5=md5,
+                                sha256=prev_sha256,
+                                path=path,
+                                source_size=prev_row.get("source_size"),
+                                compressed_size=prev_row.get("compressed_size") or file_size_if_exists(score_path),
+                                action="skipped",
+                            )
                         )
-                    )
-                    continue
+                        continue
+                    if staged_path.exists():
+                        upload_candidates.append(
+                            build_staged_score_upload_candidate(
+                                md5=md5,
+                                sha256=prev_sha256,
+                                path=path,
+                                source_size=prev_row.get("source_size"),
+                            )
+                        )
+                        continue
 
         hash_needed_rows.append({"md5": md5, "sha256": None, "path": path})
 
-    return skipped_candidates, backfill_candidates, compress_candidates, hash_needed_rows, missing_count
+    return skipped_candidates, backfill_candidates, upload_candidates, compress_candidates, hash_needed_rows, missing_count
 
 
 def compress_candidates_in_parallel(candidates: list[dict[str, Any]], max_workers: int) -> tuple[list[dict[str, Any]], int, int]:
-    """圧縮対象候補を並列で処理する。"""
+    """圧縮対象候補を並列で処理し、R2 アップロード待ち候補を返す。"""
     if not candidates:
         return [], 0, 0
 
@@ -585,23 +738,25 @@ def compress_candidates_in_parallel(candidates: list[dict[str, Any]], max_worker
             unique_candidates[sha256] = candidate
             continue
 
-        current_record = build_cache_record(
+        current_record = build_upload_candidate(
             md5=existing.get("md5"),
             sha256=existing["sha256"],
             path=existing["path"],
             source_size=None,
             compressed_size=None,
             action="compressed",
+            upload_path="",
         )
-        new_record = build_cache_record(
+        new_record = build_upload_candidate(
             md5=candidate.get("md5"),
             sha256=candidate["sha256"],
             path=candidate["path"],
             source_size=None,
             compressed_size=None,
             action="compressed",
+            upload_path="",
         )
-        merged = merge_candidate_records(current_record, new_record)
+        merged = merge_upload_candidates(current_record, new_record)
         unique_candidates[sha256] = {
             "md5": merged.get("md5"),
             "sha256": merged["sha256"],
@@ -625,13 +780,111 @@ def compress_candidates_in_parallel(candidates: list[dict[str, Any]], max_worker
 
             status = result["status"]
             if status == "compressed":
-                success_records.append(result["record"])
+                success_records.append(result["candidate"])
             elif status == "missing":
                 logger.warning(result["message"])
                 missing_count += 1
             else:
                 logger.error(result["message"])
                 error_count += 1
+
+    return success_records, missing_count, error_count
+
+
+def upload_single_score_candidate(candidate: dict[str, Any], s3_client, bucket_name: str) -> dict[str, Any]:
+    """1件の gzip 成果物を R2 へアップロードし、必要なら site/score へ確定する。"""
+    sha256 = candidate["sha256"]
+    upload_path = Path(candidate["upload_path"])
+    finalize_path_raw = candidate.get("finalize_path")
+    finalize_path = Path(finalize_path_raw) if finalize_path_raw else None
+
+    if not upload_path.exists():
+        return {
+            "status": "missing",
+            "message": f"アップロード対象ファイルが見つかりません: {upload_path}",
+        }
+
+    try:
+        s3_client.upload_file(
+            str(upload_path),
+            bucket_name,
+            score_r2_key(sha256),
+            ExtraArgs={
+                "ContentType": "application/gzip",
+                "CacheControl": R2_CACHE_CONTROL,
+            },
+        )
+    except Exception as exc:
+        return {
+            "status": "error",
+            "message": f"R2アップロードに失敗しました: {upload_path} ({exc})",
+        }
+
+    if finalize_path is not None:
+        finalize_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.replace(upload_path, finalize_path)
+        except OSError as exc:
+            return {
+                "status": "error",
+                "message": f"Netlify 配置用ディレクトリへの移動に失敗しました: {finalize_path} ({exc})",
+            }
+
+    return {
+        "status": "uploaded",
+        "record": build_cache_record(
+            md5=candidate.get("md5"),
+            sha256=sha256,
+            path=candidate["path"],
+            source_size=candidate.get("source_size"),
+            compressed_size=candidate.get("compressed_size") or file_size_if_exists(finalize_path or upload_path),
+            action=candidate.get("action", "backfilled"),
+        ),
+    }
+
+
+def upload_candidates_in_parallel(candidates: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int, int]:
+    """R2 アップロード候補を並列で処理し、成功分のキャッシュ行を返す。"""
+    if not candidates:
+        return [], 0, 0
+
+    unique_candidates = deduplicate_upload_candidates(candidates)
+    logger.info("R2アップロード対象: %s件", len(unique_candidates))
+
+    s3_client, bucket_name = create_r2_client(R2_UPLOAD_WORKERS)
+    success_records: list[dict[str, Any]] = []
+    missing_count = 0
+    error_count = 0
+    progress_lock = threading.Lock()
+
+    with tqdm(total=len(unique_candidates), desc="Uploading scores") as progress_bar:
+        with ThreadPoolExecutor(max_workers=R2_UPLOAD_WORKERS) as executor:
+            futures = [
+                executor.submit(upload_single_score_candidate, candidate, s3_client, bucket_name)
+                for candidate in unique_candidates
+            ]
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    logger.error("R2アップロードワーカーで予期しない例外が発生しました: %s", exc)
+                    error_count += 1
+                    with progress_lock:
+                        progress_bar.update(1)
+                    continue
+
+                with progress_lock:
+                    progress_bar.update(1)
+
+                status = result["status"]
+                if status == "uploaded":
+                    success_records.append(result["record"])
+                elif status == "missing":
+                    logger.warning(result["message"])
+                    missing_count += 1
+                else:
+                    logger.error(result["message"])
+                    error_count += 1
 
     return success_records, missing_count, error_count
 
@@ -675,6 +928,7 @@ def main() -> None:
     setup_logging(args.log_file)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    STAGING_DIR.mkdir(parents=True, exist_ok=True)
 
     config = load_config()
     main_db = config.get("database", "main_db")
@@ -690,7 +944,7 @@ def main() -> None:
     elif args.rebuild_cache:
         logger.info("rebuild-cacheモードで実行します。")
 
-    skipped_candidates, backfill_candidates, direct_compress_candidates, hash_needed_rows, initial_missing = prepare_worklists(
+    skipped_candidates, backfill_candidates, upload_candidates, direct_compress_candidates, hash_needed_rows, initial_missing = prepare_worklists(
         db_rows,
         prev_by_sha,
         prev_by_md5,
@@ -699,34 +953,45 @@ def main() -> None:
     )
 
     logger.info(
-        "事前振り分け完了: skipped=%s backfilled=%s hash-needed=%s compress=%s",
+        "事前振り分け完了: skipped=%s backfilled=%s upload=%s hash-needed=%s compress=%s",
         len(skipped_candidates),
         len(backfill_candidates),
+        len(upload_candidates),
         len(hash_needed_rows),
         len(direct_compress_candidates),
     )
 
-    resolved_backfills, resolved_compresses, hash_missing, hash_errors = resolve_sha256_candidates(
+    resolved_backfills, resolved_uploads, resolved_compresses, hash_missing, hash_errors = resolve_sha256_candidates(
         hash_needed_rows,
         regenerate_all=args.regenerate_all,
         rebuild_cache=args.rebuild_cache,
     )
 
     backfill_candidates.extend(resolved_backfills)
+    upload_candidates.extend(resolved_uploads)
     direct_compress_candidates.extend(resolved_compresses)
 
-    compressed_records, compress_missing, compress_errors = compress_candidates_in_parallel(
+    compressed_candidates, compress_missing, compress_errors = compress_candidates_in_parallel(
         direct_compress_candidates,
         args.workers,
     )
 
-    successful_records = skipped_candidates + backfill_candidates + compressed_records
+    upload_candidates.extend(compressed_candidates)
+
+    if args.rebuild_cache:
+        uploaded_records = []
+        upload_missing = 0
+        upload_errors = 0
+    else:
+        uploaded_records, upload_missing, upload_errors = upload_candidates_in_parallel(upload_candidates)
+
+    successful_records = skipped_candidates + backfill_candidates + uploaded_records
     final_candidate_records = deduplicate_candidate_records(successful_records)
     final_df = cache_records_to_df(deduplicate_cache_records(final_candidate_records))
 
     action_counts = summarize_actions(final_candidate_records)
-    missing_count = initial_missing + hash_missing + compress_missing
-    error_count = hash_errors + compress_errors
+    missing_count = initial_missing + hash_missing + compress_missing + upload_missing
+    error_count = hash_errors + compress_errors + upload_errors
 
     logger.info(
         "最終集計: compressed=%s backfilled=%s skipped=%s missing=%s error=%s",

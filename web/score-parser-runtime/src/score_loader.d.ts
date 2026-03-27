@@ -12,6 +12,7 @@ export type ParsedScoreErrorType =
 export type FormatHint = "bms" | "bmson" | "auto";
 export type TextEncoding = "shift_jis" | "utf-8" | "auto";
 export type CompressedScoreSource = "memory" | "idb" | "network";
+export type ScorePathStyle = "sharded" | "flat";
 export type ScoreLoaderErrorType =
     | "invalid_sha256"
     | "network_failure"
@@ -148,8 +149,14 @@ export type CompressedScoreCacheRecord = {
     fetchedAt: number;
 };
 
+export type ScoreSourceConfig = {
+    baseUrl: string;
+    pathStyle?: ScorePathStyle;
+};
+
 export type ScoreLoaderConfig = {
     scoreBaseUrl?: string;
+    scoreSources?: ScoreSourceConfig[];
     dbName?: string;
 };
 

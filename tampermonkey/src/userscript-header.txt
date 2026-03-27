@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.0.1
+// @version      2.1.0
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -19,6 +19,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更
 // 2.0.1 STELLAVERSE SPA遷移時、前回URLの拡張情報DOMが残っている場合にスキップするガードを追加
 //       (正式提案→レベル変更のような遷移時に処理の漏れが発生していたものを修正しました)
 // 2.0.0 譜面ビューアを導入、ギミック譜面を含め実用可能と判断 ※一部ギミック譜面は既知の対応不足あり

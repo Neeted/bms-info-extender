@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.0.1
+// @version      2.1.0
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -19,6 +19,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更
 // 2.0.1 STELLAVERSE SPA遷移時、前回URLの拡張情報DOMが残っている場合にスキップするガードを追加
 //       (正式提案→レベル変更のような遷移時に処理の漏れが発生していたものを修正しました)
 // 2.0.0 譜面ビューアを導入、ギミック譜面を含め実用可能と判断 ※一部ギミック譜面は既知の対応不足あり
@@ -4063,8 +4064,9 @@
     const fontCSS = GM_getResourceText("googlefont");
     GM_addStyle(fontCSS);
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
+    const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-    const SCORE_PARSER_VERSION = "0.6.2";
+    const SCORE_PARSER_VERSION = "0.6.3";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
     let scoreLoaderContextPromise = null;
     let activeBmsPreviewRuntime = null;
@@ -4683,7 +4685,10 @@
       scoreLoaderContextPromise = import(moduleUrl).then((module) => ({
         moduleUrl,
         loader: module.createScoreLoader({
-          scoreBaseUrl: SCORE_BASE_URL
+          scoreSources: [
+            { baseUrl: SCORE_BASE_URL, pathStyle: "sharded" },
+            { baseUrl: SCORE_R2_BASE_URL, pathStyle: "flat" }
+          ]
         })
       })).catch((error) => {
         scoreLoaderContextPromise = null;

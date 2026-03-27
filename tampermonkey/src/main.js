@@ -1,5 +1,6 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
+// 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更
 // 2.0.1 STELLAVERSE SPA遷移時、前回URLの拡張情報DOMが残っている場合にスキップするガードを追加
 // 2.0.0 Gameモードを beatoraja 寄りの前方スイープ描画へ切り替え
 // 1.7.1 Game モード再生の hot path を軽量化し、graph の static/dynamic 分離と shared persistence helper を追加
@@ -30,8 +31,9 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   GM_addStyle(fontCSS);
 
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
+  const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
   const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-  const SCORE_PARSER_VERSION = "0.6.2";
+  const SCORE_PARSER_VERSION = "0.6.3";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   let scoreLoaderContextPromise = null;
   let activeBmsPreviewRuntime = null;
@@ -948,7 +950,10 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
       .then((module) => ({
         moduleUrl,
         loader: module.createScoreLoader({
-          scoreBaseUrl: SCORE_BASE_URL,
+          scoreSources: [
+            { baseUrl: SCORE_BASE_URL, pathStyle: "sharded" },
+            { baseUrl: SCORE_R2_BASE_URL, pathStyle: "flat" },
+          ],
         }),
       }))
       .catch((error) => {

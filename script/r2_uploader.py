@@ -18,21 +18,13 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
 from tqdm import tqdm
 
-from common import DATA_DIR, load_config
+from common import DATA_DIR
+from r2_common import create_r2_client
 
 # --- ログ設定 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# --- 設定読み込み ---
-config = load_config()
-endpoint_url = config.get("cloudflare_r2", "endpoint_url")
-access_key = config.get("cloudflare_r2", "access_key")
-secret_key = config.get("cloudflare_r2", "secret_key")
-bucket_name = config.get("cloudflare_r2", "bucket_name")
 
 # --- ディレクトリ設定 ---
 SOURCE_DIR = DATA_DIR / "compressed" / "brotli"
@@ -42,18 +34,7 @@ UPLOADED_DIR = DATA_DIR / "compressed" / "brotli_uploaded"
 MAX_WORKERS = 32
 
 # --- boto3 クライアントの作成 ---
-session = boto3.session.Session()
-s3 = session.client(
-    service_name='s3',
-    aws_access_key_id=access_key,
-    aws_secret_access_key=secret_key,
-    endpoint_url=endpoint_url,
-    config=Config(
-        signature_version='s3v4',
-        max_pool_connections=MAX_WORKERS  # コネクションプールサイズを並列数に合わせる
-    ),
-    region_name='auto'
-)
+s3, bucket_name = create_r2_client(MAX_WORKERS)
 
 # --- アップロード処理 ---
 progress_lock = threading.Lock()

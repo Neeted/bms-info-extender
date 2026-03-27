@@ -3035,8 +3035,8 @@
     context.strokeStyle = "#ff2c2c";
     context.lineWidth = 2;
     context.beginPath();
-    context.moveTo(x + 0.5, 0);
-    context.lineTo(x + 0.5, canvasHeight);
+    context.moveTo(x, 0);
+    context.lineTo(x, canvasHeight);
     context.stroke();
     context.restore();
   }

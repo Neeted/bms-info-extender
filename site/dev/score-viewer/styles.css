@@ -633,6 +633,13 @@ button:hover:not(:disabled) {
   pointer-events: auto;
 }
 
+.score-viewer-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
 .score-viewer-status-row {
   display: flex;
   align-items: center;
@@ -646,6 +653,7 @@ button:hover:not(:disabled) {
 }
 
 .score-viewer-status-metric {
+  min-width: 0;
   font-variant-numeric: tabular-nums;
 }
 

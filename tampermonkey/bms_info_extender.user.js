@@ -2098,6 +2098,9 @@
     measureRow.className = "score-viewer-status-row score-viewer-status-metric";
     const comboRow = document.createElement("div");
     comboRow.className = "score-viewer-status-row score-viewer-status-metric";
+    const metricsRow = document.createElement("div");
+    metricsRow.className = "score-viewer-metrics-row";
+    metricsRow.append(measureRow, comboRow);
     const spacingRow = document.createElement("div");
     spacingRow.className = "score-viewer-status-row score-viewer-spacing-row";
     const spacingTitle = document.createElement("span");
@@ -2135,7 +2138,7 @@
     );
     modeControls.append(modeSelect, invisibleNoteVisibilitySelect);
     modeRow.append(modeTitle, modeControls);
-    statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput, modeRow);
+    statusPanel.append(playbackRow, metricsRow, spacingRow, spacingInput, modeRow);
     bottomBar.append(statusPanel);
     const judgeLine = document.createElement("div");
     judgeLine.className = "score-viewer-judge-line";
@@ -2456,10 +2459,10 @@
       setTextIfChanged(playbackTime, `${formatPlaybackTime(cursor.timeSec)} s`, "playbackTime");
       setTextIfChanged(
         measureRow,
-        `Measure: ${formatMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`,
+        `BAR: ${formatMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`,
         "measureText"
       );
-      setTextIfChanged(comboRow, `Combo: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
+      setTextIfChanged(comboRow, `CB: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
       setTextIfChanged(spacingValue, formatSpacingScale(state.spacingScale), "spacingText");
       setValueIfChanged(spacingInput, String(state.spacingScale), "spacingInputValue");
       setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");
@@ -3281,9 +3284,10 @@
   .score-viewer-marker-label.is-right { transform: translate(0, -50%); text-align: left; }
   .score-viewer-bottom-bar { position: absolute; left: 12px; bottom: 12px; z-index: 3; pointer-events: none; contain: layout paint; }
   .score-viewer-status-panel { display: grid; gap: 4px; min-width: 180px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); pointer-events: auto; contain: layout paint style; }
+  .score-viewer-metrics-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
   .score-viewer-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .score-viewer-status-row.is-time { justify-content: flex-start; gap: 8px; }
-  .score-viewer-status-metric { font-variant-numeric: tabular-nums; }
+  .score-viewer-status-metric { min-width: 0; font-variant-numeric: tabular-nums; }
   .score-viewer-spacing-row { padding-top: 2px; }
   .score-viewer-spacing-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .score-viewer-spacing-value { margin-left: auto; color: #fff; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }

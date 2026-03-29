@@ -77,6 +77,10 @@ export function createScoreViewerController({
   const comboRow = document.createElement("div");
   comboRow.className = "score-viewer-status-row score-viewer-status-metric";
 
+  const metricsRow = document.createElement("div");
+  metricsRow.className = "score-viewer-metrics-row";
+  metricsRow.append(measureRow, comboRow);
+
   const spacingRow = document.createElement("div");
   spacingRow.className = "score-viewer-status-row score-viewer-spacing-row";
 
@@ -124,7 +128,7 @@ export function createScoreViewerController({
   modeControls.append(modeSelect, invisibleNoteVisibilitySelect);
   modeRow.append(modeTitle, modeControls);
 
-  statusPanel.append(playbackRow, measureRow, comboRow, spacingRow, spacingInput, modeRow);
+  statusPanel.append(playbackRow, metricsRow, spacingRow, spacingInput, modeRow);
   bottomBar.append(statusPanel);
 
   const judgeLine = document.createElement("div");
@@ -479,10 +483,10 @@ export function createScoreViewerController({
     setTextIfChanged(playbackTime, `${formatPlaybackTime(cursor.timeSec)} s`, "playbackTime");
     setTextIfChanged(
       measureRow,
-      `Measure: ${formatMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`,
+      `BAR: ${formatMeasureCounter(cursor.measureIndex, cursor.totalMeasureIndex)}`,
       "measureText",
     );
-    setTextIfChanged(comboRow, `Combo: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
+    setTextIfChanged(comboRow, `CB: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
     setTextIfChanged(spacingValue, formatSpacingScale(state.spacingScale), "spacingText");
     setValueIfChanged(spacingInput, String(state.spacingScale), "spacingInputValue");
     setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");

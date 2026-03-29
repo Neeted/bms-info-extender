@@ -872,6 +872,7 @@ var VIEWER_LANE_SIDE_PADDING = 6;
 var DP_GUTTER_UNITS = 1.2;
 var FIXED_LANE_WIDTH = 16;
 var BACKGROUND_FILL = "#000000";
+var DP_GUTTER_FILL = "#808080";
 var SEPARATOR_COLOR = "#404040";
 var BAR_LINE = "#ffffff";
 var EDITOR_BEAT_GRID_LINE = "#808080";
@@ -939,7 +940,7 @@ function createScoreViewerRenderer(canvas) {
     mode: null,
     laneCount: null,
     width: 0,
-    lanes: []
+    layout: null
   };
   function resize(nextWidth, nextHeight) {
     width = Math.max(1, Math.floor(nextWidth));
@@ -954,7 +955,7 @@ function createScoreViewerRenderer(canvas) {
       mode: null,
       laneCount: null,
       width: 0,
-      lanes: []
+      layout: null
     };
   }
   function render2(model, selectedTimeSec, {
@@ -970,32 +971,29 @@ function createScoreViewerRenderer(canvas) {
     if (!model) {
       return createEmptyRenderResult();
     }
-    const lanes = getCachedLaneLayout(model.score.mode, model.score.laneCount);
+    const laneLayout = getCachedLaneLayout(model.score.mode, model.score.laneCount);
     const resolvedMode = resolveViewerModeForModel(model, viewerMode);
     if (resolvedMode === "time") {
-      return renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond, showInvisibleNotes);
+      return renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes);
     }
     if (resolvedMode === "game") {
-      return renderGameMode(model, lanes, selectedTimeSec, pixelsPerBeat, showInvisibleNotes);
+      return renderGameMode(model, laneLayout, selectedTimeSec, pixelsPerBeat, showInvisibleNotes);
     }
     return renderEditorMode(
       model,
-      lanes,
+      laneLayout,
       editorFrameState ?? getEditorFrameState(model, selectedTimeSec, height, pixelsPerBeat),
       pixelsPerBeat,
       showInvisibleNotes
     );
   }
   return { resize, render: render2 };
-  function renderTimeMode(model, lanes, selectedTimeSec, pixelsPerSecond, showInvisibleNotes) {
+  function renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes) {
+    const { lanes } = laneLayout;
     const { startTimeSec, endTimeSec } = getVisibleTimeRange(model, selectedTimeSec, height, pixelsPerSecond);
-    drawBarLinesTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-    drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-    drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-    if (showInvisibleNotes) {
-      drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-    }
+    drawDpGutter(context, laneLayout, height);
     drawLaneSeparators(context, lanes, height);
+    drawBarLinesTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
     drawTempoMarkersTimeMode(
       context,
       model.bpmChanges,
@@ -1008,20 +1006,22 @@ function createScoreViewerRenderer(canvas) {
       height,
       pixelsPerSecond
     );
+    drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    if (showInvisibleNotes) {
+      drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+    }
     return {
       markers: [],
-      laneBounds: getLaneBounds(lanes)
+      laneBounds: getLaneBounds(laneLayout)
     };
   }
-  function renderEditorMode(model, lanes, editorFrameState, pixelsPerBeat, showInvisibleNotes) {
+  function renderEditorMode(model, laneLayout, editorFrameState, pixelsPerBeat, showInvisibleNotes) {
+    const { lanes } = laneLayout;
     drawEditorSubGrid(context, model.measureRanges, lanes, editorFrameState, pixelsPerBeat);
-    drawBarLinesEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
-    drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
-    drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
-    if (showInvisibleNotes) {
-      drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
-    }
+    drawDpGutter(context, laneLayout, height);
     drawLaneSeparators(context, lanes, height);
+    drawBarLinesEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
     drawTempoMarkersEditorMode(
       context,
       model,
@@ -1029,38 +1029,45 @@ function createScoreViewerRenderer(canvas) {
       editorFrameState,
       pixelsPerBeat
     );
+    drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+    drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+    if (showInvisibleNotes) {
+      drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+    }
     return {
       markers: [],
-      laneBounds: getLaneBounds(lanes)
+      laneBounds: getLaneBounds(laneLayout)
     };
   }
-  function renderGameMode(model, lanes, selectedTimeSec, pixelsPerBeat, showInvisibleNotes) {
+  function renderGameMode(model, laneLayout, selectedTimeSec, pixelsPerBeat, showInvisibleNotes) {
+    const { lanes } = laneLayout;
     const projection = collectGameProjection(model, selectedTimeSec, height, pixelsPerBeat);
+    drawDpGutter(context, laneLayout, height);
+    drawLaneSeparators(context, lanes, height);
     drawBarLinesGameMode(context, lanes, projection);
+    drawTempoMarkersGameMode(context, lanes, projection);
     drawLongBodiesGameMode(context, model, lanes, projection);
     drawNoteHeadsGameMode(context, model, lanes, projection);
     if (showInvisibleNotes) {
       drawInvisibleNoteHeadsGameMode(context, lanes, projection);
     }
-    drawLaneSeparators(context, lanes, height);
-    drawTempoMarkersGameMode(context, lanes, projection);
     return {
       markers: [],
-      laneBounds: getLaneBounds(lanes)
+      laneBounds: getLaneBounds(laneLayout)
     };
   }
   function getCachedLaneLayout(mode, laneCount) {
-    if (laneLayoutCache.mode === mode && laneLayoutCache.laneCount === laneCount && laneLayoutCache.width === width && laneLayoutCache.lanes.length > 0) {
-      return laneLayoutCache.lanes;
+    if (laneLayoutCache.mode === mode && laneLayoutCache.laneCount === laneCount && laneLayoutCache.width === width && laneLayoutCache.layout) {
+      return laneLayoutCache.layout;
     }
-    const lanes = createLaneLayout(mode, laneCount, width);
+    const layout = createLaneLayout(mode, laneCount, width);
     laneLayoutCache = {
       mode,
       laneCount,
       width,
-      lanes
+      layout
     };
-    return lanes;
+    return layout;
   }
 }
 function estimateViewerWidth(mode, laneCount) {
@@ -1751,7 +1758,8 @@ function drawLaneSeparators(context, lanes, viewportHeight) {
   }
   context.restore();
 }
-function getLaneBounds(lanes) {
+function getLaneBounds(laneLayout) {
+  const lanes = laneLayout?.lanes ?? [];
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
     return {
@@ -1763,6 +1771,16 @@ function getLaneBounds(lanes) {
     leftX: leftLane.x,
     rightX: rightLane.x + rightLane.width
   };
+}
+function drawDpGutter(context, laneLayout, viewportHeight) {
+  const gutterRect = laneLayout?.gutterRect;
+  if (!gutterRect || !(gutterRect.width > 0)) {
+    return;
+  }
+  context.save();
+  context.fillStyle = DP_GUTTER_FILL;
+  context.fillRect(gutterRect.x, 0, gutterRect.width, viewportHeight);
+  context.restore();
 }
 function getVisualLaneEdges(lanes) {
   const visibleLanes = lanes.filter(Boolean);
@@ -1796,9 +1814,14 @@ function createLaneLayout(mode, laneCount, viewportWidth) {
   const contentWidth = layout.display.length * FIXED_LANE_WIDTH + gutterWidth;
   const startX = Math.max(VIEWER_LANE_SIDE_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
   const lanes = new Array(Math.max(1, laneCount));
+  let gutterRect = null;
   let cursorX = startX;
   for (let slotIndex = 0; slotIndex < layout.display.length; slotIndex += 1) {
     if (layout.splitAfter !== null && slotIndex === layout.splitAfter) {
+      gutterRect = {
+        x: cursorX,
+        width: gutterWidth
+      };
       cursorX += gutterWidth;
     }
     const slot = layout.display[slotIndex];
@@ -1810,7 +1833,10 @@ function createLaneLayout(mode, laneCount, viewportWidth) {
     };
     cursorX += FIXED_LANE_WIDTH;
   }
-  return lanes;
+  return {
+    lanes,
+    gutterRect
+  };
 }
 function getModeLayout(mode, laneCount) {
   switch (mode) {

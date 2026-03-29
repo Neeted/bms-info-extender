@@ -84,6 +84,37 @@ test("renderer draws invisible note outlines inset within lane separators", () =
   );
 });
 
+test("renderer fills the center gutter in 10k and 14k layouts", () => {
+  for (const mode of ["10k", "14k"]) {
+    const { canvas, context } = createMockCanvas();
+    const renderer = createScoreViewerRenderer(canvas);
+    const model = createScoreViewerModel(createDpGutterScore(mode));
+
+    renderer.resize(320, 320);
+    renderer.render(model, 1, { viewerMode: "time" });
+
+    assert.equal(
+      context.fillRectCalls.some((call) => call.fillStyle === "#808080" && call.y === 0 && call.height === 320 && call.width > 16),
+      true,
+      `${mode} should draw a gutter fill`,
+    );
+  }
+});
+
+test("renderer does not draw a center gutter fill for single-play layouts", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(320, 320);
+  renderer.render(model, 1, { viewerMode: "time" });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#808080"),
+    false,
+  );
+});
+
 test("renderer keeps near-simultaneous scroll spikes and nearby section lines visible in game mode", () => {
   const model = createScoreViewerModel(createGameProjectionSpikeScore());
   const projection = collectGameProjection(model, 1.9, 320, 64);
@@ -245,6 +276,29 @@ function createInvisibleNoteScore() {
     notes: [
       { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
       { lane: 2, beat: 4, timeSec: 2, kind: "invisible" },
+    ],
+    comboEvents: [{ lane: 1, beat: 2, timeSec: 1, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createDpGutterScore(mode) {
+  const laneCount = mode === "10k" ? 12 : 16;
+  return {
+    format: "bms",
+    mode,
+    laneCount,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
     ],
     comboEvents: [{ lane: 1, beat: 2, timeSec: 1, kind: "normal" }],
     barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],

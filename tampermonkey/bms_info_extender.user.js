@@ -74,6 +74,7 @@
     );
     const beatTimingIndex = createBeatTimingIndex(score);
     const gameScrollIndex = createGameScrollIndex(rawScrollChanges);
+    const gameTimingEvents = createGameTimelineTimingEvents(score);
     const allNotes = annotateNotesWithGameTrackPosition(rawAllNotes, gameScrollIndex);
     const notes = allNotes.filter((note) => note.kind !== "invisible");
     const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
@@ -81,6 +82,8 @@
     const bpmChanges = annotateEventsWithGameTrackPosition(rawBpmChanges, gameScrollIndex);
     const stops = annotateEventsWithGameTrackPosition(rawStops, gameScrollIndex);
     const scrollChanges = annotateEventsWithGameTrackPosition(rawScrollChanges, gameScrollIndex);
+    const gameTimelineBpmChanges = annotateEventsWithGameTrackPosition(gameTimingEvents.bpmChanges, gameScrollIndex);
+    const gameTimelineStops = annotateEventsWithGameTrackPosition(gameTimingEvents.stops, gameScrollIndex);
     const gameBarLinesByTrack = createGamePointIndex(barLines);
     const gameBpmChangesByTrack = createGamePointIndex(bpmChanges);
     const gameStopsByTrack = createGamePointIndex(stops);
@@ -88,8 +91,8 @@
     const gameTimeline = createGameTimeline({
       notes: allNotes,
       barLines,
-      bpmChanges,
-      stops,
+      bpmChanges: gameTimelineBpmChanges,
+      stops: gameTimelineStops,
       scrollChanges,
       gameScrollIndex
     });
@@ -497,6 +500,44 @@
       return timingActions;
     }
     return createFallbackTimingActions(score);
+  }
+  function createGameTimelineTimingEvents(score) {
+    const actions = createTimingActions(score).slice().sort(compareTimingAction);
+    const bpmChanges = [];
+    const stops = [];
+    let currentBpm = Number.isFinite(score?.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
+    for (const action of actions) {
+      if (action?.type === "bpm") {
+        if (Number.isFinite(action.beat) && Number.isFinite(action.timeSec) && Number.isFinite(action.bpm) && action.bpm > 0) {
+          if (action.bpm !== currentBpm) {
+            bpmChanges.push({
+              beat: action.beat,
+              timeSec: action.timeSec,
+              bpm: action.bpm
+            });
+          }
+          currentBpm = action.bpm;
+        }
+        continue;
+      }
+      if (action?.type !== "stop") {
+        continue;
+      }
+      if (!Number.isFinite(action.beat) || !Number.isFinite(action.timeSec)) {
+        continue;
+      }
+      const durationSec = Number.isFinite(action.durationSec) && action.durationSec > 0 ? action.durationSec : Number.isFinite(action.stopBeats) && action.stopBeats > 0 && Number.isFinite(currentBpm) && currentBpm > 0 ? action.stopBeats * 60 / currentBpm : null;
+      if (!(durationSec > 0)) {
+        continue;
+      }
+      stops.push({
+        beat: action.beat,
+        timeSec: action.timeSec,
+        stopBeats: action.stopBeats,
+        durationSec
+      });
+    }
+    return { bpmChanges, stops };
   }
   function createTimingActionsFromCanonicalScore(score) {
     return [...score?.timingActions ?? []].filter((action) => Number.isFinite(action?.beat) && action.type === "bpm" && Number.isFinite(action?.bpm) && action.bpm > 0 || Number.isFinite(action?.beat) && action.type === "stop" && Number.isFinite(action?.stopBeats) && action.stopBeats > 0).map((action) => {
@@ -1227,23 +1268,70 @@
     if (!model?.gameTimeline?.length) {
       return projection;
     }
-    const startIndex = lowerBoundGameTimelineByTime(model.gameTimeline, selectedTimeSec);
-    for (let index = startIndex; index < model.gameTimeline.length; index += 1) {
-      const point = model.gameTimeline[index];
-      const y = gameTrackPositionToViewportY(
-        getEventTrackPosition(point),
-        projection.selectedTrackPosition,
-        projection.viewportHeight,
-        pixelsPerBeat
-      );
-      if (!isViewportYVisible(y, projection.viewportHeight, projection.visibleMargin)) {
+    const timeline = model.gameTimeline;
+    const startIndex = lowerBoundGameTimelineByTime(timeline, selectedTimeSec);
+    let y = projection.viewportHeight / 2;
+    for (let index = startIndex; index < timeline.length; index += 1) {
+      const point = timeline[index];
+      if (index > 0) {
+        y -= getGameProjectionDeltaY(
+          timeline[index - 1],
+          point,
+          selectedTimeSec,
+          pixelsPerBeat
+        );
+      } else {
+        y -= getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerBeat);
+      }
+      projection.pointYByIndex.set(index, y);
+      if (isGameProjectionPastUpperBound(y, projection.viewportHeight, projection.visibleMargin)) {
         projection.exitPoint = { index, point, y };
         break;
       }
+      if (!isViewportYVisible(y, projection.viewportHeight, projection.visibleMargin)) {
+        continue;
+      }
       projection.points.push({ index, point, y });
-      projection.pointYByIndex.set(index, y);
     }
     return projection;
+  }
+  function getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerBeat) {
+    const pointTimeSec = finiteOrZero2(point?.timeSec);
+    if (!(pointTimeSec > 0)) {
+      return 0;
+    }
+    const remainingRatio = clamp2(
+      (pointTimeSec - selectedTimeSec) / pointTimeSec,
+      0,
+      1
+    );
+    return finiteOrZero2(point?.beat) * remainingRatio * pixelsPerBeat;
+  }
+  function getGameProjectionDeltaY(previousPoint, point, selectedTimeSec, pixelsPerBeat) {
+    const deltaSection = finiteOrZero2(point?.beat) - finiteOrZero2(previousPoint?.beat);
+    if (Math.abs(deltaSection) < 1e-9) {
+      return 0;
+    }
+    const scrollRate = getGameProjectionScrollRate(previousPoint);
+    if (finiteOrZero2(previousPoint?.timeSec) + finiteOrZero2(previousPoint?.stopDurationSec) > selectedTimeSec) {
+      return deltaSection * scrollRate * pixelsPerBeat;
+    }
+    const traversableDurationSec = finiteOrZero2(point?.timeSec) - finiteOrZero2(previousPoint?.timeSec) - finiteOrZero2(previousPoint?.stopDurationSec);
+    if (!(traversableDurationSec > 0)) {
+      return 0;
+    }
+    const remainingRatio = clamp2(
+      (finiteOrZero2(point?.timeSec) - selectedTimeSec) / traversableDurationSec,
+      0,
+      1
+    );
+    return deltaSection * scrollRate * remainingRatio * pixelsPerBeat;
+  }
+  function isGameProjectionPastUpperBound(y, viewportHeight, margin) {
+    return y < -Math.max(margin, 0);
+  }
+  function getGameProjectionScrollRate(point) {
+    return Number.isFinite(point?.outgoingScrollRate) ? point.outgoingScrollRate : 1;
   }
   function drawBarLinesGameMode(context, lanes, projection) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
@@ -1278,16 +1366,12 @@
       if (!lane) {
         continue;
       }
-      if (note.timeSec >= projection.selectedTimeSec) {
-        if (!(getNoteEndTrackPosition(note) > getEventTrackPosition(note))) {
-          continue;
-        }
-      } else if (!(getNoteEndTrackPosition(note) > projection.selectedTrackPosition)) {
-        continue;
-      }
       const startY = getProjectedGameLongBodyStartY(note, projection);
       const endY = getProjectedGameLongBodyEndY(note, projection);
       if (!Number.isFinite(startY) || !Number.isFinite(endY)) {
+        continue;
+      }
+      if (!(endY < startY - 1e-6)) {
         continue;
       }
       const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
@@ -1813,17 +1897,8 @@
   function beatToViewportY(eventBeat, selectedBeat, viewportHeight, pixelsPerBeat) {
     return viewportHeight / 2 - (eventBeat - selectedBeat) * pixelsPerBeat;
   }
-  function gameTrackPositionToViewportY(eventTrackPosition, selectedTrackPosition, viewportHeight, pixelsPerBeat) {
-    return viewportHeight / 2 - (eventTrackPosition - selectedTrackPosition) * pixelsPerBeat;
-  }
   function isViewportYVisible(y, viewportHeight, margin = NOTE_HEAD_HEIGHT + 24) {
     return y >= -margin && y <= viewportHeight + margin;
-  }
-  function getEventTrackPosition(event) {
-    return Number.isFinite(event?.trackPosition) ? event.trackPosition : 0;
-  }
-  function getNoteEndTrackPosition(note) {
-    return Number.isFinite(note?.endTrackPosition) ? note.endTrackPosition : getEventTrackPosition(note);
   }
   function formatBpmMarkerLabel(bpm) {
     return trimDecimal(Number(bpm).toFixed(2));
@@ -1964,6 +2039,12 @@
     }
     const [red, green, blue] = hexToRgb(color);
     return `rgb(${Math.round(red * factor)}, ${Math.round(green * factor)}, ${Math.round(blue * factor)})`;
+  }
+  function finiteOrZero2(value) {
+    return Number.isFinite(value) ? value : 0;
+  }
+  function clamp2(value, minValue, maxValue) {
+    return Math.min(Math.max(value, minValue), maxValue);
   }
   function hexToRgb(color) {
     const normalized = color.replace("#", "");
@@ -3088,15 +3169,15 @@
   }) {
     const safeClientWidth = Math.max(clientWidth ?? 0, 1);
     const maxScrollLeft = Math.max(0, (scrollWidth ?? 0) - safeClientWidth);
-    const marginPx = clamp2(safeClientWidth * 0.2, GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX, GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX);
+    const marginPx = clamp3(safeClientWidth * 0.2, GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX, GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX);
     const leftBound = (currentScrollLeft ?? 0) + marginPx;
     const rightBound = (currentScrollLeft ?? 0) + safeClientWidth - marginPx;
     if (targetX >= leftBound && targetX <= rightBound) {
-      return clamp2(currentScrollLeft ?? 0, 0, maxScrollLeft);
+      return clamp3(currentScrollLeft ?? 0, 0, maxScrollLeft);
     }
-    return clamp2(targetX - safeClientWidth / 2, 0, maxScrollLeft);
+    return clamp3(targetX - safeClientWidth / 2, 0, maxScrollLeft);
   }
-  function clamp2(value, minValue, maxValue) {
+  function clamp3(value, minValue, maxValue) {
     return Math.min(Math.max(value, minValue), maxValue);
   }
 

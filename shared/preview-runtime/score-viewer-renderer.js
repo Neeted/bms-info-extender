@@ -438,23 +438,78 @@ export function collectGameProjection(
     return projection;
   }
 
-  const startIndex = lowerBoundGameTimelineByTime(model.gameTimeline, selectedTimeSec);
-  for (let index = startIndex; index < model.gameTimeline.length; index += 1) {
-    const point = model.gameTimeline[index];
-    const y = gameTrackPositionToViewportY(
-      getEventTrackPosition(point),
-      projection.selectedTrackPosition,
-      projection.viewportHeight,
-      pixelsPerBeat,
-    );
-    if (!isViewportYVisible(y, projection.viewportHeight, projection.visibleMargin)) {
+  const timeline = model.gameTimeline;
+  const startIndex = lowerBoundGameTimelineByTime(timeline, selectedTimeSec);
+  let y = projection.viewportHeight / 2;
+
+  for (let index = startIndex; index < timeline.length; index += 1) {
+    const point = timeline[index];
+    if (index > 0) {
+      y -= getGameProjectionDeltaY(
+        timeline[index - 1],
+        point,
+        selectedTimeSec,
+        pixelsPerBeat,
+      );
+    } else {
+      y -= getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerBeat);
+    }
+
+    projection.pointYByIndex.set(index, y);
+    if (isGameProjectionPastUpperBound(y, projection.viewportHeight, projection.visibleMargin)) {
       projection.exitPoint = { index, point, y };
       break;
     }
+    if (!isViewportYVisible(y, projection.viewportHeight, projection.visibleMargin)) {
+      continue;
+    }
     projection.points.push({ index, point, y });
-    projection.pointYByIndex.set(index, y);
   }
   return projection;
+}
+
+function getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerBeat) {
+  const pointTimeSec = finiteOrZero(point?.timeSec);
+  if (!(pointTimeSec > 0)) {
+    return 0;
+  }
+  const remainingRatio = clamp(
+    (pointTimeSec - selectedTimeSec) / pointTimeSec,
+    0,
+    1,
+  );
+  return finiteOrZero(point?.beat) * remainingRatio * pixelsPerBeat;
+}
+
+function getGameProjectionDeltaY(previousPoint, point, selectedTimeSec, pixelsPerBeat) {
+  const deltaSection = finiteOrZero(point?.beat) - finiteOrZero(previousPoint?.beat);
+  if (Math.abs(deltaSection) < 1e-9) {
+    return 0;
+  }
+  const scrollRate = getGameProjectionScrollRate(previousPoint);
+  if (finiteOrZero(previousPoint?.timeSec) + finiteOrZero(previousPoint?.stopDurationSec) > selectedTimeSec) {
+    return deltaSection * scrollRate * pixelsPerBeat;
+  }
+  const traversableDurationSec = finiteOrZero(point?.timeSec)
+    - finiteOrZero(previousPoint?.timeSec)
+    - finiteOrZero(previousPoint?.stopDurationSec);
+  if (!(traversableDurationSec > 0)) {
+    return 0;
+  }
+  const remainingRatio = clamp(
+    (finiteOrZero(point?.timeSec) - selectedTimeSec) / traversableDurationSec,
+    0,
+    1,
+  );
+  return deltaSection * scrollRate * remainingRatio * pixelsPerBeat;
+}
+
+function isGameProjectionPastUpperBound(y, viewportHeight, margin) {
+  return y < -Math.max(margin, 0);
+}
+
+function getGameProjectionScrollRate(point) {
+  return Number.isFinite(point?.outgoingScrollRate) ? point.outgoingScrollRate : 1;
 }
 
 function drawBarLinesGameMode(context, lanes, projection) {
@@ -491,16 +546,12 @@ function drawLongBodiesGameMode(context, model, lanes, projection) {
     if (!lane) {
       continue;
     }
-    if (note.timeSec >= projection.selectedTimeSec) {
-      if (!(getNoteEndTrackPosition(note) > getEventTrackPosition(note))) {
-        continue;
-      }
-    } else if (!(getNoteEndTrackPosition(note) > projection.selectedTrackPosition)) {
-      continue;
-    }
     const startY = getProjectedGameLongBodyStartY(note, projection);
     const endY = getProjectedGameLongBodyEndY(note, projection);
     if (!Number.isFinite(startY) || !Number.isFinite(endY)) {
+      continue;
+    }
+    if (!(endY < startY - 1e-6)) {
       continue;
     }
     const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
@@ -1248,6 +1299,14 @@ function dimColor(color, factor) {
   }
   const [red, green, blue] = hexToRgb(color);
   return `rgb(${Math.round(red * factor)}, ${Math.round(green * factor)}, ${Math.round(blue * factor)})`;
+}
+
+function finiteOrZero(value) {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function clamp(value, minValue, maxValue) {
+  return Math.min(Math.max(value, minValue), maxValue);
 }
 
 function hexToRgb(color) {

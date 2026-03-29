@@ -41,6 +41,13 @@
 - userscript adapter のトップレベル実行文は bootstrap 周辺だけに寄せ、到達不能な実行文を残さない。
 - preview runtime の破棄責務は「SPA の URL 変化時」と「同一ページ内の remount 前 cleanup」に分けて明示する。
 
+## Game モード描画の外部参照先
+- Game モードの描画意味論は、beatoraja の `LaneRenderer` を最優先の参照先とする。
+- upstream は `https://github.com/exch-bms2/beatoraja`、ローカル参照先は `D:\\github-clone\\beatoraja` とする。
+- 主な確認対象は `D:\\github-clone\\beatoraja\\src\\bms\\player\\beatoraja\\play\\LaneRenderer.java` とする。
+- `SCROLL`、`STOP`、BPM 変化、LN body / end、marker、可視範囲の打ち切り条件を調整する際は、まず `LaneRenderer` の timeline 走査と座標計算を確認する。
+- Time モード / Editor モードは preview 独自都合を許容するが、Game モードの描画差異は原則として beatoraja を基準に判断する。
+
 ## リリース運用
 - `site/score-parser/vx.x.x/` の生成はリリース作業としてのみ行う。
 - 既存の `v*` snapshot は凍結扱いとし、通常の不具合修正では更新しない。

@@ -228,6 +228,33 @@ test("viewer model builds a signed game displacement index across positive, zero
   assert.equal(getGameTrackPositionForBeat(model, 14), 4);
 });
 
+test("viewer model keeps raw game displacement even when a measure spans many beats", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 24, timeSec: 2 }, { beat: 48, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 24, timeSec: 2, rate: -1 },
+      { beat: 48, timeSec: 4, rate: 1 },
+    ],
+    warnings: [],
+  });
+
+  assert.equal(getGameTrackPositionForBeat(model, 12), 12);
+  assert.equal(getGameTrackPositionForBeat(model, 24), 24);
+  assert.equal(getGameTrackPositionForBeat(model, 36), 12);
+});
+
 test("viewer model keeps game displacement fixed while playback is inside a STOP", () => {
   const model = createScoreViewerModel({
     format: "bms",
@@ -279,7 +306,7 @@ test("viewer model applies the last same-beat scroll change to subsequent game d
   assert.equal(getGameTrackPositionForBeat(model, 5), 2);
 });
 
-test("viewer model builds a grouped game timeline with stop and long-note endpoint metadata", () => {
+test("viewer model builds a grouped game timeline with canonical STOP start times and long-note endpoint metadata", () => {
   const model = createScoreViewerModel({
     format: "bms",
     mode: "7k",
@@ -301,7 +328,11 @@ test("viewer model builds a grouped game timeline with stop and long-note endpoi
     ],
     barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 5 }],
     bpmChanges: [{ beat: 4, timeSec: 2, bpm: 240 }],
-    stops: [{ beat: 4, timeSec: 2, stopBeats: 4, durationSec: 1 }],
+    stops: [{ beat: 4, timeSec: 3, stopBeats: 4, durationSec: 1 }],
+    timingActions: [
+      { type: "bpm", beat: 4, timeSec: 2, bpm: 240 },
+      { type: "stop", beat: 4, timeSec: 2, stopBeats: 4, durationSec: 1 },
+    ],
     scrollChanges: [
       { beat: 4, timeSec: 2, rate: 0 },
       { beat: 4, timeSec: 2, rate: -2 },
@@ -320,12 +351,48 @@ test("viewer model builds a grouped game timeline with stop and long-note endpoi
   assert.equal(pointAtFour.barLines.length, 1);
   assert.equal(pointAtFour.bpmChanges.length, 1);
   assert.equal(pointAtFour.stops.length, 1);
+  assert.equal(pointAtFour.stops[0].timeSec, 2);
   assert.equal(pointAtFour.notes.length, 2);
   assert.equal(pointAtFour.stopDurationSec, 1);
   assert.equal(pointAtFour.outgoingScrollRate, -2);
+  assert.equal(model.stops[0].timeSec, 3);
   assert.equal(longNote.gameTimelineIndex, pointAtFour.index);
   assert.equal(longNote.gameTimelineEndIndex, pointAtEight.index);
   assert.deepEqual(pointAtEight.longEndNotes, [longNote]);
+});
+
+test("viewer model creates a game STOP point at the stop start even without canonical timingActions", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 5,
+    lastPlayableTimeSec: 5,
+    lastTimelineTimeSec: 5,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 6, timeSec: 4, kind: "normal" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 6, timeSec: 4, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 8, timeSec: 5 }],
+    bpmChanges: [],
+    stops: [{ beat: 4, timeSec: 3, stopBeats: 4, durationSec: 1 }],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  const stopPoint = model.gameTimeline.find((point) => point.beat === 4 && point.timeSec === 2);
+  const stopEndPoint = model.gameTimeline.find((point) => point.beat === 4 && point.timeSec === 3);
+
+  assert.ok(stopPoint);
+  assert.equal(stopPoint.stops.length, 1);
+  assert.equal(stopPoint.stopDurationSec, 1);
+  assert.equal(stopPoint.stops[0].timeSec, 2);
+  assert.equal(stopEndPoint, undefined);
+  assert.equal(model.stops[0].timeSec, 3);
 });
 
 test("viewer model exposes game-mode visible slices by track position", () => {

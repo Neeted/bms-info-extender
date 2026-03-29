@@ -60,6 +60,7 @@ export function createScoreViewerModel(score) {
 
   const beatTimingIndex = createBeatTimingIndex(score);
   const gameScrollIndex = createGameScrollIndex(rawScrollChanges);
+  const gameTimingEvents = createGameTimelineTimingEvents(score);
   const allNotes = annotateNotesWithGameTrackPosition(rawAllNotes, gameScrollIndex);
   const notes = allNotes.filter((note) => note.kind !== "invisible");
   const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
@@ -67,6 +68,8 @@ export function createScoreViewerModel(score) {
   const bpmChanges = annotateEventsWithGameTrackPosition(rawBpmChanges, gameScrollIndex);
   const stops = annotateEventsWithGameTrackPosition(rawStops, gameScrollIndex);
   const scrollChanges = annotateEventsWithGameTrackPosition(rawScrollChanges, gameScrollIndex);
+  const gameTimelineBpmChanges = annotateEventsWithGameTrackPosition(gameTimingEvents.bpmChanges, gameScrollIndex);
+  const gameTimelineStops = annotateEventsWithGameTrackPosition(gameTimingEvents.stops, gameScrollIndex);
   const gameBarLinesByTrack = createGamePointIndex(barLines);
   const gameBpmChangesByTrack = createGamePointIndex(bpmChanges);
   const gameStopsByTrack = createGamePointIndex(stops);
@@ -74,8 +77,8 @@ export function createScoreViewerModel(score) {
   const gameTimeline = createGameTimeline({
     notes: allNotes,
     barLines,
-    bpmChanges,
-    stops,
+    bpmChanges: gameTimelineBpmChanges,
+    stops: gameTimelineStops,
     scrollChanges,
     gameScrollIndex,
   });
@@ -597,6 +600,51 @@ function createTimingActions(score) {
     return timingActions;
   }
   return createFallbackTimingActions(score);
+}
+
+function createGameTimelineTimingEvents(score) {
+  const actions = createTimingActions(score).slice().sort(compareTimingAction);
+  const bpmChanges = [];
+  const stops = [];
+  let currentBpm = Number.isFinite(score?.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
+
+  for (const action of actions) {
+    if (action?.type === "bpm") {
+      if (Number.isFinite(action.beat) && Number.isFinite(action.timeSec) && Number.isFinite(action.bpm) && action.bpm > 0) {
+        if (action.bpm !== currentBpm) {
+          bpmChanges.push({
+            beat: action.beat,
+            timeSec: action.timeSec,
+            bpm: action.bpm,
+          });
+        }
+        currentBpm = action.bpm;
+      }
+      continue;
+    }
+    if (action?.type !== "stop") {
+      continue;
+    }
+    if (!Number.isFinite(action.beat) || !Number.isFinite(action.timeSec)) {
+      continue;
+    }
+    const durationSec = Number.isFinite(action.durationSec) && action.durationSec > 0
+      ? action.durationSec
+      : (Number.isFinite(action.stopBeats) && action.stopBeats > 0 && Number.isFinite(currentBpm) && currentBpm > 0
+        ? (action.stopBeats * 60) / currentBpm
+        : null);
+    if (!(durationSec > 0)) {
+      continue;
+    }
+    stops.push({
+      beat: action.beat,
+      timeSec: action.timeSec,
+      stopBeats: action.stopBeats,
+      durationSec,
+    });
+  }
+
+  return { bpmChanges, stops };
 }
 
 function createTimingActionsFromCanonicalScore(score) {

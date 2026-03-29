@@ -84,7 +84,26 @@ test("renderer draws invisible note outlines inset within lane separators", () =
   );
 });
 
-test("renderer game projection stops before drawing reentry notes that come back after leaving the viewport", () => {
+test("renderer keeps near-simultaneous scroll spikes and nearby section lines visible in game mode", () => {
+  const model = createScoreViewerModel(createGameProjectionSpikeScore());
+  const projection = collectGameProjection(model, 1.9, 320, 64);
+
+  assert.deepEqual(
+    projection.points
+      .filter((projected) => projected.point.barLines.length > 0 || projected.point.notes.length > 0)
+      .map((projected) => ({
+        beat: projected.point.beat,
+        hasNote: projected.point.notes.length > 0,
+        hasBarLine: projected.point.barLines.length > 0,
+      })),
+    [
+      { beat: 4.003, hasNote: true, hasBarLine: true },
+      { beat: 4.253, hasNote: false, hasBarLine: true },
+    ],
+  );
+});
+
+test("renderer game projection stops before drawing reentry notes that come back after leaving the top of the viewport", () => {
   const { canvas, context } = createMockCanvas();
   const renderer = createScoreViewerRenderer(canvas);
   const model = createScoreViewerModel(createGameProjectionReentryScore());
@@ -105,6 +124,32 @@ test("renderer game projection stops before drawing reentry notes that come back
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
       { x: 72, y: 156, fillStyle: "#bebebe" },
+    ],
+  );
+});
+
+test("renderer game projection keeps scanning after notes fall below the viewport and later reenter", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameProjectionBottomReentryScore());
+
+  const projection = collectGameProjection(model, 2, 320, 64);
+  assert.equal(projection.exitPoint, null);
+  assert.deepEqual(
+    projection.points.flatMap((projected) => projected.point.notes.map((note) => note.beat)),
+    [4.25, 4.75],
+  );
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, { viewerMode: "game", pixelsPerBeat: 64 });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
+      .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
+    [
+      { x: 72, y: 156, fillStyle: "#bebebe" },
+      { x: 88, y: 156, fillStyle: "#5074fe" },
     ],
   );
 });
@@ -139,6 +184,37 @@ test("renderer keeps game-mode projection frozen while playback remains inside a
   assert.ok(rightNote);
   assert.equal(leftNote.y, rightNote.y);
   assert.equal(left.selectedTrackPosition, right.selectedTrackPosition);
+});
+
+test("renderer keeps game-mode projection frozen while playback remains inside a STOP that starts on an otherwise empty point", () => {
+  const model = createScoreViewerModel(createGameDetachedStopProjectionScore());
+
+  const left = collectGameProjection(model, 2.25, 320, 64);
+  const right = collectGameProjection(model, 2.75, 320, 64);
+  const leftNote = left.points.find((projected) => projected.point.notes.some((note) => note.beat === 6));
+  const rightNote = right.points.find((projected) => projected.point.notes.some((note) => note.beat === 6));
+
+  assert.ok(leftNote);
+  assert.ok(rightNote);
+  assert.equal(leftNote.y, rightNote.y);
+});
+
+test("renderer keeps game-mode projection frozen while playback remains inside a SCROLL 0 segment", () => {
+  const model = createScoreViewerModel(createGameZeroScrollFreezeScore());
+
+  const left = collectGameProjection(model, 2.25, 320, 64);
+  const right = collectGameProjection(model, 3.75, 320, 64);
+  const leftBarLine = left.points.find((projected) => projected.point.beat === 8);
+  const rightBarLine = right.points.find((projected) => projected.point.beat === 8);
+  const leftNote = left.points.find((projected) => projected.point.notes.some((note) => note.beat === 10));
+  const rightNote = right.points.find((projected) => projected.point.notes.some((note) => note.beat === 10));
+
+  assert.ok(leftBarLine);
+  assert.ok(rightBarLine);
+  assert.ok(leftNote);
+  assert.ok(rightNote);
+  assert.equal(leftBarLine.y, rightBarLine.y);
+  assert.equal(leftNote.y, rightNote.y);
 });
 
 test("renderer game projection stops drawing notes after they become past objects", () => {
@@ -210,6 +286,43 @@ function createGameProjectionReentryScore() {
   };
 }
 
+function createGameProjectionSpikeScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 3,
+    lastPlayableTimeSec: 3,
+    lastTimelineTimeSec: 3,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 4.003, timeSec: 2.0015, kind: "normal" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 4.003, timeSec: 2.0015, kind: "normal" },
+    ],
+    barLines: [
+      { beat: 0, timeSec: 0 },
+      { beat: 4.003, timeSec: 2.0015 },
+      { beat: 4.253, timeSec: 2.1265 },
+    ],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 4.001, timeSec: 2.0005, rate: 721 },
+      { beat: 4.002, timeSec: 2.001, rate: -481 },
+      { beat: 4.003, timeSec: 2.0015, rate: -240 },
+      { beat: 4.004, timeSec: 2.002, rate: 0 },
+      { beat: 4.251, timeSec: 2.1255, rate: 721 },
+      { beat: 4.252, timeSec: 2.126, rate: -401 },
+      { beat: 4.253, timeSec: 2.1265, rate: -320 },
+      { beat: 4.254, timeSec: 2.127, rate: 0 },
+    ],
+    warnings: [],
+  };
+}
+
 function createReverseLongNoteScore() {
   return {
     format: "bms",
@@ -237,6 +350,37 @@ function createReverseLongNoteScore() {
   };
 }
 
+function createGameProjectionBottomReentryScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 2, normal: 2, long: 0, invisible: 0, mine: 0, all: 2 },
+    notes: [
+      { lane: 1, beat: 4.25, timeSec: 2.125, kind: "normal" },
+      { lane: 2, beat: 4.75, timeSec: 2.375, kind: "normal" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 4.25, timeSec: 2.125, kind: "normal" },
+      { lane: 2, beat: 4.75, timeSec: 2.375, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 4, timeSec: 2, rate: 0 },
+      { beat: 4.25, timeSec: 2.125, rate: -20 },
+      { beat: 4.5, timeSec: 2.25, rate: 20 },
+      { beat: 4.75, timeSec: 2.375, rate: 0 },
+    ],
+    warnings: [],
+  };
+}
+
 function createGameStopProjectionScore() {
   return {
     format: "bms",
@@ -255,6 +399,53 @@ function createGameStopProjectionScore() {
     bpmChanges: [],
     stops: [{ beat: 4, timeSec: 3, stopBeats: 4, durationSec: 1 }],
     scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createGameDetachedStopProjectionScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 5,
+    lastPlayableTimeSec: 5,
+    lastTimelineTimeSec: 5,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 6, timeSec: 4, kind: "normal" },
+    ],
+    comboEvents: [{ lane: 1, beat: 6, timeSec: 4, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 8, timeSec: 5 }],
+    bpmChanges: [],
+    stops: [{ beat: 4, timeSec: 3, stopBeats: 4, durationSec: 1 }],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createGameZeroScrollFreezeScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 6,
+    lastPlayableTimeSec: 6,
+    lastTimelineTimeSec: 6,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 10, timeSec: 5, kind: "normal" },
+    ],
+    comboEvents: [{ lane: 1, beat: 10, timeSec: 5, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 4, timeSec: 2, rate: 0 },
+      { beat: 8, timeSec: 4, rate: 1 },
+    ],
     warnings: [],
   };
 }

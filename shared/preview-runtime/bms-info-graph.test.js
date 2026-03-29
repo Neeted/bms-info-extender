@@ -54,6 +54,93 @@ test("graph reuses the static layer when only the selected cursor changes", () =
   assert.equal(context.drawImageCalls.length, drawImageCountAfterRecord + 1);
 });
 
+test("graph skips duplicate BPM transition lines when the same x region is already painted", () => {
+  const { staticContexts } = createGraphWithRecord({
+    distributionSegments: Array.from({ length: 4 }, () => [0, 0, 0, 0, 0, 0, 0]),
+    peakdensity: 12,
+    speedChangePoints: [
+      [120, 0],
+      [240, 2000],
+      [180, 2000],
+      [240, 2000],
+      [90, 3000],
+    ],
+    mainbpm: 120,
+    minbpm: 90,
+    maxbpm: 240,
+  });
+
+  const verticalTransitionStrokes = getVerticalTransitionStrokes(staticContexts[0]);
+
+  assert.equal(verticalTransitionStrokes.filter(({ path }) => path[0].x === 11).length, 1);
+});
+
+test("graph keeps BPM transition lines when they share x but occupy different y ranges", () => {
+  const { staticContexts } = createGraphWithRecord({
+    distributionSegments: Array.from({ length: 4 }, () => [0, 0, 0, 0, 0, 0, 0]),
+    peakdensity: 12,
+    speedChangePoints: [
+      [120, 0],
+      [180, 2000],
+      [240, 2000],
+      [240, 3000],
+    ],
+    mainbpm: 120,
+    minbpm: 120,
+    maxbpm: 240,
+  });
+
+  const sameXStrokes = getVerticalTransitionStrokes(staticContexts[0]).filter(({ path }) => path[0].x === 11);
+  const yPairs = sameXStrokes.map(({ path }) => [path[0].y, path[1].y]);
+
+  assert.equal(sameXStrokes.length, 2);
+  assert.notDeepEqual(yPairs[0], yPairs[1]);
+});
+
+test("graph keeps BPM transition lines for distinct x regions", () => {
+  const { staticContexts } = createGraphWithRecord({
+    distributionSegments: Array.from({ length: 5 }, () => [0, 0, 0, 0, 0, 0, 0]),
+    peakdensity: 12,
+    speedChangePoints: [
+      [120, 0],
+      [240, 1000],
+      [180, 2000],
+      [90, 3000],
+    ],
+    mainbpm: 120,
+    minbpm: 90,
+    maxbpm: 240,
+  });
+
+  const verticalTransitionStrokes = getVerticalTransitionStrokes(staticContexts[0]);
+
+  assert.equal(verticalTransitionStrokes.length, 3);
+  assert.deepEqual(verticalTransitionStrokes.map(({ path }) => path[0].x), [6, 11, 16]);
+});
+
+function createGraphWithRecord(record) {
+  const graphCanvas = createGraphCanvas();
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas: graphCanvas.canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+  });
+  graph.setRecord(record);
+  return graphCanvas;
+}
+
+function getVerticalTransitionStrokes(context) {
+  return context.strokeCalls.filter(({ strokeStyle, path, lineWidth }) => (
+    strokeStyle === "rgba(127, 127, 127, 0.5)"
+    && lineWidth === 2
+    && path.length === 2
+    && path[0].type === "moveTo"
+    && path[1].type === "lineTo"
+    && path[0].x === path[1].x
+  ));
+}
+
 function createGraphCanvas() {
   const staticContexts = [];
   const ownerDocument = {
@@ -109,6 +196,8 @@ class MockRenderingContext2D {
     this.lineWidth = 1;
     this.fillRectCalls = [];
     this.drawImageCalls = [];
+    this.strokeCalls = [];
+    this.currentPath = [];
   }
 
   clearRect() {}
@@ -121,13 +210,25 @@ class MockRenderingContext2D {
     this.drawImageCalls.push({ image, x, y });
   }
 
-  beginPath() {}
+  beginPath() {
+    this.currentPath = [];
+  }
 
-  moveTo() {}
+  moveTo(x, y) {
+    this.currentPath.push({ type: "moveTo", x, y });
+  }
 
-  lineTo() {}
+  lineTo(x, y) {
+    this.currentPath.push({ type: "lineTo", x, y });
+  }
 
-  stroke() {}
+  stroke() {
+    this.strokeCalls.push({
+      strokeStyle: this.strokeStyle,
+      lineWidth: this.lineWidth,
+      path: this.currentPath.map((segment) => ({ ...segment })),
+    });
+  }
 
   save() {}
 

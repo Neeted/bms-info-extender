@@ -217,6 +217,7 @@ function drawDistributionBars(context, segments, canvasHeight, maxNotesPerSecond
 
 function drawSpeedChangeLines(context, record, canvasWidth, canvasHeight, timeLength) {
   const points = record.speedChangePoints;
+  const paintedVerticalRowsByRegion = new Map();
   for (let index = 0; index < points.length; index += 1) {
     const [bpm, time] = points[index];
     const x1 = timeToX((time / 1000));
@@ -245,13 +246,83 @@ function drawSpeedChangeLines(context, record, canvasWidth, canvasHeight, timeLe
     if (next) {
       const y2 = logScaleY(next[0], record.mainbpm, canvasHeight) - 1;
       if (Math.abs(y2 - y1) >= 1) {
+        const coveredColumns = getStrokeCoveredColumns(x2, context.lineWidth);
+        const strokeStartY = y2 < y1 ? y2 + 1 : y1 + 1;
+        const strokeEndY = y2 < y1 ? y1 - 1 : y2 - 1;
+        const strokeRegionKey = getVerticalStrokeRegionKey(coveredColumns);
+        const paintedRows = paintedVerticalRowsByRegion.get(strokeRegionKey) ?? new Set();
+        const unpaintedRanges = getUnpaintedVerticalStrokeRanges(strokeStartY, strokeEndY, paintedRows);
+        if (unpaintedRanges.length === 0) {
+          continue;
+        }
         context.strokeStyle = "rgba(127, 127, 127, 0.5)";
-        context.beginPath();
-        context.moveTo(x2, y2 < y1 ? y1 - 1 : y1 + 1);
-        context.lineTo(x2, y2 < y1 ? y2 + 1 : y2 - 1);
-        context.stroke();
+        for (const [segmentStartY, segmentEndY] of unpaintedRanges) {
+          context.beginPath();
+          context.moveTo(x2, segmentStartY);
+          context.lineTo(x2, segmentEndY);
+          context.stroke();
+          markVerticalStrokeRowsAsPainted(segmentStartY, segmentEndY, paintedRows);
+        }
+        paintedVerticalRowsByRegion.set(strokeRegionKey, paintedRows);
       }
     }
+  }
+}
+
+function getStrokeCoveredColumns(centerX, lineWidth) {
+  const safeCenterX = Number.isFinite(centerX) ? centerX : 0;
+  const safeLineWidth = Number.isFinite(lineWidth) && lineWidth > 0 ? lineWidth : 1;
+  const startColumn = Math.floor(safeCenterX - safeLineWidth / 2);
+  const endColumn = Math.ceil(safeCenterX + safeLineWidth / 2) - 1;
+  const columns = [];
+  for (let column = startColumn; column <= endColumn; column += 1) {
+    columns.push(column);
+  }
+  return columns;
+}
+
+function getVerticalStrokeRegionKey(columns) {
+  return columns.join(",");
+}
+
+function getUnpaintedVerticalStrokeRanges(startY, endY, paintedRows) {
+  const coveredRows = getStrokeCoveredRows(startY, endY);
+  const ranges = [];
+  let rangeStart = null;
+  let rangeEnd = null;
+  for (const row of coveredRows) {
+    if (paintedRows.has(row)) {
+      if (rangeStart !== null) {
+        ranges.push([rangeStart, rangeEnd]);
+        rangeStart = null;
+        rangeEnd = null;
+      }
+      continue;
+    }
+    if (rangeStart === null) {
+      rangeStart = row;
+    }
+    rangeEnd = row;
+  }
+  if (rangeStart !== null) {
+    ranges.push([rangeStart, rangeEnd]);
+  }
+  return ranges;
+}
+
+function getStrokeCoveredRows(startY, endY) {
+  const lowerBound = Math.floor(Math.min(startY, endY));
+  const upperBound = Math.ceil(Math.max(startY, endY));
+  const rows = [];
+  for (let row = lowerBound; row <= upperBound; row += 1) {
+    rows.push(row);
+  }
+  return rows;
+}
+
+function markVerticalStrokeRowsAsPainted(startY, endY, paintedRows) {
+  for (const row of getStrokeCoveredRows(startY, endY)) {
+    paintedRows.add(row);
   }
 }
 

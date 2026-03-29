@@ -67,8 +67,8 @@ WITH entrys AS (
     playlist_entry INNER JOIN playlist USING(playlist_id)
   WHERE
     is_removed = 0
-    AND playlist_id >= 98
-    AND playlist_id NOT IN (5044, 5057, 5060, 5106)
+    AND playlist_id >= 97
+    --AND playlist_id NOT IN (5044, 5057, 5060, 5106)
   ORDER BY playlist_id
 )
 , tables AS (

@@ -918,6 +918,7 @@
   var TEMPO_LABEL_MIN_GAP = 12;
   var LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX = 1;
   var TEMPO_LABEL_FONT = '12px "Inconsolata", "Noto Sans JP"';
+  var MEASURE_LABEL_COLOR = "#FFFFFF";
   var JUDGE_LINE_SIDE_OVERHANG = FIXED_LANE_WIDTH * 3;
   var BEAT_LANE_COLORS = /* @__PURE__ */ new Map([
     ["0", "#e04a4a"],
@@ -1023,6 +1024,7 @@
       drawDpGutter(context, laneLayout, height);
       drawLaneSeparators(context, lanes, height);
       drawBarLinesTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+      drawMeasureLabelsTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
       drawTempoMarkersTimeMode(
         context,
         model.bpmChanges,
@@ -1051,6 +1053,7 @@
       drawDpGutter(context, laneLayout, height);
       drawLaneSeparators(context, lanes, height);
       drawBarLinesEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
+      drawMeasureLabelsEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
       drawTempoMarkersEditorMode(
         context,
         model,
@@ -1074,6 +1077,7 @@
       drawDpGutter(context, laneLayout, height);
       drawLaneSeparators(context, lanes, height);
       drawBarLinesGameMode(context, lanes, projection);
+      drawMeasureLabelsGameMode(context, model.barLines, lanes, projection);
       drawTempoMarkersGameMode(context, lanes, projection);
       drawLongBodiesGameMode(context, model, lanes, projection);
       drawNoteHeadsGameMode(context, model, lanes, projection);
@@ -1126,6 +1130,24 @@
       context.stroke();
     }
     context.restore();
+  }
+  function drawMeasureLabelsTimeMode(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+    const { leftLane } = getVisualLaneEdges(lanes);
+    if (!leftLane) {
+      return;
+    }
+    const candidates = [];
+    for (const [index, barLine] of barLines.entries()) {
+      if (barLine.timeSec < startTimeSec || barLine.timeSec > endTimeSec) {
+        continue;
+      }
+      candidates.push({
+        label: formatMeasureLabel(index),
+        x: leftLane.x - TEMPO_LABEL_GAP,
+        y: timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond)
+      });
+    }
+    drawMeasureLabels(context, candidates);
   }
   function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
@@ -1363,6 +1385,28 @@
     }
     context.restore();
   }
+  function drawMeasureLabelsGameMode(context, barLines, lanes, projection) {
+    const { leftLane } = getVisualLaneEdges(lanes);
+    if (!leftLane) {
+      return;
+    }
+    const barLineIndexByReference = new Map(barLines.map((barLine, index) => [barLine, index]));
+    const candidates = [];
+    for (const projectedPoint of projection.points) {
+      for (const barLine of projectedPoint.point.barLines) {
+        const index = barLineIndexByReference.get(barLine);
+        if (!Number.isInteger(index)) {
+          continue;
+        }
+        candidates.push({
+          label: formatMeasureLabel(index),
+          x: leftLane.x - TEMPO_LABEL_GAP,
+          y: projectedPoint.y
+        });
+      }
+    }
+    drawMeasureLabels(context, candidates);
+  }
   function drawLongBodiesGameMode(context, model, lanes, projection) {
     context.save();
     for (const note of model.notes) {
@@ -1566,6 +1610,23 @@
     }
     context.restore();
   }
+  function drawMeasureLabelsEditorMode(context, barLines, lanes, editorFrameState, pixelsPerBeat) {
+    const { leftLane } = getVisualLaneEdges(lanes);
+    if (!leftLane) {
+      return;
+    }
+    const visibleWindow = getBeatWindowIndices(barLines, editorFrameState.startBeat, editorFrameState.endBeat);
+    const candidates = [];
+    for (let index = visibleWindow.startIndex; index < visibleWindow.endIndex; index += 1) {
+      const barLine = barLines[index];
+      candidates.push({
+        label: formatMeasureLabel(index),
+        x: leftLane.x - TEMPO_LABEL_GAP,
+        y: beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat)
+      });
+    }
+    drawMeasureLabels(context, candidates);
+  }
   function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
     if (!leftLane || !rightLane) {
@@ -1757,6 +1818,22 @@
       lastAcceptedY = candidate.y;
     }
   }
+  function drawMeasureLabels(context, candidates) {
+    let lastAcceptedY = Number.POSITIVE_INFINITY;
+    context.save();
+    context.font = TEMPO_LABEL_FONT;
+    context.fillStyle = MEASURE_LABEL_COLOR;
+    context.textBaseline = "bottom";
+    context.textAlign = "right";
+    for (const candidate of [...candidates].sort((left, right) => left.y - right.y)) {
+      if (!shouldKeepTempoMarkerLabel(lastAcceptedY, candidate.y)) {
+        continue;
+      }
+      context.fillText(candidate.label, candidate.x, candidate.y);
+      lastAcceptedY = candidate.y;
+    }
+    context.restore();
+  }
   function drawTempoMarkerLabel(context, marker) {
     context.save();
     context.font = TEMPO_LABEL_FONT;
@@ -1937,6 +2014,9 @@
   }
   function trimDecimal(value) {
     return String(value).replace(/\.?0+$/, "");
+  }
+  function formatMeasureLabel(index) {
+    return `#${String(Math.max(0, index)).padStart(3, "0")}`;
   }
   function collectVisibleEditorGridLines(measureRanges, startBeat, endBeat) {
     const beatBeats = [];

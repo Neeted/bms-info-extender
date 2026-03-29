@@ -115,6 +115,99 @@ test("renderer does not draw a center gutter fill for single-play layouts", () =
   );
 });
 
+test("renderer draws time-mode measure labels as zero-padded white labels with marker font", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "time" });
+
+  assert.deepEqual(
+    context.fillTextCalls.map((call) => ({
+      text: call.text,
+      fillStyle: call.fillStyle,
+      font: call.font,
+    })),
+    [
+      { text: "#001", fillStyle: "#FFFFFF", font: '12px "Inconsolata", "Noto Sans JP"' },
+      { text: "#000", fillStyle: "#FFFFFF", font: '12px "Inconsolata", "Noto Sans JP"' },
+    ],
+  );
+});
+
+test("renderer aligns editor-mode measure labels to the bar line with a bottom baseline", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "editor" });
+
+  assert.deepEqual(
+    context.fillTextCalls.map((call) => ({
+      text: call.text,
+      y: call.y,
+      textBaseline: call.textBaseline,
+      textAlign: call.textAlign,
+    })),
+    [
+      { text: "#001", y: 32, textBaseline: "bottom", textAlign: "right" },
+      { text: "#000", y: 288, textBaseline: "bottom", textAlign: "right" },
+    ],
+  );
+});
+
+test("renderer draws game-mode measure labels for visible bar lines", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameZeroScrollFreezeScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.25, { viewerMode: "game", pixelsPerBeat: 64 });
+
+  assert.deepEqual(
+    context.fillTextCalls.filter((call) => call.fillStyle === "#FFFFFF").map((call) => call.text),
+    ["#002"],
+  );
+});
+
+test("renderer skips densely packed measure labels using the same spacing threshold as marker labels", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createDenseBarLineScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "time" });
+
+  assert.deepEqual(
+    context.fillTextCalls.map((call) => call.text),
+    ["#002", "#000"],
+  );
+});
+
+test("renderer draws left-side tempo marker labels after measure labels so markers stay in front", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createLeftMarkerMeasureOverlapScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "time" });
+
+  assert.deepEqual(
+    context.fillTextCalls.map((call) => ({
+      text: call.text,
+      fillStyle: call.fillStyle,
+    })),
+    [
+      { text: "#001", fillStyle: "#FFFFFF" },
+      { text: "#000", fillStyle: "#FFFFFF" },
+      { text: "1s", fillStyle: "#ff00ff" },
+      { text: "2", fillStyle: "#ff0" },
+    ],
+  );
+});
+
 test("renderer keeps near-simultaneous scroll spikes and nearby section lines visible in game mode", () => {
   const model = createScoreViewerModel(createGameProjectionSpikeScore());
   const projection = collectGameProjection(model, 1.9, 320, 64);
@@ -305,6 +398,54 @@ function createDpGutterScore(mode) {
     bpmChanges: [],
     stops: [],
     scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createDenseBarLineScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
+    ],
+    comboEvents: [{ lane: 1, beat: 2, timeSec: 1, kind: "normal" }],
+    barLines: [
+      { beat: 0, timeSec: 0 },
+      { beat: 3.98, timeSec: 1.99 },
+      { beat: 4, timeSec: 2 },
+    ],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createLeftMarkerMeasureOverlapScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
+    ],
+    comboEvents: [{ lane: 1, beat: 2, timeSec: 1, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }],
+    bpmChanges: [],
+    stops: [{ beat: 4, timeSec: 2, stopBeats: 4, durationSec: 1 }],
+    scrollChanges: [{ beat: 4, timeSec: 2, rate: 2 }],
     warnings: [],
   };
 }

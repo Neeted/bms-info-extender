@@ -84,6 +84,86 @@ test("renderer draws invisible note outlines inset within lane separators", () =
   );
 });
 
+test("renderer moves the time-mode note head with a custom judge line Y", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "time", judgeLineY: 96 });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
+      .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
+    [
+      { x: 72, y: 92, fillStyle: "#bebebe" },
+    ],
+  );
+});
+
+test("renderer moves editor-mode note heads and bar lines with a custom judge line Y", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "editor", judgeLineY: 96 });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
+      .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
+    [
+      { x: 72, y: 92, fillStyle: "#bebebe" },
+    ],
+  );
+  assert.equal(
+    context.lineToCalls.some((call) => call.y === 224.5),
+    true,
+  );
+});
+
+test("renderer extends time-mode future culling when the judge line is lowered", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createFutureVisibilityScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "time", judgeLineY: 96 });
+  assert.equal(
+    context.fillRectCalls.some((call) => call.width === 16 && call.height === 4 && call.fillStyle === "#bebebe"),
+    false,
+  );
+
+  context.reset();
+  renderer.render(model, 1, { viewerMode: "time", judgeLineY: 224 });
+  assert.equal(
+    context.fillRectCalls.some((call) => call.width === 16 && call.height === 4 && call.fillStyle === "#bebebe"),
+    true,
+  );
+});
+
+test("renderer extends editor-mode future culling when the judge line is lowered", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createFutureVisibilityScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "editor", judgeLineY: 96 });
+  assert.equal(
+    context.fillRectCalls.some((call) => call.width === 16 && call.height === 4 && call.fillStyle === "#bebebe"),
+    false,
+  );
+
+  context.reset();
+  renderer.render(model, 1, { viewerMode: "editor", judgeLineY: 224 });
+  assert.equal(
+    context.fillRectCalls.some((call) => call.width === 16 && call.height === 4 && call.fillStyle === "#bebebe"),
+    true,
+  );
+});
+
 test("renderer fills the center gutter in 10k and 14k layouts", () => {
   for (const mode of ["10k", "14k"]) {
     const { canvas, context } = createMockCanvas();
@@ -323,6 +403,19 @@ test("renderer keeps game-mode projection frozen while playback remains inside a
   assert.equal(leftNote.y, rightNote.y);
 });
 
+test("renderer offsets game-mode projection from a custom judge line Y", () => {
+  const model = createScoreViewerModel(createGameZeroScrollFreezeScore());
+
+  const centered = collectGameProjection(model, 2.25, 320, 64);
+  const lowered = collectGameProjection(model, 2.25, 320, 64, 96);
+  const centeredBarLine = centered.points.find((projected) => projected.point.beat === 8);
+  const loweredBarLine = lowered.points.find((projected) => projected.point.beat === 8);
+
+  assert.ok(centeredBarLine);
+  assert.ok(loweredBarLine);
+  assert.equal(loweredBarLine.y - centeredBarLine.y, -64);
+});
+
 test("renderer keeps game-mode projection frozen while playback remains inside a SCROLL 0 segment", () => {
   const model = createScoreViewerModel(createGameZeroScrollFreezeScore());
 
@@ -371,6 +464,28 @@ function createInvisibleNoteScore() {
       { lane: 2, beat: 4, timeSec: 2, kind: "invisible" },
     ],
     comboEvents: [{ lane: 1, beat: 2, timeSec: 1, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createFutureVisibilityScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 5.6, timeSec: 2.8, kind: "normal" },
+    ],
+    comboEvents: [{ lane: 1, beat: 5.6, timeSec: 2.8, kind: "normal" }],
     barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
     bpmChanges: [],
     stops: [],
@@ -671,6 +786,8 @@ class MockRenderingContext2D {
     this.fillRectCalls = [];
     this.strokeRectCalls = [];
     this.fillTextCalls = [];
+    this.moveToCalls = [];
+    this.lineToCalls = [];
     this._stateStack = [];
   }
 
@@ -678,6 +795,8 @@ class MockRenderingContext2D {
     this.fillRectCalls = [];
     this.strokeRectCalls = [];
     this.fillTextCalls = [];
+    this.moveToCalls = [];
+    this.lineToCalls = [];
     this._stateStack = [];
     this.fillStyle = "#000000";
     this.strokeStyle = "#000000";
@@ -713,9 +832,13 @@ class MockRenderingContext2D {
 
   beginPath() {}
 
-  moveTo() {}
+  moveTo(x, y) {
+    this.moveToCalls.push({ x, y });
+  }
 
-  lineTo() {}
+  lineTo(x, y) {
+    this.lineToCalls.push({ x, y });
+  }
 
   stroke() {}
 

@@ -7,11 +7,14 @@ import {
   createPreviewPreferenceStorage,
   DEFAULT_VIEWER_MODE,
   DEFAULT_INVISIBLE_NOTE_VISIBILITY,
+  DEFAULT_JUDGE_LINE_POSITION_RATIO,
   INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
+  JUDGE_LINE_POSITION_RATIO_STORAGE_KEY,
   VIEWER_MODE_STORAGE_KEY,
   expandPreviewRenderMask,
   getInitialViewerMode,
   getInitialInvisibleNoteVisibility,
+  getInitialJudgeLinePositionRatio,
 } from "./index.js";
 
 test("viewer mode defaults to time and keeps persisted game values", () => {
@@ -30,7 +33,17 @@ test("invisible note visibility defaults to hide and restores persisted show val
   assert.equal(getInitialInvisibleNoteVisibility(() => "invalid"), "hide");
 });
 
-test("preview preference storage shares persistence wiring for both viewer mode and invisible note visibility", () => {
+test("judge line position ratio defaults to center and restores valid persisted ratios", () => {
+  assert.equal(DEFAULT_JUDGE_LINE_POSITION_RATIO, 0.5);
+  assert.equal(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, "bms-info-extender.judgeLinePositionRatio");
+  assert.equal(getInitialJudgeLinePositionRatio(() => null), 0.5);
+  assert.equal(getInitialJudgeLinePositionRatio(() => 0.2), 0.2);
+  assert.equal(getInitialJudgeLinePositionRatio(() => "0.8"), 0.8);
+  assert.equal(getInitialJudgeLinePositionRatio(() => -1), 0.5);
+  assert.equal(getInitialJudgeLinePositionRatio(() => "invalid"), 0.5);
+});
+
+test("preview preference storage shares persistence wiring for viewer mode, invisible notes, and judge line position", () => {
   const store = new Map();
   const preferences = createPreviewPreferenceStorage({
     read: (key, fallbackValue) => store.has(key) ? store.get(key) : fallbackValue,
@@ -39,14 +52,21 @@ test("preview preference storage shares persistence wiring for both viewer mode 
 
   assert.equal(preferences.getPersistedViewerMode(), "time");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "hide");
+  assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.5);
 
   preferences.setPersistedViewerMode("game");
   preferences.setPersistedInvisibleNoteVisibility("show");
+  preferences.setPersistedJudgeLinePositionRatio(0.25);
 
   assert.equal(store.get(VIEWER_MODE_STORAGE_KEY), "game");
   assert.equal(store.get(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY), "show");
+  assert.equal(store.get(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY), 0.25);
   assert.equal(preferences.getPersistedViewerMode(), "game");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "show");
+  assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.25);
+
+  store.set(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, "invalid");
+  assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.5);
 });
 
 test("viewer model dirty render also reapplies persisted viewer chrome", () => {
@@ -54,6 +74,7 @@ test("viewer model dirty render also reapplies persisted viewer chrome", () => {
 
   assert.notEqual(expandedMask & PREVIEW_RENDER_DIRTY.viewerMode, 0);
   assert.notEqual(expandedMask & PREVIEW_RENDER_DIRTY.invisible, 0);
+  assert.notEqual(expandedMask & PREVIEW_RENDER_DIRTY.judgeLinePosition, 0);
   assert.equal(
     expandPreviewRenderMask(PREVIEW_RENDER_DIRTY.selection),
     PREVIEW_RENDER_DIRTY.selection,

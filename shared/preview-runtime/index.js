@@ -1,6 +1,7 @@
 import {
   createScoreViewerModel,
   DEFAULT_INVISIBLE_NOTE_VISIBILITY,
+  DEFAULT_JUDGE_LINE_POSITION_RATIO,
   DEFAULT_VIEWER_MODE,
   getBeatAtTimeSec,
   getClampedSelectedBeat,
@@ -8,6 +9,7 @@ import {
   getScoreTotalDurationSec,
   hasViewerSelectionChanged,
   normalizeInvisibleNoteVisibility,
+  normalizeJudgeLinePositionRatio,
   normalizeViewerMode,
   resolveViewerModeForModel,
 } from "./score-viewer-model.js";
@@ -25,8 +27,10 @@ const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
 export const VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
 export const INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibleNoteVisibility";
+export const JUDGE_LINE_POSITION_RATIO_STORAGE_KEY = "bms-info-extender.judgeLinePositionRatio";
 export { DEFAULT_VIEWER_MODE };
 export { DEFAULT_INVISIBLE_NOTE_VISIBILITY };
+export { DEFAULT_JUDGE_LINE_POSITION_RATIO };
 
 export const PREVIEW_RENDER_DIRTY = {
   record: 1 << 0,
@@ -36,7 +40,8 @@ export const PREVIEW_RENDER_DIRTY = {
   pin: 1 << 4,
   viewerMode: 1 << 5,
   invisible: 1 << 6,
-  viewerOpen: 1 << 7,
+  judgeLinePosition: 1 << 7,
+  viewerOpen: 1 << 8,
 };
 const PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 
@@ -72,13 +77,34 @@ export function createPreviewPreferenceStorage({ read = () => null, write = () =
         // Ignore storage failures and keep runtime state only.
       }
     },
+    getPersistedJudgeLinePositionRatio() {
+      try {
+        const persistedValue = read(
+          JUDGE_LINE_POSITION_RATIO_STORAGE_KEY,
+          DEFAULT_JUDGE_LINE_POSITION_RATIO,
+        );
+        if (persistedValue === null || persistedValue === undefined || persistedValue === "") {
+          return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+        }
+        return normalizeJudgeLinePositionRatio(Number(persistedValue));
+      } catch (_error) {
+        return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+      }
+    },
+    setPersistedJudgeLinePositionRatio(nextRatio) {
+      try {
+        write(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, normalizeJudgeLinePositionRatio(nextRatio));
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
   };
 }
 
 export function expandPreviewRenderMask(renderMask = 0) {
   let expandedMask = renderMask;
   if (expandedMask & PREVIEW_RENDER_DIRTY.viewerModel) {
-    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible;
+    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible | PREVIEW_RENDER_DIRTY.judgeLinePosition;
   }
   return expandedMask;
 }
@@ -118,6 +144,7 @@ export const BMSDATA_CSS = `
   .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; contain: layout paint; }
   .score-viewer-scroll-host.is-scrollable { overflow-y: auto; cursor: grab; touch-action: none; }
   .score-viewer-scroll-host.is-scrollable.is-dragging { cursor: grabbing; }
+  .score-viewer-scroll-host.is-judge-line-draggable, .score-viewer-scroll-host.is-judge-line-dragging { cursor: ns-resize; }
   .score-viewer-spacer { width: 1px; opacity: 0; }
   .score-viewer-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; contain: layout paint; }
@@ -142,8 +169,9 @@ export const BMSDATA_CSS = `
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
   .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; pointer-events: auto; }
-  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: 50%; display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
+  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%); display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
   .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
+  .score-viewer-judge-line.is-draggable::after, .score-viewer-judge-line.is-dragging::after { background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%); box-shadow: 0 0 28px rgba(255, 120, 88, 0.34); }
   .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
   .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }
   .bd-lanenote[lane="2"] { background: #5074fe; color: #fff; }
@@ -376,6 +404,8 @@ export function createBmsInfoPreview({
   setPersistedViewerMode = () => {},
   getPersistedInvisibleNoteVisibility = () => DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   setPersistedInvisibleNoteVisibility = () => {},
+  getPersistedJudgeLinePositionRatio = () => DEFAULT_JUDGE_LINE_POSITION_RATIO,
+  setPersistedJudgeLinePositionRatio = () => {},
   onSelectedTimeChange = () => {},
   onPinChange = () => {},
   onPlaybackChange = () => {},
@@ -403,10 +433,11 @@ export function createBmsInfoPreview({
     selectedSha256: null,
     selectedTimeSec: 0,
     selectedBeat: 0,
-    viewerMode: getInitialViewerMode(getPersistedViewerMode),
-    invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
-    isPinned: false,
-    isViewerOpen: false,
+      viewerMode: getInitialViewerMode(getPersistedViewerMode),
+      invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
+      judgeLinePositionRatio: getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio),
+      isPinned: false,
+      isViewerOpen: false,
     isPlaying: false,
     isGraphHovered: false,
     parsedScore: null,
@@ -439,6 +470,9 @@ export function createBmsInfoPreview({
     },
     onInvisibleNoteVisibilityChange: (nextVisibility) => {
       setInvisibleNoteVisibility(nextVisibility);
+    },
+    onJudgeLinePositionChange: (nextRatio) => {
+      setJudgeLinePositionRatio(nextRatio);
     },
   });
 
@@ -481,6 +515,7 @@ export function createBmsInfoPreview({
     setSelectedTimeSec,
     setViewerMode,
     setInvisibleNoteVisibility,
+    setJudgeLinePositionRatio,
     setPinned,
     setPlaybackState,
     prefetch,
@@ -773,6 +808,20 @@ export function createBmsInfoPreview({
     scheduleRender(PREVIEW_RENDER_DIRTY.invisible);
   }
 
+  function setJudgeLinePositionRatio(nextRatio) {
+    const normalizedRatio = normalizeJudgeLinePositionRatio(nextRatio);
+    if (Math.abs(state.judgeLinePositionRatio - normalizedRatio) < 0.000001) {
+      return;
+    }
+    state.judgeLinePositionRatio = normalizedRatio;
+    try {
+      setPersistedJudgeLinePositionRatio(normalizedRatio);
+    } catch (error) {
+      console.warn("Failed to persist judge line position ratio:", error);
+    }
+    scheduleRender(PREVIEW_RENDER_DIRTY.judgeLinePosition);
+  }
+
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state.isPinned === normalized) {
@@ -921,6 +970,9 @@ export function createBmsInfoPreview({
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.invisible) {
       viewerController.setInvisibleNoteVisibility(state.invisibleNoteVisibility);
     }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.judgeLinePosition) {
+      viewerController.setJudgeLinePositionRatio(state.judgeLinePositionRatio);
+    }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
       viewerController.setPlaybackState(state.isPlaying);
     }
@@ -1043,6 +1095,19 @@ export function getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisib
   } catch (error) {
     console.warn("Failed to read persisted invisible note visibility:", error);
     return DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+  }
+}
+
+export function getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio) {
+  try {
+    const persistedValue = getPersistedJudgeLinePositionRatio?.();
+    if (persistedValue === null || persistedValue === undefined || persistedValue === "") {
+      return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+    }
+    return normalizeJudgeLinePositionRatio(Number(persistedValue));
+  } catch (error) {
+    console.warn("Failed to read persisted judge line position ratio:", error);
+    return DEFAULT_JUDGE_LINE_POSITION_RATIO;
   }
 }
 

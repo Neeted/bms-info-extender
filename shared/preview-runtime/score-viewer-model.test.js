@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   BEAT_SELECTION_EPSILON,
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  DEFAULT_JUDGE_LINE_POSITION_RATIO,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
   createEditorMeasureRanges,
   createScoreViewerModel,
@@ -12,14 +13,17 @@ import {
   getComboCountAtTime,
   getContentHeightPx,
   getEditorFrameState,
+  getEditorFrameStateForBeat,
   getEditorContentHeightPx,
   getEditorScrollTopForBeat,
   getEditorScrollTopForTimeSec,
   getGameVisibleTrackRange,
   getGameTrackPositionAtTimeSec,
   getGameTrackPositionForBeat,
+  getJudgeLineY,
   getLongBodyTrackWindow,
   getTrackWindowIndices,
+  getVisibleBeatRange,
   hasViewerSelectionChanged,
   getMeasureIndexAtTime,
   getScrollTopForTimeSec,
@@ -79,6 +83,70 @@ test("viewer model resolves measure and combo positions from comboEvents and bar
   assert.equal(getVisibleTimeRange(model, 11.8, 480).endTimeSec, 12);
   assert.equal(getContentHeightPx(model, 480, DEFAULT_VIEWER_PIXELS_PER_SECOND), 12 * DEFAULT_VIEWER_PIXELS_PER_SECOND + 480);
   assert.equal(getScrollTopForTimeSec(model, 20, 480, DEFAULT_VIEWER_PIXELS_PER_SECOND), 12 * DEFAULT_VIEWER_PIXELS_PER_SECOND);
+});
+
+test("viewer model expands visible ranges asymmetrically around a moved judge line", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 12,
+    lastPlayableTimeSec: 12,
+    lastTimelineTimeSec: 12,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  assert.equal(DEFAULT_JUDGE_LINE_POSITION_RATIO, 0.5);
+  assert.equal(getJudgeLineY(320), 160);
+
+  const raisedTimeRange = getVisibleTimeRange(model, 4, 320, 160, 80);
+  assert.deepEqual(raisedTimeRange, {
+    startTimeSec: 1.75,
+    endTimeSec: 5.25,
+  });
+
+  const loweredTimeRange = getVisibleTimeRange(model, 4, 320, 160, 240);
+  assert.deepEqual(loweredTimeRange, {
+    startTimeSec: 2.75,
+    endTimeSec: 6.25,
+  });
+
+  const raisedEditorRange = getEditorFrameStateForBeat(model, 8, 320, 64, 80);
+  assert.deepEqual(
+    {
+      startBeat: raisedEditorRange.startBeat,
+      endBeat: raisedEditorRange.endBeat,
+    },
+    {
+      startBeat: 2.9375,
+      endBeat: 10.5625,
+    },
+  );
+
+  const loweredEditorRange = getEditorFrameStateForBeat(model, 8, 320, 64, 240);
+  assert.deepEqual(
+    {
+      startBeat: loweredEditorRange.startBeat,
+      endBeat: loweredEditorRange.endBeat,
+    },
+    {
+      startBeat: 5.4375,
+      endBeat: 12,
+    },
+  );
+
+  assert.deepEqual(
+    getVisibleBeatRange(model, 4, 320, 64, 240),
+    loweredEditorRange,
+  );
 });
 
 test("viewer model converts between seconds and beats across BPM changes and STOPs", () => {
@@ -467,6 +535,14 @@ test("viewer model exposes game-mode visible slices by track position", () => {
       endTrackPosition: note.endTrackPosition,
     })),
     [{ lane: 2, startTrackPosition: 4, endTrackPosition: 8 }],
+  );
+
+  assert.deepEqual(
+    getGameVisibleTrackRange(4, 320, 64, 240),
+    {
+      startTrackPosition: 1.4375,
+      endTrackPosition: 9.0625,
+    },
   );
 });
 

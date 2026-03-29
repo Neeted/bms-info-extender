@@ -2,6 +2,7 @@ export const DEFAULT_VIEWER_PIXELS_PER_SECOND = 160;
 export const DEFAULT_EDITOR_PIXELS_PER_BEAT = 64;
 export const DEFAULT_VIEWER_MODE = "time";
 export const DEFAULT_INVISIBLE_NOTE_VISIBILITY = "hide";
+export const DEFAULT_JUDGE_LINE_POSITION_RATIO = 0.5;
 export const TIME_SELECTION_EPSILON_SEC = 0.0005;
 export const BEAT_SELECTION_EPSILON = 0.000001;
 
@@ -29,6 +30,17 @@ export function resolveViewerModeForModel(model, viewerMode) {
 
 export function normalizeInvisibleNoteVisibility(value) {
   return value === "show" ? "show" : DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+}
+
+export function normalizeJudgeLinePositionRatio(value) {
+  return Number.isFinite(value) && value >= 0 && value <= 1
+    ? value
+    : DEFAULT_JUDGE_LINE_POSITION_RATIO;
+}
+
+export function getJudgeLineY(viewportHeight, judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO) {
+  const normalizedViewportHeight = Math.max(Number.isFinite(viewportHeight) ? viewportHeight : 0, 0);
+  return normalizedViewportHeight * normalizeJudgeLinePositionRatio(judgeLinePositionRatio);
 }
 
 export function createScoreViewerModel(score) {
@@ -273,16 +285,18 @@ export function getVisibleTimeRange(
   selectedTimeSec,
   viewportHeight,
   pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND,
+  judgeLineY = getJudgeLineY(viewportHeight),
 ) {
   if (!model) {
     return { startTimeSec: 0, endTimeSec: 0 };
   }
   const clampedTimeSec = getClampedSelectedTimeSec(model, selectedTimeSec);
-  const halfViewportSec = viewportHeight / pixelsPerSecond / 2;
-  const overscanSec = Math.max(halfViewportSec * 0.35, 0.75);
+  const futureViewportSec = Math.max(judgeLineY, 0) / pixelsPerSecond;
+  const pastViewportSec = Math.max(viewportHeight - judgeLineY, 0) / pixelsPerSecond;
+  const overscanSec = Math.max(Math.max(futureViewportSec, pastViewportSec) * 0.35, 0.75);
   return {
-    startTimeSec: Math.max(0, clampedTimeSec - halfViewportSec - overscanSec),
-    endTimeSec: Math.min(getScoreTotalDurationSec(model.score), clampedTimeSec + halfViewportSec + overscanSec),
+    startTimeSec: Math.max(0, clampedTimeSec - pastViewportSec - overscanSec),
+    endTimeSec: Math.min(getScoreTotalDurationSec(model.score), clampedTimeSec + futureViewportSec + overscanSec),
   };
 }
 
@@ -291,8 +305,9 @@ export function getVisibleBeatRange(
   selectedTimeSec,
   viewportHeight,
   pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  judgeLineY = getJudgeLineY(viewportHeight),
 ) {
-  return getEditorFrameState(model, selectedTimeSec, viewportHeight, pixelsPerBeat);
+  return getEditorFrameState(model, selectedTimeSec, viewportHeight, pixelsPerBeat, judgeLineY);
 }
 
 export function getEditorFrameStateForBeat(
@@ -300,6 +315,7 @@ export function getEditorFrameStateForBeat(
   selectedBeat,
   viewportHeight,
   pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  judgeLineY = getJudgeLineY(viewportHeight),
 ) {
   if (!model) {
     return {
@@ -310,12 +326,13 @@ export function getEditorFrameStateForBeat(
     };
   }
   const clampedBeat = getClampedSelectedBeat(model, selectedBeat);
-  const halfViewportBeat = viewportHeight / pixelsPerBeat / 2;
-  const overscanBeat = Math.max(halfViewportBeat * 0.35, 1);
+  const futureViewportBeat = Math.max(judgeLineY, 0) / pixelsPerBeat;
+  const pastViewportBeat = Math.max(viewportHeight - judgeLineY, 0) / pixelsPerBeat;
+  const overscanBeat = Math.max(Math.max(futureViewportBeat, pastViewportBeat) * 0.35, 1);
   return {
     selectedBeat: clampedBeat,
-    startBeat: Math.max(0, clampedBeat - halfViewportBeat - overscanBeat),
-    endBeat: Math.min(model.totalBeat ?? 0, clampedBeat + halfViewportBeat + overscanBeat),
+    startBeat: Math.max(0, clampedBeat - pastViewportBeat - overscanBeat),
+    endBeat: Math.min(model.totalBeat ?? 0, clampedBeat + futureViewportBeat + overscanBeat),
     viewportHeight,
   };
 }
@@ -325,12 +342,14 @@ export function getEditorFrameState(
   selectedTimeSec,
   viewportHeight,
   pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  judgeLineY = getJudgeLineY(viewportHeight),
 ) {
   return getEditorFrameStateForBeat(
     model,
     getBeatAtTimeSec(model, selectedTimeSec),
     viewportHeight,
     pixelsPerBeat,
+    judgeLineY,
   );
 }
 
@@ -338,14 +357,16 @@ export function getGameVisibleTrackRange(
   selectedTrackPosition,
   viewportHeight,
   pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  judgeLineY = getJudgeLineY(viewportHeight),
 ) {
   const normalizedTrackPosition = Number.isFinite(selectedTrackPosition) ? selectedTrackPosition : 0;
   const normalizedViewportHeight = Math.max(viewportHeight, 0);
-  const halfViewportTrack = normalizedViewportHeight / Math.max(pixelsPerBeat, 1e-9) / 2;
-  const overscanTrack = Math.max(halfViewportTrack * 0.35, 1);
+  const futureViewportTrack = Math.max(judgeLineY, 0) / Math.max(pixelsPerBeat, 1e-9);
+  const pastViewportTrack = Math.max(normalizedViewportHeight - judgeLineY, 0) / Math.max(pixelsPerBeat, 1e-9);
+  const overscanTrack = Math.max(Math.max(futureViewportTrack, pastViewportTrack) * 0.35, 1);
   return {
-    startTrackPosition: normalizedTrackPosition - halfViewportTrack - overscanTrack,
-    endTrackPosition: normalizedTrackPosition + halfViewportTrack + overscanTrack,
+    startTrackPosition: normalizedTrackPosition - pastViewportTrack - overscanTrack,
+    endTrackPosition: normalizedTrackPosition + futureViewportTrack + overscanTrack,
   };
 }
 

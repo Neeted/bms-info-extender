@@ -595,6 +595,11 @@ button:hover:not(:disabled) {
   cursor: grabbing;
 }
 
+.score-viewer-scroll-host.is-judge-line-draggable,
+.score-viewer-scroll-host.is-judge-line-dragging {
+  cursor: ns-resize;
+}
+
 .score-viewer-spacer {
   width: 1px;
   opacity: 0;
@@ -751,7 +756,7 @@ button:hover:not(:disabled) {
   position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
+  top: calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%);
   display: flex;
   align-items: center;
   transform: translateY(-50%);
@@ -764,6 +769,12 @@ button:hover:not(:disabled) {
   height: 2px;
   background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%);
   box-shadow: 0 0 20px rgba(187, 71, 49, 0.2);
+}
+
+.score-viewer-judge-line.is-draggable::after,
+.score-viewer-judge-line.is-dragging::after {
+  background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%);
+  box-shadow: 0 0 28px rgba(255, 120, 88, 0.34);
 }
 
 .event-item-header {

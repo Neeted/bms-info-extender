@@ -34,6 +34,7 @@
   var DEFAULT_EDITOR_PIXELS_PER_BEAT = 64;
   var DEFAULT_VIEWER_MODE = "time";
   var DEFAULT_INVISIBLE_NOTE_VISIBILITY = "hide";
+  var DEFAULT_JUDGE_LINE_POSITION_RATIO = 0.5;
   var TIME_SELECTION_EPSILON_SEC = 5e-4;
   var BEAT_SELECTION_EPSILON = 1e-6;
   var ACTION_PRECEDENCE = {
@@ -55,6 +56,13 @@
   }
   function normalizeInvisibleNoteVisibility(value) {
     return value === "show" ? "show" : DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+  }
+  function normalizeJudgeLinePositionRatio(value) {
+    return Number.isFinite(value) && value >= 0 && value <= 1 ? value : DEFAULT_JUDGE_LINE_POSITION_RATIO;
+  }
+  function getJudgeLineY(viewportHeight, judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO) {
+    const normalizedViewportHeight = Math.max(Number.isFinite(viewportHeight) ? viewportHeight : 0, 0);
+    return normalizedViewportHeight * normalizeJudgeLinePositionRatio(judgeLinePositionRatio);
   }
   function createScoreViewerModel(score) {
     if (!score) {
@@ -265,19 +273,20 @@
     const maxScrollTop = Math.max(0, getEditorContentHeightPx(model, viewportHeight, pixelsPerBeat) - viewportHeight);
     return clamp(clampedBeat * pixelsPerBeat, 0, maxScrollTop);
   }
-  function getVisibleTimeRange(model, selectedTimeSec, viewportHeight, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND) {
+  function getVisibleTimeRange(model, selectedTimeSec, viewportHeight, pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND, judgeLineY = getJudgeLineY(viewportHeight)) {
     if (!model) {
       return { startTimeSec: 0, endTimeSec: 0 };
     }
     const clampedTimeSec = getClampedSelectedTimeSec(model, selectedTimeSec);
-    const halfViewportSec = viewportHeight / pixelsPerSecond / 2;
-    const overscanSec = Math.max(halfViewportSec * 0.35, 0.75);
+    const futureViewportSec = Math.max(judgeLineY, 0) / pixelsPerSecond;
+    const pastViewportSec = Math.max(viewportHeight - judgeLineY, 0) / pixelsPerSecond;
+    const overscanSec = Math.max(Math.max(futureViewportSec, pastViewportSec) * 0.35, 0.75);
     return {
-      startTimeSec: Math.max(0, clampedTimeSec - halfViewportSec - overscanSec),
-      endTimeSec: Math.min(getScoreTotalDurationSec(model.score), clampedTimeSec + halfViewportSec + overscanSec)
+      startTimeSec: Math.max(0, clampedTimeSec - pastViewportSec - overscanSec),
+      endTimeSec: Math.min(getScoreTotalDurationSec(model.score), clampedTimeSec + futureViewportSec + overscanSec)
     };
   }
-  function getEditorFrameStateForBeat(model, selectedBeat, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT) {
+  function getEditorFrameStateForBeat(model, selectedBeat, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT, judgeLineY = getJudgeLineY(viewportHeight)) {
     if (!model) {
       return {
         selectedBeat: 0,
@@ -287,21 +296,23 @@
       };
     }
     const clampedBeat = getClampedSelectedBeat(model, selectedBeat);
-    const halfViewportBeat = viewportHeight / pixelsPerBeat / 2;
-    const overscanBeat = Math.max(halfViewportBeat * 0.35, 1);
+    const futureViewportBeat = Math.max(judgeLineY, 0) / pixelsPerBeat;
+    const pastViewportBeat = Math.max(viewportHeight - judgeLineY, 0) / pixelsPerBeat;
+    const overscanBeat = Math.max(Math.max(futureViewportBeat, pastViewportBeat) * 0.35, 1);
     return {
       selectedBeat: clampedBeat,
-      startBeat: Math.max(0, clampedBeat - halfViewportBeat - overscanBeat),
-      endBeat: Math.min(model.totalBeat ?? 0, clampedBeat + halfViewportBeat + overscanBeat),
+      startBeat: Math.max(0, clampedBeat - pastViewportBeat - overscanBeat),
+      endBeat: Math.min(model.totalBeat ?? 0, clampedBeat + futureViewportBeat + overscanBeat),
       viewportHeight
     };
   }
-  function getEditorFrameState(model, selectedTimeSec, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT) {
+  function getEditorFrameState(model, selectedTimeSec, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT, judgeLineY = getJudgeLineY(viewportHeight)) {
     return getEditorFrameStateForBeat(
       model,
       getBeatAtTimeSec(model, selectedTimeSec),
       viewportHeight,
-      pixelsPerBeat
+      pixelsPerBeat,
+      judgeLineY
     );
   }
   function hasViewerSelectionChanged(model, viewerMode, previousTimeSec, nextTimeSec, previousBeat = void 0, nextBeat = void 0) {
@@ -993,7 +1004,8 @@
       pixelsPerSecond = DEFAULT_VIEWER_PIXELS_PER_SECOND,
       pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
       editorFrameState = null,
-      showInvisibleNotes = false
+      showInvisibleNotes = false,
+      judgeLineY = getJudgeLineY(height, DEFAULT_JUDGE_LINE_POSITION_RATIO)
     } = {}) {
       context.clearRect(0, 0, width, height);
       context.fillStyle = BACKGROUND_FILL;
@@ -1004,27 +1016,34 @@
       const laneLayout = getCachedLaneLayout(model.score.mode, model.score.laneCount);
       const resolvedMode = resolveViewerModeForModel(model, viewerMode);
       if (resolvedMode === "time") {
-        return renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes);
+        return renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes, judgeLineY);
       }
       if (resolvedMode === "game") {
-        return renderGameMode(model, laneLayout, selectedTimeSec, pixelsPerBeat, showInvisibleNotes);
+        return renderGameMode(model, laneLayout, selectedTimeSec, pixelsPerBeat, showInvisibleNotes, judgeLineY);
       }
       return renderEditorMode(
         model,
         laneLayout,
-        editorFrameState ?? getEditorFrameState(model, selectedTimeSec, height, pixelsPerBeat),
+        editorFrameState ?? getEditorFrameState(model, selectedTimeSec, height, pixelsPerBeat, judgeLineY),
         pixelsPerBeat,
-        showInvisibleNotes
+        showInvisibleNotes,
+        judgeLineY
       );
     }
     return { resize, render };
-    function renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes) {
+    function renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes, judgeLineY) {
       const { lanes } = laneLayout;
-      const { startTimeSec, endTimeSec } = getVisibleTimeRange(model, selectedTimeSec, height, pixelsPerSecond);
+      const { startTimeSec, endTimeSec } = getVisibleTimeRange(
+        model,
+        selectedTimeSec,
+        height,
+        pixelsPerSecond,
+        judgeLineY
+      );
       drawDpGutter(context, laneLayout, height);
       drawLaneSeparators(context, lanes, height);
-      drawBarLinesTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-      drawMeasureLabelsTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+      drawBarLinesTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond, judgeLineY);
+      drawMeasureLabelsTimeMode(context, model.barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond, judgeLineY);
       drawTempoMarkersTimeMode(
         context,
         model.bpmChanges,
@@ -1035,45 +1054,47 @@
         startTimeSec,
         endTimeSec,
         height,
-        pixelsPerSecond
+        pixelsPerSecond,
+        judgeLineY
       );
-      drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
-      drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+      drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond, judgeLineY);
+      drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond, judgeLineY);
       if (showInvisibleNotes) {
-        drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond);
+        drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond, judgeLineY);
       }
       return {
         markers: [],
         laneBounds: getLaneBounds(laneLayout)
       };
     }
-    function renderEditorMode(model, laneLayout, editorFrameState, pixelsPerBeat, showInvisibleNotes) {
+    function renderEditorMode(model, laneLayout, editorFrameState, pixelsPerBeat, showInvisibleNotes, judgeLineY) {
       const { lanes } = laneLayout;
-      drawEditorSubGrid(context, model.measureRanges, lanes, editorFrameState, pixelsPerBeat);
+      drawEditorSubGrid(context, model.measureRanges, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
       drawDpGutter(context, laneLayout, height);
       drawLaneSeparators(context, lanes, height);
-      drawBarLinesEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
-      drawMeasureLabelsEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat);
+      drawBarLinesEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
+      drawMeasureLabelsEditorMode(context, model.barLines, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
       drawTempoMarkersEditorMode(
         context,
         model,
         lanes,
         editorFrameState,
-        pixelsPerBeat
+        pixelsPerBeat,
+        judgeLineY
       );
-      drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
-      drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+      drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
+      drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
       if (showInvisibleNotes) {
-        drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat);
+        drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
       }
       return {
         markers: [],
         laneBounds: getLaneBounds(laneLayout)
       };
     }
-    function renderGameMode(model, laneLayout, selectedTimeSec, pixelsPerBeat, showInvisibleNotes) {
+    function renderGameMode(model, laneLayout, selectedTimeSec, pixelsPerBeat, showInvisibleNotes, judgeLineY) {
       const { lanes } = laneLayout;
-      const projection = collectGameProjection(model, selectedTimeSec, height, pixelsPerBeat);
+      const projection = collectGameProjection(model, selectedTimeSec, height, pixelsPerBeat, judgeLineY);
       drawDpGutter(context, laneLayout, height);
       drawLaneSeparators(context, lanes, height);
       drawBarLinesGameMode(context, lanes, projection);
@@ -1109,7 +1130,7 @@
     const contentWidth = layout.display.length * FIXED_LANE_WIDTH + gutterWidth;
     return Math.ceil(contentWidth + JUDGE_LINE_SIDE_OVERHANG * 2);
   }
-  function drawBarLinesTimeMode(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawBarLinesTimeMode(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
     if (!leftLane || !rightLane) {
       return;
@@ -1123,7 +1144,7 @@
       if (barLine.timeSec < startTimeSec || barLine.timeSec > endTimeSec) {
         continue;
       }
-      const y = timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const y = timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       context.beginPath();
       context.moveTo(leftX, y + 0.5);
       context.lineTo(rightX, y + 0.5);
@@ -1131,7 +1152,7 @@
     }
     context.restore();
   }
-  function drawMeasureLabelsTimeMode(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawMeasureLabelsTimeMode(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
     const { leftLane } = getVisualLaneEdges(lanes);
     if (!leftLane) {
       return;
@@ -1144,12 +1165,12 @@
       candidates.push({
         label: formatMeasureLabel(index),
         x: leftLane.x - TEMPO_LABEL_GAP,
-        y: timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond)
+        y: timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY)
       });
     }
     drawMeasureLabels(context, candidates);
   }
-  function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
     if (!leftLane || !rightLane) {
       return;
@@ -1163,7 +1184,7 @@
       if (bpmChange.timeSec < startTimeSec || bpmChange.timeSec > endTimeSec) {
         continue;
       }
-      const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       const markerRect = getTempoMarkerRect(rightLane, "right");
       context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
       if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
@@ -1184,7 +1205,7 @@
       if (stop.timeSec < startTimeSec || stop.timeSec > endTimeSec) {
         continue;
       }
-      const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       const markerRect = getTempoMarkerRect(leftLane, "left");
       context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
       if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
@@ -1205,7 +1226,7 @@
       if (scrollChange.timeSec < startTimeSec || scrollChange.timeSec > endTimeSec) {
         continue;
       }
-      const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       const markerRect = getTempoMarkerRect(leftLane, "left");
       context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
       if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
@@ -1223,7 +1244,7 @@
     }
     context.restore();
   }
-  function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
     context.save();
     for (const note of model.notes) {
       if (note.kind !== "long" || !Number.isFinite(note.endTimeSec)) {
@@ -1236,8 +1257,8 @@
       if (!lane) {
         continue;
       }
-      const startY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
-      const endY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const startY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
+      const endY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
       const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
       const bodyHeight = Math.max(bottomY - topY, 2);
@@ -1246,7 +1267,7 @@
     }
     context.restore();
   }
-  function drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
     context.save();
     for (const note of model.notes) {
       const noteEndTimeSec = note.endTimeSec ?? note.timeSec;
@@ -1257,16 +1278,16 @@
       if (!lane || note.kind === "invisible") {
         continue;
       }
-      const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
       if (note.kind === "long" && Number.isFinite(note.endTimeSec) && shouldDrawLongEndCap(model, note)) {
-        const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+        const endHeadY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
         drawRectNote(context, lane, endHeadY, lane.note);
       }
     }
     context.restore();
   }
-  function drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond) {
+  function drawInvisibleNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
     context.save();
     context.strokeStyle = INVISIBLE_NOTE_COLOR;
     context.lineWidth = 1;
@@ -1278,16 +1299,17 @@
       if (!lane) {
         continue;
       }
-      const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond);
+      const headY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       drawOutlinedRectNote(context, lane, headY, INVISIBLE_NOTE_COLOR);
     }
     context.restore();
   }
-  function collectGameProjection(model, selectedTimeSec, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT) {
+  function collectGameProjection(model, selectedTimeSec, viewportHeight, pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT, judgeLineY = getJudgeLineY(viewportHeight)) {
     const projection = {
       selectedTimeSec,
       selectedTrackPosition: getGameTrackPositionAtTimeSec(model, selectedTimeSec),
       viewportHeight: Math.max(viewportHeight, 0),
+      judgeLineY,
       pixelsPerBeat,
       visibleMargin: NOTE_HEAD_HEIGHT + 24,
       points: [],
@@ -1299,7 +1321,7 @@
     }
     const timeline = model.gameTimeline;
     const startIndex = lowerBoundGameTimelineByTime(timeline, selectedTimeSec);
-    let y = projection.viewportHeight / 2;
+    let y = projection.judgeLineY;
     for (let index = startIndex; index < timeline.length; index += 1) {
       const point = timeline[index];
       if (index > 0) {
@@ -1537,7 +1559,7 @@
       return projectedStartY;
     }
     if (note.timeSec < projection.selectedTimeSec && note.endTimeSec > projection.selectedTimeSec) {
-      return projection.viewportHeight / 2;
+      return projection.judgeLineY;
     }
     return null;
   }
@@ -1554,7 +1576,7 @@
     }
     return null;
   }
-  function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixelsPerBeat) {
+  function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixelsPerBeat, judgeLineY) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
     if (!leftLane || !rightLane || !Array.isArray(measureRanges) || measureRanges.length === 0) {
       return;
@@ -1573,7 +1595,7 @@
     context.lineWidth = 1;
     context.strokeStyle = EDITOR_SIXTEENTH_GRID_LINE;
     for (const beat of visibleGridLines.sixteenthBeats) {
-      const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       context.beginPath();
       context.moveTo(leftX, y + 0.5);
       context.lineTo(rightX, y + 0.5);
@@ -1581,7 +1603,7 @@
     }
     context.strokeStyle = EDITOR_BEAT_GRID_LINE;
     for (const beat of visibleGridLines.beatBeats) {
-      const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       context.beginPath();
       context.moveTo(leftX, y + 0.5);
       context.lineTo(rightX, y + 0.5);
@@ -1589,7 +1611,7 @@
     }
     context.restore();
   }
-  function drawBarLinesEditorMode(context, barLines, lanes, editorFrameState, pixelsPerBeat) {
+  function drawBarLinesEditorMode(context, barLines, lanes, editorFrameState, pixelsPerBeat, judgeLineY) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
     if (!leftLane || !rightLane) {
       return;
@@ -1602,7 +1624,7 @@
     context.lineWidth = 1;
     for (let index = visibleWindow.startIndex; index < visibleWindow.endIndex; index += 1) {
       const barLine = barLines[index];
-      const y = beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const y = beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       context.beginPath();
       context.moveTo(leftX, y + 0.5);
       context.lineTo(rightX, y + 0.5);
@@ -1610,7 +1632,7 @@
     }
     context.restore();
   }
-  function drawMeasureLabelsEditorMode(context, barLines, lanes, editorFrameState, pixelsPerBeat) {
+  function drawMeasureLabelsEditorMode(context, barLines, lanes, editorFrameState, pixelsPerBeat, judgeLineY) {
     const { leftLane } = getVisualLaneEdges(lanes);
     if (!leftLane) {
       return;
@@ -1622,12 +1644,12 @@
       candidates.push({
         label: formatMeasureLabel(index),
         x: leftLane.x - TEMPO_LABEL_GAP,
-        y: beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat)
+        y: beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY)
       });
     }
     drawMeasureLabels(context, candidates);
   }
-  function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
+  function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY) {
     const { leftLane, rightLane } = getVisualLaneEdges(lanes);
     if (!leftLane || !rightLane) {
       return;
@@ -1642,7 +1664,7 @@
     context.fillStyle = BPM_MARKER;
     for (let index = bpmWindow.startIndex; index < bpmWindow.endIndex; index += 1) {
       const bpmChange = model.bpmChanges[index];
-      const y = beatToViewportY(bpmChange.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const y = beatToViewportY(bpmChange.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       const markerRect = getTempoMarkerRect(rightLane, "right");
       context.fillRect(
         markerRect.x,
@@ -1666,7 +1688,7 @@
     context.fillStyle = STOP_MARKER;
     for (let index = stopWindow.startIndex; index < stopWindow.endIndex; index += 1) {
       const stop = model.stops[index];
-      const y = beatToViewportY(stop.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const y = beatToViewportY(stop.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       const markerRect = getTempoMarkerRect(leftLane, "left");
       context.fillRect(
         markerRect.x,
@@ -1690,7 +1712,7 @@
     context.fillStyle = SCROLL_MARKER;
     for (let index = scrollWindow.startIndex; index < scrollWindow.endIndex; index += 1) {
       const scrollChange = model.scrollChanges[index];
-      const y = beatToViewportY(scrollChange.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const y = beatToViewportY(scrollChange.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       const markerRect = getTempoMarkerRect(leftLane, "left");
       context.fillRect(
         markerRect.x,
@@ -1729,7 +1751,7 @@
       width
     };
   }
-  function drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
+  function drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY) {
     context.save();
     const candidateWindow = getLongBodyWindow(model, editorFrameState.startBeat, editorFrameState.endBeat);
     for (let index = candidateWindow.startIndex; index < candidateWindow.endIndex; index += 1) {
@@ -1743,8 +1765,8 @@
       if (noteEndBeat < editorFrameState.startBeat || noteStartBeat > editorFrameState.endBeat) {
         continue;
       }
-      const startY = beatToViewportY(noteStartBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
-      const endY = beatToViewportY(noteEndBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const startY = beatToViewportY(noteStartBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
+      const endY = beatToViewportY(noteEndBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
       const bottomY = Math.min(Math.max(startY, endY), editorFrameState.viewportHeight + NOTE_HEAD_HEIGHT + 24);
       const bodyHeight = Math.max(bottomY - topY, 2);
@@ -1753,7 +1775,7 @@
     }
     context.restore();
   }
-  function drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
+  function drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY) {
     context.save();
     const noteWindow = getBeatWindowIndices(model.notesByBeat, editorFrameState.startBeat, editorFrameState.endBeat);
     for (let index = noteWindow.startIndex; index < noteWindow.endIndex; index += 1) {
@@ -1762,7 +1784,7 @@
       if (!lane || note.kind === "invisible") {
         continue;
       }
-      const headY = beatToViewportY(note.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const headY = beatToViewportY(note.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       drawRectNote(context, lane, headY, note.kind === "mine" ? MINE_COLOR : lane.note);
     }
     const longEndWindow = getBeatWindowIndices(model.longNotesByEndBeat, editorFrameState.startBeat, editorFrameState.endBeat, getNoteEndBeat);
@@ -1772,12 +1794,12 @@
       if (!lane || !shouldDrawLongEndCap(model, note)) {
         continue;
       }
-      const endHeadY = beatToViewportY(getNoteEndBeat(note), editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const endHeadY = beatToViewportY(getNoteEndBeat(note), editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       drawRectNote(context, lane, endHeadY, lane.note);
     }
     context.restore();
   }
-  function drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat) {
+  function drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY) {
     context.save();
     context.strokeStyle = INVISIBLE_NOTE_COLOR;
     context.lineWidth = 1;
@@ -1788,7 +1810,7 @@
       if (!lane) {
         continue;
       }
-      const headY = beatToViewportY(note.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat);
+      const headY = beatToViewportY(note.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
       drawOutlinedRectNote(context, lane, headY, INVISIBLE_NOTE_COLOR);
     }
     context.restore();
@@ -1994,11 +2016,11 @@
   function getPopnNoteColor(slotIndex) {
     return POPN_LANE_COLORS.get(`p${slotIndex}`) ?? "#c4c4c4";
   }
-  function timeToViewportY(eventTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond) {
-    return viewportHeight / 2 - (eventTimeSec - selectedTimeSec) * pixelsPerSecond;
+  function timeToViewportY(eventTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY = getJudgeLineY(viewportHeight)) {
+    return judgeLineY - (eventTimeSec - selectedTimeSec) * pixelsPerSecond;
   }
-  function beatToViewportY(eventBeat, selectedBeat, viewportHeight, pixelsPerBeat) {
-    return viewportHeight / 2 - (eventBeat - selectedBeat) * pixelsPerBeat;
+  function beatToViewportY(eventBeat, selectedBeat, viewportHeight, pixelsPerBeat, judgeLineY = getJudgeLineY(viewportHeight)) {
+    return judgeLineY - (eventBeat - selectedBeat) * pixelsPerBeat;
   }
   function isViewportYVisible(y, viewportHeight, margin = NOTE_HEAD_HEIGHT + 24) {
     return y >= -margin && y <= viewportHeight + margin;
@@ -2168,6 +2190,7 @@
   var DEFAULT_SPACING_SCALE = 1;
   var GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO = 0.4;
   var GAME_PLAYBACK_SCROLL_SYNC_MIN_PX = 120;
+  var JUDGE_LINE_DRAG_HIT_MARGIN_PX = 10;
   function createScoreViewerController({
     root,
     onTimeChange = () => {
@@ -2177,6 +2200,8 @@
     onViewerModeChange = () => {
     },
     onInvisibleNoteVisibilityChange = () => {
+    },
+    onJudgeLinePositionChange = () => {
     }
   }) {
     const scrollHost = document.createElement("div");
@@ -2259,7 +2284,9 @@
       isPlaying: false,
       spacingScale: DEFAULT_SPACING_SCALE,
       viewerMode: DEFAULT_VIEWER_MODE,
-      invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY
+      invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
+      judgeLinePositionRatio: DEFAULT_JUDGE_LINE_POSITION_RATIO,
+      isJudgeLineHovered: false
     };
     const uiState = {
       playbackButtonDisabled: null,
@@ -2291,15 +2318,29 @@
       event.preventDefault();
     }, { passive: false });
     scrollHost.addEventListener("pointerdown", (event) => {
-      if (!canDragScroll(event)) {
+      const dragIntent = resolvePointerDragIntent({
+        canDragJudgeLine: canDragJudgeLine(event),
+        canDragScroll: canDragScroll(event),
+        isJudgeLineHit: isPointerNearJudgeLine(event)
+      });
+      if (!dragIntent) {
         return;
       }
-      dragState = {
-        pointerId: event.pointerId,
-        startY: event.clientY,
-        startScrollTop: scrollHost.scrollTop
-      };
-      scrollHost.classList.add("is-dragging");
+      if (dragIntent === "judge-line") {
+        dragState = {
+          type: "judge-line",
+          pointerId: event.pointerId
+        };
+        updateJudgeLinePositionFromPointer(event, { notify: true });
+      } else {
+        dragState = {
+          type: "scroll",
+          pointerId: event.pointerId,
+          startY: event.clientY,
+          startScrollTop: scrollHost.scrollTop
+        };
+        scrollHost.classList.add("is-dragging");
+      }
       if (typeof scrollHost.setPointerCapture === "function") {
         scrollHost.setPointerCapture(event.pointerId);
       }
@@ -2307,12 +2348,23 @@
     });
     scrollHost.addEventListener("pointermove", (event) => {
       if (!dragState || event.pointerId !== dragState.pointerId) {
+        updateJudgeLineHover(event);
         return;
       }
-      const deltaY = event.clientY - dragState.startY;
-      scrollHost.scrollTop = dragState.startScrollTop + deltaY;
-      syncTimeFromScrollPosition({ force: true });
+      if (dragState.type === "judge-line") {
+        updateJudgeLinePositionFromPointer(event, { notify: true });
+      } else {
+        const deltaY = event.clientY - dragState.startY;
+        scrollHost.scrollTop = dragState.startScrollTop + deltaY;
+        syncTimeFromScrollPosition({ force: true });
+      }
       event.preventDefault();
+    });
+    scrollHost.addEventListener("pointerleave", () => {
+      if (dragState?.type === "judge-line") {
+        return;
+      }
+      setJudgeLineHover(false);
     });
     scrollHost.addEventListener("pointerup", handlePointerRelease);
     scrollHost.addEventListener("pointercancel", handlePointerRelease);
@@ -2417,6 +2469,10 @@
         return;
       }
       state.isOpen = normalizedOpen;
+      if (!state.isOpen) {
+        clearDragState();
+        setJudgeLineHover(false);
+      }
       root.classList.toggle("is-visible", state.isOpen && Boolean(state.model));
       syncScrollPosition();
       renderScene();
@@ -2449,6 +2505,16 @@
         return;
       }
       state.invisibleNoteVisibility = normalizedVisibility;
+      renderScene();
+    }
+    function setJudgeLinePositionRatio(nextRatio) {
+      const normalizedRatio = normalizeJudgeLinePositionRatio(nextRatio);
+      if (Math.abs(state.judgeLinePositionRatio - normalizedRatio) < 1e-6) {
+        return;
+      }
+      state.judgeLinePositionRatio = normalizedRatio;
+      editorFrameStateCache = null;
+      syncScrollPosition();
       renderScene();
     }
     function setEmptyState(_title, _message) {
@@ -2554,6 +2620,11 @@
       canvas.hidden = !showScene;
       bottomBar.hidden = !showScene;
       judgeLine.hidden = !showScene;
+      root.style.setProperty("--score-viewer-judge-line-ratio", String(state.judgeLinePositionRatio));
+      scrollHost.classList.toggle("is-judge-line-draggable", showScene && state.isJudgeLineHovered);
+      scrollHost.classList.toggle("is-judge-line-dragging", dragState?.type === "judge-line");
+      judgeLine.classList.toggle("is-draggable", showScene && state.isJudgeLineHovered);
+      judgeLine.classList.toggle("is-dragging", dragState?.type === "judge-line");
       setDisabledIfChanged(playbackButton, !state.model, "playbackButtonDisabled");
       setTextIfChanged(playbackButton, state.isPlaying ? "❚❚" : "▶", "playbackButtonText");
       setAttributeIfChanged(
@@ -2580,7 +2651,8 @@
         pixelsPerSecond: getPixelsPerSecond(),
         pixelsPerBeat: getPixelsPerBeat(),
         editorFrameState,
-        showInvisibleNotes: state.invisibleNoteVisibility === "show"
+        showInvisibleNotes: state.invisibleNoteVisibility === "show",
+        judgeLineY: getCurrentJudgeLineY()
       });
     }
     function destroy() {
@@ -2604,6 +2676,7 @@
       setPlaybackState,
       setViewerMode,
       setInvisibleNoteVisibility,
+      setJudgeLinePositionRatio,
       setEmptyState,
       refreshLayout,
       destroy
@@ -2625,10 +2698,17 @@
       }
       dragState = null;
       scrollHost.classList.remove("is-dragging");
+      scrollHost.classList.remove("is-judge-line-dragging");
+      judgeLine.classList.remove("is-dragging");
     }
     function canDragScroll(event) {
       return Boolean(
-        state.model && state.isOpen && isScrollInteractive() && (event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen")
+        state.model && state.isOpen && isScrollInteractive() && isPrimaryPointer(event)
+      );
+    }
+    function canDragJudgeLine(event) {
+      return Boolean(
+        state.model && state.isOpen && isPrimaryPointer(event)
       );
     }
     function isScrollInteractive() {
@@ -2661,26 +2741,32 @@
     function getPixelsPerBeat() {
       return DEFAULT_EDITOR_PIXELS_PER_BEAT * state.spacingScale;
     }
+    function getCurrentJudgeLineY(viewportHeight = root.clientHeight || 0) {
+      return getJudgeLineY(viewportHeight, state.judgeLinePositionRatio);
+    }
     function getEditorFrameStateForCurrentView(viewportHeight = root.clientHeight || 0) {
       if (!state.model || getResolvedViewerMode2() !== "editor") {
         editorFrameStateCache = null;
         return null;
       }
       const pixelsPerBeat = getPixelsPerBeat();
-      if (editorFrameStateCache && editorFrameStateCache.model === state.model && Math.abs(editorFrameStateCache.selectedBeat - state.selectedBeat) < 1e-6 && editorFrameStateCache.viewportHeight === viewportHeight && Math.abs(editorFrameStateCache.pixelsPerBeat - pixelsPerBeat) < 5e-4) {
+      const judgeLineY = getCurrentJudgeLineY(viewportHeight);
+      if (editorFrameStateCache && editorFrameStateCache.model === state.model && Math.abs(editorFrameStateCache.selectedBeat - state.selectedBeat) < 1e-6 && editorFrameStateCache.viewportHeight === viewportHeight && Math.abs(editorFrameStateCache.pixelsPerBeat - pixelsPerBeat) < 5e-4 && Math.abs(editorFrameStateCache.judgeLineY - judgeLineY) < 5e-4) {
         return editorFrameStateCache.frameState;
       }
       const frameState = getEditorFrameStateForBeat(
         state.model,
         state.selectedBeat,
         viewportHeight,
-        pixelsPerBeat
+        pixelsPerBeat,
+        judgeLineY
       );
       editorFrameStateCache = {
         model: state.model,
         selectedBeat: state.selectedBeat,
         viewportHeight,
         pixelsPerBeat,
+        judgeLineY,
         frameState
       };
       return frameState;
@@ -2740,6 +2826,50 @@
       uiState[key] = nextValue;
       element.setAttribute(attributeName, nextValue);
     }
+    function setJudgeLineHover(nextHovered) {
+      state.isJudgeLineHovered = Boolean(nextHovered);
+      renderScene();
+    }
+    function updateJudgeLineHover(event) {
+      if (!state.model || !state.isOpen) {
+        if (state.isJudgeLineHovered) {
+          setJudgeLineHover(false);
+        }
+        return;
+      }
+      const hovered = isPointerNearJudgeLine(event);
+      if (hovered !== state.isJudgeLineHovered) {
+        setJudgeLineHover(hovered);
+      }
+    }
+    function isPointerNearJudgeLine(event) {
+      const rootRect = root.getBoundingClientRect();
+      return isJudgeLineHit({
+        pointerClientY: event.clientY,
+        rootTop: rootRect.top,
+        judgeLineY: getCurrentJudgeLineY(rootRect.height)
+      });
+    }
+    function updateJudgeLinePositionFromPointer(event, { notify = false } = {}) {
+      const rootRect = root.getBoundingClientRect();
+      const nextRatio = getJudgeLinePositionRatioFromPointer({
+        pointerClientY: event.clientY,
+        rootTop: rootRect.top,
+        rootHeight: rootRect.height
+      });
+      if (Math.abs(state.judgeLinePositionRatio - nextRatio) < 1e-6) {
+        setJudgeLineHover(true);
+        return;
+      }
+      state.judgeLinePositionRatio = nextRatio;
+      editorFrameStateCache = null;
+      setJudgeLineHover(true);
+      syncScrollPosition();
+      renderScene();
+      if (notify) {
+        onJudgeLinePositionChange(state.judgeLinePositionRatio);
+      }
+    }
   }
   function createModeOption(value, label, disabled = false) {
     const option = document.createElement("option");
@@ -2774,11 +2904,53 @@
     );
     return Math.abs((desiredScrollTop ?? 0) - (currentScrollTop ?? 0)) >= threshold;
   }
+  function isJudgeLineHit({
+    pointerClientY,
+    rootTop,
+    judgeLineY,
+    hitMarginPx = JUDGE_LINE_DRAG_HIT_MARGIN_PX
+  }) {
+    const pointerOffsetY = Number.isFinite(pointerClientY) && Number.isFinite(rootTop) ? pointerClientY - rootTop : Number.NaN;
+    return Number.isFinite(pointerOffsetY) && Number.isFinite(judgeLineY) && Math.abs(pointerOffsetY - judgeLineY) <= Math.max(hitMarginPx, 0);
+  }
+  function getJudgeLinePositionRatioFromPointer({
+    pointerClientY,
+    rootTop,
+    rootHeight
+  }) {
+    if (!Number.isFinite(rootHeight) || rootHeight <= 0) {
+      return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+    }
+    return normalizeJudgeLinePositionRatio(clamp3(
+      (pointerClientY - rootTop) / rootHeight,
+      0,
+      1
+    ));
+  }
+  function resolvePointerDragIntent({
+    canDragJudgeLine,
+    canDragScroll,
+    isJudgeLineHit: isJudgeLineHit2
+  }) {
+    if (canDragJudgeLine && isJudgeLineHit2) {
+      return "judge-line";
+    }
+    if (canDragScroll) {
+      return "scroll";
+    }
+    return null;
+  }
   function clampScale(value) {
     if (!Number.isFinite(value)) {
       return DEFAULT_SPACING_SCALE;
     }
     return Math.min(Math.max(value, MIN_SPACING_SCALE), MAX_SPACING_SCALE);
+  }
+  function isPrimaryPointer(event) {
+    return event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen";
+  }
+  function clamp3(value, minValue, maxValue) {
+    return Math.min(Math.max(value, minValue), maxValue);
   }
   function formatSpacingScale(value) {
     return `${clampScale(value).toFixed(2)}x`;
@@ -3344,15 +3516,15 @@
   }) {
     const safeClientWidth = Math.max(clientWidth ?? 0, 1);
     const maxScrollLeft = Math.max(0, (scrollWidth ?? 0) - safeClientWidth);
-    const marginPx = clamp3(safeClientWidth * 0.2, GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX, GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX);
+    const marginPx = clamp4(safeClientWidth * 0.2, GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX, GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX);
     const leftBound = (currentScrollLeft ?? 0) + marginPx;
     const rightBound = (currentScrollLeft ?? 0) + safeClientWidth - marginPx;
     if (targetX >= leftBound && targetX <= rightBound) {
-      return clamp3(currentScrollLeft ?? 0, 0, maxScrollLeft);
+      return clamp4(currentScrollLeft ?? 0, 0, maxScrollLeft);
     }
-    return clamp3(targetX - safeClientWidth / 2, 0, maxScrollLeft);
+    return clamp4(targetX - safeClientWidth / 2, 0, maxScrollLeft);
   }
-  function clamp3(value, minValue, maxValue) {
+  function clamp4(value, minValue, maxValue) {
     return Math.min(Math.max(value, minValue), maxValue);
   }
 
@@ -3363,6 +3535,7 @@
   var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
   var VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
   var INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibleNoteVisibility";
+  var JUDGE_LINE_POSITION_RATIO_STORAGE_KEY = "bms-info-extender.judgeLinePositionRatio";
   var PREVIEW_RENDER_DIRTY = {
     record: 1 << 0,
     selection: 1 << 1,
@@ -3371,7 +3544,8 @@
     pin: 1 << 4,
     viewerMode: 1 << 5,
     invisible: 1 << 6,
-    viewerOpen: 1 << 7
+    judgeLinePosition: 1 << 7,
+    viewerOpen: 1 << 8
   };
   var PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
   var bmsSearchPatternAvailabilityCache = /* @__PURE__ */ new Map();
@@ -3403,13 +3577,33 @@
           write(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY, nextVisibility);
         } catch (_error) {
         }
+      },
+      getPersistedJudgeLinePositionRatio() {
+        try {
+          const persistedValue = read(
+            JUDGE_LINE_POSITION_RATIO_STORAGE_KEY,
+            DEFAULT_JUDGE_LINE_POSITION_RATIO
+          );
+          if (persistedValue === null || persistedValue === void 0 || persistedValue === "") {
+            return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+          }
+          return normalizeJudgeLinePositionRatio(Number(persistedValue));
+        } catch (_error) {
+          return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+        }
+      },
+      setPersistedJudgeLinePositionRatio(nextRatio) {
+        try {
+          write(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, normalizeJudgeLinePositionRatio(nextRatio));
+        } catch (_error) {
+        }
       }
     };
   }
   function expandPreviewRenderMask(renderMask = 0) {
     let expandedMask = renderMask;
     if (expandedMask & PREVIEW_RENDER_DIRTY.viewerModel) {
-      expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible;
+      expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible | PREVIEW_RENDER_DIRTY.judgeLinePosition;
     }
     return expandedMask;
   }
@@ -3448,6 +3642,7 @@
   .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; contain: layout paint; }
   .score-viewer-scroll-host.is-scrollable { overflow-y: auto; cursor: grab; touch-action: none; }
   .score-viewer-scroll-host.is-scrollable.is-dragging { cursor: grabbing; }
+  .score-viewer-scroll-host.is-judge-line-draggable, .score-viewer-scroll-host.is-judge-line-dragging { cursor: ns-resize; }
   .score-viewer-spacer { width: 1px; opacity: 0; }
   .score-viewer-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; contain: layout paint; }
@@ -3472,8 +3667,9 @@
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
   .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; pointer-events: auto; }
-  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: 50%; display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
+  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%); display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
   .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
+  .score-viewer-judge-line.is-draggable::after, .score-viewer-judge-line.is-dragging::after { background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%); box-shadow: 0 0 28px rgba(255, 120, 88, 0.34); }
   .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
   .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }
   .bd-lanenote[lane="2"] { background: #5074fe; color: #fff; }
@@ -3696,6 +3892,9 @@
     getPersistedInvisibleNoteVisibility = () => DEFAULT_INVISIBLE_NOTE_VISIBILITY,
     setPersistedInvisibleNoteVisibility = () => {
     },
+    getPersistedJudgeLinePositionRatio = () => DEFAULT_JUDGE_LINE_POSITION_RATIO,
+    setPersistedJudgeLinePositionRatio = () => {
+    },
     onSelectedTimeChange = () => {
     },
     onPinChange = () => {
@@ -3727,6 +3926,7 @@
       selectedBeat: 0,
       viewerMode: getInitialViewerMode(getPersistedViewerMode),
       invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
+      judgeLinePositionRatio: getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio),
       isPinned: false,
       isViewerOpen: false,
       isPlaying: false,
@@ -3760,6 +3960,9 @@
       },
       onInvisibleNoteVisibilityChange: (nextVisibility) => {
         setInvisibleNoteVisibility(nextVisibility);
+      },
+      onJudgeLinePositionChange: (nextRatio) => {
+        setJudgeLinePositionRatio(nextRatio);
       }
     });
     const graphController = createBmsInfoGraph({
@@ -3800,6 +4003,7 @@
       setSelectedTimeSec,
       setViewerMode,
       setInvisibleNoteVisibility,
+      setJudgeLinePositionRatio,
       setPinned,
       setPlaybackState,
       prefetch,
@@ -4059,6 +4263,19 @@
       }
       scheduleRender(PREVIEW_RENDER_DIRTY.invisible);
     }
+    function setJudgeLinePositionRatio(nextRatio) {
+      const normalizedRatio = normalizeJudgeLinePositionRatio(nextRatio);
+      if (Math.abs(state.judgeLinePositionRatio - normalizedRatio) < 1e-6) {
+        return;
+      }
+      state.judgeLinePositionRatio = normalizedRatio;
+      try {
+        setPersistedJudgeLinePositionRatio(normalizedRatio);
+      } catch (error) {
+        console.warn("Failed to persist judge line position ratio:", error);
+      }
+      scheduleRender(PREVIEW_RENDER_DIRTY.judgeLinePosition);
+    }
     function setPinned(nextPinned) {
       const normalized = Boolean(nextPinned);
       if (state.isPinned === normalized) {
@@ -4201,6 +4418,9 @@
       if (expandedRenderMask & PREVIEW_RENDER_DIRTY.invisible) {
         viewerController.setInvisibleNoteVisibility(state.invisibleNoteVisibility);
       }
+      if (expandedRenderMask & PREVIEW_RENDER_DIRTY.judgeLinePosition) {
+        viewerController.setJudgeLinePositionRatio(state.judgeLinePositionRatio);
+      }
       if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
         viewerController.setPlaybackState(state.isPlaying);
       }
@@ -4311,6 +4531,18 @@
     } catch (error) {
       console.warn("Failed to read persisted invisible note visibility:", error);
       return DEFAULT_INVISIBLE_NOTE_VISIBILITY;
+    }
+  }
+  function getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio) {
+    try {
+      const persistedValue = getPersistedJudgeLinePositionRatio?.();
+      if (persistedValue === null || persistedValue === void 0 || persistedValue === "") {
+        return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+      }
+      return normalizeJudgeLinePositionRatio(Number(persistedValue));
+    } catch (error) {
+      console.warn("Failed to read persisted judge line position ratio:", error);
+      return DEFAULT_JUDGE_LINE_POSITION_RATIO;
     }
   }
   function estimateViewerWidthFromNumericMode(mode) {

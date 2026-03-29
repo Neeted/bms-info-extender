@@ -1,6 +1,7 @@
 import {
   DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  DEFAULT_JUDGE_LINE_POSITION_RATIO,
   DEFAULT_VIEWER_MODE,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
   getBeatAtTimeSec,
@@ -11,6 +12,7 @@ import {
   getEditorContentHeightPx,
   getEditorScrollTopForBeat,
   getEditorScrollTopForTimeSec,
+  getJudgeLineY,
   hasViewerSelectionChanged,
   getTimeSecForBeat,
   getTimeSecForEditorScrollTop,
@@ -18,6 +20,7 @@ import {
   getTimeSecForScrollTop,
   getViewerCursor,
   normalizeInvisibleNoteVisibility,
+  normalizeJudgeLinePositionRatio,
   normalizeViewerMode,
   resolveViewerModeForModel,
 } from "./score-viewer-model.js";
@@ -33,6 +36,7 @@ const SPACING_STEP = 0.01;
 const DEFAULT_SPACING_SCALE = 1.0;
 const GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO = 0.4;
 const GAME_PLAYBACK_SCROLL_SYNC_MIN_PX = 120;
+export const JUDGE_LINE_DRAG_HIT_MARGIN_PX = 10;
 
 export function createScoreViewerController({
   root,
@@ -40,6 +44,7 @@ export function createScoreViewerController({
   onPlaybackToggle = () => {},
   onViewerModeChange = () => {},
   onInvisibleNoteVisibilityChange = () => {},
+  onJudgeLinePositionChange = () => {},
 }) {
   const scrollHost = document.createElement("div");
   scrollHost.className = "score-viewer-scroll-host";
@@ -147,6 +152,8 @@ export function createScoreViewerController({
     spacingScale: DEFAULT_SPACING_SCALE,
     viewerMode: DEFAULT_VIEWER_MODE,
     invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
+    judgeLinePositionRatio: DEFAULT_JUDGE_LINE_POSITION_RATIO,
+    isJudgeLineHovered: false,
   };
   const uiState = {
     playbackButtonDisabled: null,
@@ -182,15 +189,29 @@ export function createScoreViewerController({
   }, { passive: false });
 
   scrollHost.addEventListener("pointerdown", (event) => {
-    if (!canDragScroll(event)) {
+    const dragIntent = resolvePointerDragIntent({
+      canDragJudgeLine: canDragJudgeLine(event),
+      canDragScroll: canDragScroll(event),
+      isJudgeLineHit: isPointerNearJudgeLine(event),
+    });
+    if (!dragIntent) {
       return;
     }
-    dragState = {
-      pointerId: event.pointerId,
-      startY: event.clientY,
-      startScrollTop: scrollHost.scrollTop,
-    };
-    scrollHost.classList.add("is-dragging");
+    if (dragIntent === "judge-line") {
+      dragState = {
+        type: "judge-line",
+        pointerId: event.pointerId,
+      };
+      updateJudgeLinePositionFromPointer(event, { notify: true });
+    } else {
+      dragState = {
+        type: "scroll",
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startScrollTop: scrollHost.scrollTop,
+      };
+      scrollHost.classList.add("is-dragging");
+    }
     if (typeof scrollHost.setPointerCapture === "function") {
       scrollHost.setPointerCapture(event.pointerId);
     }
@@ -199,14 +220,25 @@ export function createScoreViewerController({
 
   scrollHost.addEventListener("pointermove", (event) => {
     if (!dragState || event.pointerId !== dragState.pointerId) {
+      updateJudgeLineHover(event);
       return;
     }
-    const deltaY = event.clientY - dragState.startY;
-    scrollHost.scrollTop = dragState.startScrollTop + deltaY;
-    syncTimeFromScrollPosition({ force: true });
+    if (dragState.type === "judge-line") {
+      updateJudgeLinePositionFromPointer(event, { notify: true });
+    } else {
+      const deltaY = event.clientY - dragState.startY;
+      scrollHost.scrollTop = dragState.startScrollTop + deltaY;
+      syncTimeFromScrollPosition({ force: true });
+    }
     event.preventDefault();
   });
 
+  scrollHost.addEventListener("pointerleave", () => {
+    if (dragState?.type === "judge-line") {
+      return;
+    }
+    setJudgeLineHover(false);
+  });
   scrollHost.addEventListener("pointerup", handlePointerRelease);
   scrollHost.addEventListener("pointercancel", handlePointerRelease);
   scrollHost.addEventListener("lostpointercapture", handlePointerRelease);
@@ -321,6 +353,10 @@ export function createScoreViewerController({
       return;
     }
     state.isOpen = normalizedOpen;
+    if (!state.isOpen) {
+      clearDragState();
+      setJudgeLineHover(false);
+    }
     root.classList.toggle("is-visible", state.isOpen && Boolean(state.model));
     syncScrollPosition();
     renderScene();
@@ -356,6 +392,17 @@ export function createScoreViewerController({
       return;
     }
     state.invisibleNoteVisibility = normalizedVisibility;
+    renderScene();
+  }
+
+  function setJudgeLinePositionRatio(nextRatio) {
+    const normalizedRatio = normalizeJudgeLinePositionRatio(nextRatio);
+    if (Math.abs(state.judgeLinePositionRatio - normalizedRatio) < 0.000001) {
+      return;
+    }
+    state.judgeLinePositionRatio = normalizedRatio;
+    editorFrameStateCache = null;
+    syncScrollPosition();
     renderScene();
   }
 
@@ -471,6 +518,11 @@ export function createScoreViewerController({
     canvas.hidden = !showScene;
     bottomBar.hidden = !showScene;
     judgeLine.hidden = !showScene;
+    root.style.setProperty("--score-viewer-judge-line-ratio", String(state.judgeLinePositionRatio));
+    scrollHost.classList.toggle("is-judge-line-draggable", showScene && state.isJudgeLineHovered);
+    scrollHost.classList.toggle("is-judge-line-dragging", dragState?.type === "judge-line");
+    judgeLine.classList.toggle("is-draggable", showScene && state.isJudgeLineHovered);
+    judgeLine.classList.toggle("is-dragging", dragState?.type === "judge-line");
 
     setDisabledIfChanged(playbackButton, !state.model, "playbackButtonDisabled");
     setTextIfChanged(playbackButton, state.isPlaying ? "❚❚" : "▶", "playbackButtonText");
@@ -500,6 +552,7 @@ export function createScoreViewerController({
       pixelsPerBeat: getPixelsPerBeat(),
       editorFrameState,
       showInvisibleNotes: state.invisibleNoteVisibility === "show",
+      judgeLineY: getCurrentJudgeLineY(),
     });
   }
 
@@ -526,6 +579,7 @@ export function createScoreViewerController({
     setPlaybackState,
     setViewerMode,
     setInvisibleNoteVisibility,
+    setJudgeLinePositionRatio,
     setEmptyState,
     refreshLayout,
     destroy,
@@ -550,6 +604,8 @@ export function createScoreViewerController({
     }
     dragState = null;
     scrollHost.classList.remove("is-dragging");
+    scrollHost.classList.remove("is-judge-line-dragging");
+    judgeLine.classList.remove("is-dragging");
   }
 
   function canDragScroll(event) {
@@ -557,7 +613,15 @@ export function createScoreViewerController({
       state.model
         && state.isOpen
         && isScrollInteractive()
-        && (event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen"),
+        && isPrimaryPointer(event),
+    );
+  }
+
+  function canDragJudgeLine(event) {
+    return Boolean(
+      state.model
+        && state.isOpen
+        && isPrimaryPointer(event),
     );
   }
 
@@ -597,18 +661,24 @@ export function createScoreViewerController({
     return DEFAULT_EDITOR_PIXELS_PER_BEAT * state.spacingScale;
   }
 
+  function getCurrentJudgeLineY(viewportHeight = root.clientHeight || 0) {
+    return getJudgeLineY(viewportHeight, state.judgeLinePositionRatio);
+  }
+
   function getEditorFrameStateForCurrentView(viewportHeight = root.clientHeight || 0) {
     if (!state.model || getResolvedViewerMode() !== "editor") {
       editorFrameStateCache = null;
       return null;
     }
     const pixelsPerBeat = getPixelsPerBeat();
+    const judgeLineY = getCurrentJudgeLineY(viewportHeight);
     if (
       editorFrameStateCache
       && editorFrameStateCache.model === state.model
       && Math.abs(editorFrameStateCache.selectedBeat - state.selectedBeat) < 0.000001
       && editorFrameStateCache.viewportHeight === viewportHeight
       && Math.abs(editorFrameStateCache.pixelsPerBeat - pixelsPerBeat) < 0.0005
+      && Math.abs(editorFrameStateCache.judgeLineY - judgeLineY) < 0.0005
     ) {
       return editorFrameStateCache.frameState;
     }
@@ -617,12 +687,14 @@ export function createScoreViewerController({
       state.selectedBeat,
       viewportHeight,
       pixelsPerBeat,
+      judgeLineY,
     );
     editorFrameStateCache = {
       model: state.model,
       selectedBeat: state.selectedBeat,
       viewportHeight,
       pixelsPerBeat,
+      judgeLineY,
       frameState,
     };
     return frameState;
@@ -690,6 +762,54 @@ export function createScoreViewerController({
     uiState[key] = nextValue;
     element.setAttribute(attributeName, nextValue);
   }
+
+  function setJudgeLineHover(nextHovered) {
+    state.isJudgeLineHovered = Boolean(nextHovered);
+    renderScene();
+  }
+
+  function updateJudgeLineHover(event) {
+    if (!state.model || !state.isOpen) {
+      if (state.isJudgeLineHovered) {
+        setJudgeLineHover(false);
+      }
+      return;
+    }
+    const hovered = isPointerNearJudgeLine(event);
+    if (hovered !== state.isJudgeLineHovered) {
+      setJudgeLineHover(hovered);
+    }
+  }
+
+  function isPointerNearJudgeLine(event) {
+    const rootRect = root.getBoundingClientRect();
+    return isJudgeLineHit({
+      pointerClientY: event.clientY,
+      rootTop: rootRect.top,
+      judgeLineY: getCurrentJudgeLineY(rootRect.height),
+    });
+  }
+
+  function updateJudgeLinePositionFromPointer(event, { notify = false } = {}) {
+    const rootRect = root.getBoundingClientRect();
+    const nextRatio = getJudgeLinePositionRatioFromPointer({
+      pointerClientY: event.clientY,
+      rootTop: rootRect.top,
+      rootHeight: rootRect.height,
+    });
+    if (Math.abs(state.judgeLinePositionRatio - nextRatio) < 0.000001) {
+      setJudgeLineHover(true);
+      return;
+    }
+    state.judgeLinePositionRatio = nextRatio;
+    editorFrameStateCache = null;
+    setJudgeLineHover(true);
+    syncScrollPosition();
+    renderScene();
+    if (notify) {
+      onJudgeLinePositionChange(state.judgeLinePositionRatio);
+    }
+  }
 }
 
 function createModeOption(value, label, disabled = false) {
@@ -728,11 +848,62 @@ export function shouldSyncPlaybackScrollPosition({
   return Math.abs((desiredScrollTop ?? 0) - (currentScrollTop ?? 0)) >= threshold;
 }
 
+export function isJudgeLineHit({
+  pointerClientY,
+  rootTop,
+  judgeLineY,
+  hitMarginPx = JUDGE_LINE_DRAG_HIT_MARGIN_PX,
+}) {
+  const pointerOffsetY = Number.isFinite(pointerClientY) && Number.isFinite(rootTop)
+    ? pointerClientY - rootTop
+    : Number.NaN;
+  return Number.isFinite(pointerOffsetY)
+    && Number.isFinite(judgeLineY)
+    && Math.abs(pointerOffsetY - judgeLineY) <= Math.max(hitMarginPx, 0);
+}
+
+export function getJudgeLinePositionRatioFromPointer({
+  pointerClientY,
+  rootTop,
+  rootHeight,
+}) {
+  if (!Number.isFinite(rootHeight) || rootHeight <= 0) {
+    return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+  }
+  return normalizeJudgeLinePositionRatio(clamp(
+    (pointerClientY - rootTop) / rootHeight,
+    0,
+    1,
+  ));
+}
+
+export function resolvePointerDragIntent({
+  canDragJudgeLine,
+  canDragScroll,
+  isJudgeLineHit,
+}) {
+  if (canDragJudgeLine && isJudgeLineHit) {
+    return "judge-line";
+  }
+  if (canDragScroll) {
+    return "scroll";
+  }
+  return null;
+}
+
 function clampScale(value) {
   if (!Number.isFinite(value)) {
     return DEFAULT_SPACING_SCALE;
   }
   return Math.min(Math.max(value, MIN_SPACING_SCALE), MAX_SPACING_SCALE);
+}
+
+function isPrimaryPointer(event) {
+  return event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen";
+}
+
+function clamp(value, minValue, maxValue) {
+  return Math.min(Math.max(value, minValue), maxValue);
 }
 
 function formatSpacingScale(value) {

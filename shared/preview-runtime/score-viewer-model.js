@@ -3,6 +3,16 @@ export const DEFAULT_EDITOR_PIXELS_PER_BEAT = 64;
 export const DEFAULT_VIEWER_MODE = "time";
 export const DEFAULT_INVISIBLE_NOTE_VISIBILITY = "hide";
 export const DEFAULT_JUDGE_LINE_POSITION_RATIO = 0.5;
+export const DEFAULT_GAME_DURATION_MS = 500;
+export const MIN_GAME_DURATION_MS = 1;
+export const MAX_GAME_DURATION_MS = 5000;
+export const DEFAULT_GAME_LANE_HEIGHT_PERCENT = 0;
+export const DEFAULT_GAME_LANE_COVER_PERMILLE = 0;
+export const DEFAULT_GAME_LANE_COVER_VISIBLE = true;
+export const DEFAULT_GAME_HS_FIX_MODE = "main";
+export const DEFAULT_GAME_HS_FIX_FALLBACK_BPM = 150;
+export const GAME_GREEN_NUMBER_RATIO = 0.6;
+export const GAME_HS_FIX_MODES = Object.freeze(["start", "max", "main", "min"]);
 export const TIME_SELECTION_EPSILON_SEC = 0.0005;
 export const BEAT_SELECTION_EPSILON = 0.000001;
 
@@ -10,6 +20,7 @@ const ACTION_PRECEDENCE = {
   bpm: 1,
   stop: 2,
 };
+const gameTimingDerivedMetricsCacheByModel = new WeakMap();
 
 export function normalizeViewerMode(value) {
   return value === "editor" || value === "game" || value === "time"
@@ -43,7 +54,118 @@ export function getJudgeLineY(viewportHeight, judgeLinePositionRatio = DEFAULT_J
   return normalizedViewportHeight * normalizeJudgeLinePositionRatio(judgeLinePositionRatio);
 }
 
-export function createScoreViewerModel(score) {
+export function normalizeGameDurationMs(value) {
+  return clampRoundedValue(value, MIN_GAME_DURATION_MS, MAX_GAME_DURATION_MS, DEFAULT_GAME_DURATION_MS);
+}
+
+export function normalizeGameLaneHeightPercent(value) {
+  return clampRoundedValue(value, 0, 100, DEFAULT_GAME_LANE_HEIGHT_PERCENT, 0.1);
+}
+
+export function normalizeGameLaneHeightPercentForSlider(value) {
+  return clampRoundedValue(value, 0, 100, DEFAULT_GAME_LANE_HEIGHT_PERCENT, 1);
+}
+
+export function normalizeGameLaneHeightPercentForWheel(value) {
+  return normalizeGameLaneHeightPercent(value);
+}
+
+export function normalizeGameLaneCoverPermille(value) {
+  return clampRoundedValue(value, 0, 1000, DEFAULT_GAME_LANE_COVER_PERMILLE);
+}
+
+export function normalizeGameLaneCoverVisible(value) {
+  if (value === false || value === "false" || value === 0 || value === "0") {
+    return false;
+  }
+  return value === true || value === "true" || value === 1 || value === "1" || value === undefined || value === null
+    ? DEFAULT_GAME_LANE_COVER_VISIBLE
+    : Boolean(value);
+}
+
+export function normalizeGameHsFixMode(value) {
+  return GAME_HS_FIX_MODES.includes(value) ? value : DEFAULT_GAME_HS_FIX_MODE;
+}
+
+export function createDefaultGameTimingConfig() {
+  return {
+    durationMs: DEFAULT_GAME_DURATION_MS,
+    laneHeightPercent: DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+    laneCoverPermille: DEFAULT_GAME_LANE_COVER_PERMILLE,
+    laneCoverVisible: DEFAULT_GAME_LANE_COVER_VISIBLE,
+    hsFixMode: DEFAULT_GAME_HS_FIX_MODE,
+  };
+}
+
+export function normalizeGameTimingConfig(config = {}) {
+  return {
+    durationMs: normalizeGameDurationMs(config.durationMs),
+    laneHeightPercent: normalizeGameLaneHeightPercent(config.laneHeightPercent),
+    laneCoverPermille: normalizeGameLaneCoverPermille(config.laneCoverPermille),
+    laneCoverVisible: normalizeGameLaneCoverVisible(config.laneCoverVisible),
+    hsFixMode: normalizeGameHsFixMode(config.hsFixMode),
+  };
+}
+
+export function getGameLaneGeometry(
+  viewportHeight,
+  judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO,
+  laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+) {
+  const normalizedViewportHeight = Math.max(Number.isFinite(viewportHeight) ? viewportHeight : 0, 0);
+  const normalizedLaneHeightPercent = normalizeGameLaneHeightPercent(laneHeightPercent);
+  const laneTopY = normalizedViewportHeight * normalizedLaneHeightPercent / 100;
+  const laneHeightPx = Math.max(normalizedViewportHeight - laneTopY, 0);
+  const judgeLineY = laneTopY + laneHeightPx * normalizeJudgeLinePositionRatio(judgeLinePositionRatio);
+  return {
+    viewportHeight: normalizedViewportHeight,
+    laneTopY,
+    laneBottomY: normalizedViewportHeight,
+    laneHeightPx,
+    judgeLineY,
+    judgeDistancePx: Math.max(judgeLineY - laneTopY, 0),
+  };
+}
+
+export function getGameLaneTopY(viewportHeight, laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT) {
+  return getGameLaneGeometry(viewportHeight, DEFAULT_JUDGE_LINE_POSITION_RATIO, laneHeightPercent).laneTopY;
+}
+
+export function getGameJudgeLineY(
+  viewportHeight,
+  judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO,
+  laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+) {
+  return getGameLaneGeometry(viewportHeight, judgeLinePositionRatio, laneHeightPercent).judgeLineY;
+}
+
+export function getGameJudgeDistancePx(
+  viewportHeight,
+  judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO,
+  laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+) {
+  return getGameLaneGeometry(viewportHeight, judgeLinePositionRatio, laneHeightPercent).judgeDistancePx;
+}
+
+export function getGameJudgeLinePositionRatioFromPointer(
+  pointerOffsetY,
+  viewportHeight,
+  laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+) {
+  const geometry = getGameLaneGeometry(
+    viewportHeight,
+    DEFAULT_JUDGE_LINE_POSITION_RATIO,
+    laneHeightPercent,
+  );
+  if (!(geometry.laneHeightPx > 0)) {
+    return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+  }
+  return normalizeJudgeLinePositionRatio(
+    clamp((pointerOffsetY - geometry.laneTopY) / geometry.laneHeightPx, 0, 1),
+  );
+}
+
+export function createScoreViewerModel(score, { bpmSummary = undefined } = {}) {
   if (!score) {
     return null;
   }
@@ -94,6 +216,8 @@ export function createScoreViewerModel(score) {
     scrollChanges,
     gameScrollIndex,
   });
+  const resolvedBpmSummary = resolveBpmSummary(score, bpmSummary);
+  const gameTimingStatePoints = createGameTimingStatePoints(gameTimeline, resolvedBpmSummary.startBpm);
   const totalBeat = getScoreTotalBeat(score);
   const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
   const editorInvisibleNotes = invisibleNotes.filter((note) => Number.isFinite(note.beat));
@@ -133,6 +257,8 @@ export function createScoreViewerModel(score) {
     gameStopsByTrack,
     gameScrollChangesByTrack,
     gameTimeline,
+    gameTimingStatePoints,
+    bpmSummary: resolvedBpmSummary,
     totalCombo: comboEvents.length,
     beatTimingIndex,
     gameScrollIndex,
@@ -368,6 +494,121 @@ export function getGameVisibleTrackRange(
     startTrackPosition: normalizedTrackPosition - pastViewportTrack - overscanTrack,
     endTrackPosition: normalizedTrackPosition + futureViewportTrack + overscanTrack,
   };
+}
+
+export function getGameTimingStateAtTimeSec(model, timeSec) {
+  const statePoints = model?.gameTimingStatePoints ?? [];
+  if (statePoints.length === 0) {
+    return {
+      bpm: resolvePositiveBpm(model?.bpmSummary?.startBpm),
+      scrollRate: 1,
+    };
+  }
+  const clampedTimeSec = getClampedSelectedTimeSec(model, timeSec);
+  const stateIndex = upperBoundByTime(statePoints, clampedTimeSec) - 1;
+  if (stateIndex < 0) {
+    return statePoints[0];
+  }
+  return statePoints[stateIndex];
+}
+
+export function getGameHsFixBaseBpm(model, hsFixMode = DEFAULT_GAME_HS_FIX_MODE) {
+  const normalizedMode = normalizeGameHsFixMode(hsFixMode);
+  const bpmSummary = model?.bpmSummary ?? {};
+  switch (normalizedMode) {
+    case "start":
+      return resolvePositiveBpm(bpmSummary.startBpm);
+    case "max":
+      return resolvePositiveBpm(bpmSummary.maxBpm, resolvePositiveBpm(bpmSummary.startBpm));
+    case "min":
+      return resolvePositiveBpm(bpmSummary.minBpm, resolvePositiveBpm(bpmSummary.startBpm));
+    case "main":
+    default:
+      return resolvePositiveBpm(bpmSummary.mainBpm, resolvePositiveBpm(bpmSummary.startBpm));
+  }
+}
+
+export function getGameLaneCoverRatio(laneCoverPermille = DEFAULT_GAME_LANE_COVER_PERMILLE) {
+  return normalizeGameLaneCoverPermille(laneCoverPermille) / 1000;
+}
+
+export function getGameHispeed(
+  baseBpm,
+  durationMs = DEFAULT_GAME_DURATION_MS,
+  laneCoverPermille = DEFAULT_GAME_LANE_COVER_PERMILLE,
+) {
+  const resolvedBaseBpm = resolvePositiveBpm(baseBpm);
+  const normalizedDurationMs = normalizeGameDurationMs(durationMs);
+  const laneCoverRatio = getGameLaneCoverRatio(laneCoverPermille);
+  if (!(resolvedBaseBpm > 0) || !(normalizedDurationMs > 0) || laneCoverRatio >= 1) {
+    return 0;
+  }
+  return 240000 / resolvedBaseBpm / normalizedDurationMs * (1 - laneCoverRatio);
+}
+
+export function getGameTimingDerivedMetrics(
+  model,
+  gameTimingConfig = createDefaultGameTimingConfig(),
+  { includeGreenNumberRange = false } = {},
+) {
+  const normalizedConfig = normalizeGameTimingConfig(gameTimingConfig);
+  const derivedMetrics = getOrCreateGameTimingDerivedMetrics(model, normalizedConfig);
+  if (includeGreenNumberRange && derivedMetrics.greenNumberRange === undefined) {
+    derivedMetrics.greenNumberRange = computeGameGreenNumberRange(model, derivedMetrics);
+  }
+  return derivedMetrics;
+}
+
+export function getGameCurrentDurationMs(
+  model,
+  timeSec,
+  gameTimingConfig = createDefaultGameTimingConfig(),
+) {
+  const derivedMetrics = getGameTimingDerivedMetrics(model, gameTimingConfig);
+  return getGameCurrentDurationForTimingState(
+    getGameTimingStateAtTimeSec(model, timeSec),
+    derivedMetrics,
+  );
+}
+
+export function getGameCurrentGreenNumber(
+  model,
+  timeSec,
+  gameTimingConfig = createDefaultGameTimingConfig(),
+) {
+  const derivedMetrics = getGameTimingDerivedMetrics(model, gameTimingConfig);
+  return getGameCurrentGreenNumberForTimingState(
+    getGameTimingStateAtTimeSec(model, timeSec),
+    derivedMetrics,
+  );
+}
+
+export function getGameGreenNumberRange(
+  model,
+  gameTimingConfig = createDefaultGameTimingConfig(),
+) {
+  return getGameTimingDerivedMetrics(
+    model,
+    gameTimingConfig,
+    { includeGreenNumberRange: true },
+  ).greenNumberRange;
+}
+
+export function getGameSettingGreenNumber(durationMs = DEFAULT_GAME_DURATION_MS) {
+  return Math.floor(normalizeGameDurationMs(durationMs) * 3 / 5);
+}
+
+export function getGameLaneCoverHeightPx(
+  viewportHeight,
+  judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO,
+  laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+  laneCoverPermille = DEFAULT_GAME_LANE_COVER_PERMILLE,
+) {
+  return getGameJudgeDistancePx(
+    viewportHeight,
+    judgeLinePositionRatio,
+    laneHeightPercent,
+  ) * getGameLaneCoverRatio(laneCoverPermille);
 }
 
 export function hasViewerSelectionChanged(
@@ -666,6 +907,93 @@ function createGameTimelineTimingEvents(score) {
   }
 
   return { bpmChanges, stops };
+}
+
+function resolveBpmSummary(score, bpmSummary = undefined) {
+  const positiveBpms = collectPositiveBpms(score);
+  const startBpm = resolvePositiveBpm(
+    score?.initialBpm,
+    positiveBpms[0],
+    bpmSummary?.mainBpm,
+  );
+  return {
+    startBpm,
+    minBpm: resolvePositiveBpm(
+      bpmSummary?.minBpm,
+      positiveBpms.length > 0 ? Math.min(...positiveBpms) : startBpm,
+      startBpm,
+    ),
+    maxBpm: resolvePositiveBpm(
+      bpmSummary?.maxBpm,
+      positiveBpms.length > 0 ? Math.max(...positiveBpms) : startBpm,
+      startBpm,
+    ),
+    mainBpm: resolvePositiveBpm(bpmSummary?.mainBpm, startBpm),
+  };
+}
+
+function collectPositiveBpms(score) {
+  const positiveBpms = [];
+  const pushPositiveBpm = (value) => {
+    if (Number.isFinite(value) && value > 0) {
+      positiveBpms.push(value);
+    }
+  };
+  pushPositiveBpm(score?.initialBpm);
+  for (const action of score?.timingActions ?? []) {
+    if (action?.type === "bpm") {
+      pushPositiveBpm(action?.bpm);
+    }
+  }
+  for (const bpmChange of score?.bpmChanges ?? []) {
+    pushPositiveBpm(bpmChange?.bpm);
+  }
+  return positiveBpms;
+}
+
+function createGameTimingStatePoints(gameTimeline, initialBpm) {
+  const statePoints = [];
+  let currentBpm = resolvePositiveBpm(initialBpm);
+  let currentScrollRate = 1;
+  const pushStatePoint = (beat, timeSec) => {
+    const statePoint = {
+      beat: Number.isFinite(beat) ? beat : 0,
+      timeSec: Number.isFinite(timeSec) ? timeSec : 0,
+      bpm: currentBpm,
+      scrollRate: currentScrollRate,
+    };
+    if (
+      statePoints.length > 0
+      && Math.abs(statePoints[statePoints.length - 1].timeSec - statePoint.timeSec) < 0.000001
+      && Math.abs(statePoints[statePoints.length - 1].beat - statePoint.beat) < 0.000001
+    ) {
+      statePoints[statePoints.length - 1] = statePoint;
+      return;
+    }
+    statePoints.push(statePoint);
+  };
+  pushStatePoint(0, 0);
+  for (const point of gameTimeline ?? []) {
+    if (!(point?.bpmChanges?.length > 0) && !(point?.scrollChanges?.length > 0)) {
+      continue;
+    }
+    const nextBpm = point?.bpmChanges?.length > 0
+      ? getLastEffectiveBpmFromPoint(point.bpmChanges, currentBpm)
+      : currentBpm;
+    const nextScrollRate = point?.scrollChanges?.length > 0
+      ? getLastEffectiveScrollRateFromPoint(point.scrollChanges, currentScrollRate)
+      : currentScrollRate;
+    if (
+      Math.abs(nextBpm - currentBpm) < 0.000001
+      && Math.abs(nextScrollRate - currentScrollRate) < 0.000001
+    ) {
+      continue;
+    }
+    currentBpm = nextBpm;
+    currentScrollRate = nextScrollRate;
+    pushStatePoint(point?.beat, point?.timeSec);
+  }
+  return statePoints;
 }
 
 function createTimingActionsFromCanonicalScore(score) {
@@ -1129,6 +1457,139 @@ function getEventTrackPosition(item) {
 
 function getNoteEndTrackPosition(note) {
   return Number.isFinite(note?.endTrackPosition) ? note.endTrackPosition : getEventTrackPosition(note);
+}
+
+export function getGameCurrentDurationForTimingState(statePoint, derivedMetrics) {
+  const currentBpm = Number.isFinite(statePoint?.bpm) && statePoint.bpm > 0
+    ? statePoint.bpm
+    : 0;
+  const currentScrollRate = Number.isFinite(statePoint?.scrollRate) ? statePoint.scrollRate : 1;
+  const hispeed = derivedMetrics?.hispeed ?? 0;
+  const laneCoverRatio = derivedMetrics?.laneCoverRatio ?? 0;
+  if (!(currentBpm > 0) || !(currentScrollRate > 0) || !(hispeed > 0) || laneCoverRatio >= 1) {
+    return 0;
+  }
+  const regionMs = (240000 / currentBpm / hispeed) / currentScrollRate;
+  return Math.max(regionMs * (1 - laneCoverRatio), 0);
+}
+
+function getOrCreateGameTimingDerivedMetrics(model, normalizedConfig) {
+  if (!model) {
+    return createGameTimingDerivedMetrics(model, normalizedConfig);
+  }
+  const cacheKey = createGameTimingDerivedMetricsCacheKey(normalizedConfig);
+  let metricsByConfig = gameTimingDerivedMetricsCacheByModel.get(model);
+  if (!metricsByConfig) {
+    metricsByConfig = new Map();
+    gameTimingDerivedMetricsCacheByModel.set(model, metricsByConfig);
+  }
+  let derivedMetrics = metricsByConfig.get(cacheKey);
+  if (!derivedMetrics) {
+    derivedMetrics = createGameTimingDerivedMetrics(model, normalizedConfig);
+    metricsByConfig.set(cacheKey, derivedMetrics);
+  }
+  return derivedMetrics;
+}
+
+function createGameTimingDerivedMetrics(model, normalizedConfig) {
+  const hsFixBaseBpm = getGameHsFixBaseBpm(model, normalizedConfig.hsFixMode);
+  return {
+    normalizedConfig,
+    hsFixBaseBpm,
+    hispeed: getGameHispeed(
+      hsFixBaseBpm,
+      normalizedConfig.durationMs,
+      normalizedConfig.laneCoverPermille,
+    ),
+    laneCoverRatio: getGameLaneCoverRatio(normalizedConfig.laneCoverPermille),
+    greenNumberRange: undefined,
+  };
+}
+
+function createGameTimingDerivedMetricsCacheKey(normalizedConfig) {
+  return [
+    normalizedConfig.durationMs,
+    normalizedConfig.laneHeightPercent,
+    normalizedConfig.laneCoverPermille,
+    normalizedConfig.laneCoverVisible ? 1 : 0,
+    normalizedConfig.hsFixMode,
+  ].join("|");
+}
+
+function computeGameGreenNumberRange(model, derivedMetrics) {
+  const statePoints = model?.gameTimingStatePoints?.length > 0
+    ? model.gameTimingStatePoints
+    : [createFallbackGameTimingState(model)];
+  let minGreenNumber = Number.POSITIVE_INFINITY;
+  let maxGreenNumber = Number.NEGATIVE_INFINITY;
+  for (const statePoint of statePoints) {
+    const greenNumber = getGameCurrentGreenNumberForTimingState(statePoint, derivedMetrics);
+    minGreenNumber = Math.min(minGreenNumber, greenNumber);
+    maxGreenNumber = Math.max(maxGreenNumber, greenNumber);
+  }
+  if (!Number.isFinite(minGreenNumber) || !Number.isFinite(maxGreenNumber)) {
+    return { maxGreenNumber: 0, minGreenNumber: 0 };
+  }
+  return {
+    maxGreenNumber,
+    minGreenNumber,
+  };
+}
+
+function createFallbackGameTimingState(model) {
+  return {
+    beat: 0,
+    timeSec: 0,
+    bpm: resolvePositiveBpm(model?.bpmSummary?.startBpm),
+    scrollRate: 1,
+  };
+}
+
+function getGameCurrentGreenNumberForTimingState(statePoint, derivedMetrics) {
+  return Math.round(getGameCurrentDurationForTimingState(statePoint, derivedMetrics) * GAME_GREEN_NUMBER_RATIO);
+}
+
+function getLastEffectiveBpmFromPoint(bpmChanges, fallbackBpm) {
+  for (let index = bpmChanges.length - 1; index >= 0; index -= 1) {
+    const nextBpm = bpmChanges[index]?.bpm;
+    if (Number.isFinite(nextBpm) && nextBpm > 0) {
+      return nextBpm;
+    }
+  }
+  return fallbackBpm;
+}
+
+function getLastEffectiveScrollRateFromPoint(scrollChanges, fallbackScrollRate) {
+  for (let index = scrollChanges.length - 1; index >= 0; index -= 1) {
+    const nextScrollRate = scrollChanges[index]?.rate;
+    if (Number.isFinite(nextScrollRate)) {
+      return nextScrollRate;
+    }
+  }
+  return fallbackScrollRate;
+}
+
+function clampRoundedValue(value, minValue, maxValue, fallbackValue, precision = 1) {
+  if (!Number.isFinite(value)) {
+    return fallbackValue;
+  }
+  const safePrecision = Number.isFinite(precision) && precision > 0 ? precision : 1;
+  const roundedValue = Math.round(value / safePrecision) * safePrecision;
+  const normalizedValue = clamp(roundedValue, minValue, maxValue);
+  if (safePrecision >= 1) {
+    return Math.round(normalizedValue);
+  }
+  const fractionDigits = Math.max(0, String(safePrecision).split(".")[1]?.length ?? 0);
+  return Number(normalizedValue.toFixed(fractionDigits));
+}
+
+function resolvePositiveBpm(...values) {
+  for (const value of values) {
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+  return DEFAULT_GAME_HS_FIX_FALLBACK_BPM;
 }
 
 function finiteOrZero(value) {

@@ -1,12 +1,21 @@
 import {
+  createDefaultGameTimingConfig,
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  GAME_GREEN_NUMBER_RATIO,
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
   DEFAULT_VIEWER_MODE,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
+  getBeatAtTimeSec,
+  getGameCurrentDurationForTimingState,
+  getGameJudgeLineY,
+  getGameLaneCoverHeightPx,
+  getGameLaneGeometry,
+  getGameTimingDerivedMetrics,
+  getGameTimingStateAtTimeSec,
   getJudgeLineY,
-  getGameTrackPositionAtTimeSec,
   getEditorFrameState,
   getVisibleTimeRange,
+  normalizeGameTimingConfig,
   resolveViewerModeForModel,
   shouldDrawLongEndCap,
 } from "./score-viewer-model.js";
@@ -117,6 +126,7 @@ export function createScoreViewerRenderer(canvas) {
       editorFrameState = null,
       showInvisibleNotes = false,
       judgeLineY = getJudgeLineY(height, DEFAULT_JUDGE_LINE_POSITION_RATIO),
+      gameTimingConfig = createDefaultGameTimingConfig(),
     } = {},
   ) {
     context.clearRect(0, 0, width, height);
@@ -134,7 +144,7 @@ export function createScoreViewerRenderer(canvas) {
       return renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes, judgeLineY);
     }
     if (resolvedMode === "game") {
-      return renderGameMode(model, laneLayout, selectedTimeSec, pixelsPerBeat, showInvisibleNotes, judgeLineY);
+      return renderGameMode(model, laneLayout, selectedTimeSec, showInvisibleNotes, judgeLineY, gameTimingConfig);
     }
 
     return renderEditorMode(
@@ -215,12 +225,21 @@ export function createScoreViewerRenderer(canvas) {
     };
   }
 
-  function renderGameMode(model, laneLayout, selectedTimeSec, pixelsPerBeat, showInvisibleNotes, judgeLineY) {
+  function renderGameMode(model, laneLayout, selectedTimeSec, showInvisibleNotes, judgeLineY, gameTimingConfig) {
     const { lanes } = laneLayout;
-    const projection = collectGameProjection(model, selectedTimeSec, height, pixelsPerBeat, judgeLineY);
+    const normalizedGameTimingConfig = normalizeGameTimingConfig(gameTimingConfig);
+    const laneGeometry = getGameLaneGeometry(
+      height,
+      getJudgeLineRatioFromGeometry(height, judgeLineY, normalizedGameTimingConfig.laneHeightPercent),
+      normalizedGameTimingConfig.laneHeightPercent,
+    );
+    const projection = collectGameProjection(model, selectedTimeSec, height, {
+      gameTimingConfig: normalizedGameTimingConfig,
+      laneGeometry,
+    });
 
-    drawDpGutter(context, laneLayout, height);
-    drawLaneSeparators(context, lanes, height);
+    drawDpGutter(context, laneLayout, height, laneGeometry.laneTopY, laneGeometry.laneBottomY);
+    drawLaneSeparators(context, lanes, height, laneGeometry.laneTopY, laneGeometry.laneBottomY);
     drawBarLinesGameMode(context, lanes, projection);
     drawMeasureLabelsGameMode(context, model.barLines, lanes, projection);
     drawTempoMarkersGameMode(context, lanes, projection);
@@ -229,6 +248,7 @@ export function createScoreViewerRenderer(canvas) {
     if (showInvisibleNotes) {
       drawInvisibleNoteHeadsGameMode(context, lanes, projection);
     }
+    drawLaneCoverGameMode(context, laneLayout, projection);
 
     return {
       markers: [],
@@ -465,15 +485,47 @@ export function collectGameProjection(
   model,
   selectedTimeSec,
   viewportHeight,
-  pixelsPerBeat = DEFAULT_EDITOR_PIXELS_PER_BEAT,
-  judgeLineY = getJudgeLineY(viewportHeight),
+  options = {},
+  legacyJudgeLineY = undefined,
 ) {
+  const normalizedOptions = normalizeGameProjectionOptions(viewportHeight, options, legacyJudgeLineY);
+  const normalizedGameTimingConfig = normalizedOptions.gameTimingConfig;
+  const resolvedLaneGeometry = normalizedOptions.laneGeometry;
+  const derivedMetrics = getGameTimingDerivedMetrics(
+    model,
+    normalizedGameTimingConfig,
+    { includeGreenNumberRange: normalizedGameTimingConfig.laneCoverVisible },
+  );
+  const currentTimingState = getGameTimingStateAtTimeSec(model, selectedTimeSec);
+  const currentGreenNumber = normalizedGameTimingConfig.laneCoverVisible
+    ? Math.round(getGameCurrentDurationForTimingState(currentTimingState, derivedMetrics) * GAME_GREEN_NUMBER_RATIO)
+    : null;
   const projection = {
     selectedTimeSec,
-    selectedTrackPosition: getGameTrackPositionAtTimeSec(model, selectedTimeSec),
+    selectedTrackPosition: getBeatAtTimeSec(model, selectedTimeSec) / 4,
     viewportHeight: Math.max(viewportHeight, 0),
-    judgeLineY,
-    pixelsPerBeat,
+    laneTopY: resolvedLaneGeometry.laneTopY,
+    laneBottomY: resolvedLaneGeometry.laneBottomY,
+    judgeLineY: resolvedLaneGeometry.judgeLineY,
+    judgeDistancePx: resolvedLaneGeometry.judgeDistancePx,
+    laneCoverVisible: normalizedGameTimingConfig.laneCoverVisible,
+    laneCoverHeightPx: getGameLaneCoverHeightPx(
+      viewportHeight,
+      getJudgeLineRatioFromGeometry(
+        viewportHeight,
+        resolvedLaneGeometry.judgeLineY,
+        normalizedGameTimingConfig.laneHeightPercent,
+      ),
+      normalizedGameTimingConfig.laneHeightPercent,
+      normalizedGameTimingConfig.laneCoverPermille,
+    ),
+    currentGreenNumber,
+    greenNumberRange: normalizedGameTimingConfig.laneCoverVisible
+      ? derivedMetrics.greenNumberRange
+      : null,
+    hsFixBaseBpm: derivedMetrics.hsFixBaseBpm,
+    hispeed: derivedMetrics.hispeed,
+    gameTimingConfig: normalizedGameTimingConfig,
     visibleMargin: NOTE_HEAD_HEIGHT + 24,
     points: [],
     pointYByIndex: new Map(),
@@ -486,6 +538,7 @@ export function collectGameProjection(
   const timeline = model.gameTimeline;
   const startIndex = lowerBoundGameTimelineByTime(timeline, selectedTimeSec);
   let y = projection.judgeLineY;
+  const pixelsPerSection = projection.judgeDistancePx * projection.hispeed;
 
   for (let index = startIndex; index < timeline.length; index += 1) {
     const point = timeline[index];
@@ -494,18 +547,18 @@ export function collectGameProjection(
         timeline[index - 1],
         point,
         selectedTimeSec,
-        pixelsPerBeat,
+        pixelsPerSection,
       );
     } else {
-      y -= getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerBeat);
+      y -= getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerSection);
     }
 
     projection.pointYByIndex.set(index, y);
-    if (isGameProjectionPastUpperBound(y, projection.viewportHeight, projection.visibleMargin)) {
+    if (isGameProjectionPastUpperBound(y, projection.laneTopY, projection.visibleMargin)) {
       projection.exitPoint = { index, point, y };
       break;
     }
-    if (!isViewportYVisible(y, projection.viewportHeight, projection.visibleMargin)) {
+    if (!isViewportYVisible(y, projection.laneTopY, projection.laneBottomY, projection.visibleMargin)) {
       continue;
     }
     projection.points.push({ index, point, y });
@@ -513,7 +566,7 @@ export function collectGameProjection(
   return projection;
 }
 
-function getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerBeat) {
+function getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerSection) {
   const pointTimeSec = finiteOrZero(point?.timeSec);
   if (!(pointTimeSec > 0)) {
     return 0;
@@ -523,17 +576,17 @@ function getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerBeat) {
     0,
     1,
   );
-  return finiteOrZero(point?.beat) * remainingRatio * pixelsPerBeat;
+  return (finiteOrZero(point?.beat) / 4) * remainingRatio * pixelsPerSection;
 }
 
-function getGameProjectionDeltaY(previousPoint, point, selectedTimeSec, pixelsPerBeat) {
-  const deltaSection = finiteOrZero(point?.beat) - finiteOrZero(previousPoint?.beat);
+function getGameProjectionDeltaY(previousPoint, point, selectedTimeSec, pixelsPerSection) {
+  const deltaSection = (finiteOrZero(point?.beat) - finiteOrZero(previousPoint?.beat)) / 4;
   if (Math.abs(deltaSection) < 1e-9) {
     return 0;
   }
   const scrollRate = getGameProjectionScrollRate(previousPoint);
   if (finiteOrZero(previousPoint?.timeSec) + finiteOrZero(previousPoint?.stopDurationSec) > selectedTimeSec) {
-    return deltaSection * scrollRate * pixelsPerBeat;
+    return deltaSection * scrollRate * pixelsPerSection;
   }
   const traversableDurationSec = finiteOrZero(point?.timeSec)
     - finiteOrZero(previousPoint?.timeSec)
@@ -546,11 +599,11 @@ function getGameProjectionDeltaY(previousPoint, point, selectedTimeSec, pixelsPe
     0,
     1,
   );
-  return deltaSection * scrollRate * remainingRatio * pixelsPerBeat;
+  return deltaSection * scrollRate * remainingRatio * pixelsPerSection;
 }
 
-function isGameProjectionPastUpperBound(y, viewportHeight, margin) {
-  return y < -Math.max(margin, 0);
+function isGameProjectionPastUpperBound(y, laneTopY, margin) {
+  return y < laneTopY - Math.max(margin, 0);
 }
 
 function getGameProjectionScrollRate(point) {
@@ -622,8 +675,8 @@ function drawLongBodiesGameMode(context, model, lanes, projection) {
     if (!(endY < startY - 1e-6)) {
       continue;
     }
-    const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
-    const bottomY = Math.min(Math.max(startY, endY), projection.viewportHeight + NOTE_HEAD_HEIGHT + 24);
+    const topY = Math.max(Math.min(startY, endY), projection.laneTopY - NOTE_HEAD_HEIGHT - 24);
+    const bottomY = Math.min(Math.max(startY, endY), projection.laneBottomY + NOTE_HEAD_HEIGHT + 24);
     if (bottomY <= topY) {
       continue;
     }
@@ -754,11 +807,50 @@ function getProjectedGameLongBodyEndY(note, projection) {
   }
   if (projection.exitPoint && Number.isInteger(note.gameTimelineEndIndex) && note.gameTimelineEndIndex >= projection.exitPoint.index) {
     return Math.min(
-      Math.max(projection.exitPoint.y, -NOTE_HEAD_HEIGHT - 24),
-      projection.viewportHeight + NOTE_HEAD_HEIGHT + 24,
+      Math.max(projection.exitPoint.y, projection.laneTopY - NOTE_HEAD_HEIGHT - 24),
+      projection.laneBottomY + NOTE_HEAD_HEIGHT + 24,
     );
   }
   return null;
+}
+
+function drawLaneCoverGameMode(context, laneLayout, projection) {
+  if (!projection.laneCoverVisible || !(projection.laneCoverHeightPx > 0)) {
+    return;
+  }
+  const laneBounds = getLaneBounds(laneLayout);
+  const coverLeftX = laneBounds.leftX;
+  const coverWidth = Math.max(laneBounds.rightX - laneBounds.leftX + 1, 0);
+  if (!(coverWidth > 0)) {
+    return;
+  }
+  const coverTopY = projection.laneTopY;
+  const coverBottomY = Math.min(projection.laneTopY + projection.laneCoverHeightPx, projection.judgeLineY);
+  const coverHeight = Math.max(coverBottomY - coverTopY, 0);
+  if (!(coverHeight > 0)) {
+    return;
+  }
+  context.save();
+  context.fillStyle = "#2A2A2A";
+  context.fillRect(coverLeftX, coverTopY, coverWidth, coverHeight);
+  const currentGreenTextY = Math.max(coverTopY + 12, coverBottomY - 10);
+  const rangeTextY = Math.max(coverTopY + 12, currentGreenTextY - 14);
+  context.font = TEMPO_LABEL_FONT;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillStyle = "#FFFFFF";
+  context.fillText(
+    `${projection.greenNumberRange.maxGreenNumber} ～ ${projection.greenNumberRange.minGreenNumber}`,
+    coverLeftX + (coverWidth / 2),
+    rangeTextY,
+  );
+  context.fillStyle = "#00FF00";
+  context.fillText(
+    String(projection.currentGreenNumber),
+    coverLeftX + (coverWidth / 2),
+    currentGreenTextY,
+  );
+  context.restore();
 }
 
 function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixelsPerBeat, judgeLineY) {
@@ -1076,13 +1168,19 @@ function drawTempoMarkerLabel(context, marker) {
   context.restore();
 }
 
-function drawLaneSeparators(context, lanes, viewportHeight) {
+function drawLaneSeparators(context, lanes, viewportHeight, topY = 0, bottomY = viewportHeight) {
   if (lanes.length === 0) {
     return;
   }
   context.save();
   context.strokeStyle = SEPARATOR_COLOR;
   context.lineWidth = 1;
+  const startY = Math.max(Number.isFinite(topY) ? topY : 0, 0);
+  const endY = Math.min(Number.isFinite(bottomY) ? bottomY : viewportHeight, viewportHeight);
+  if (endY <= startY) {
+    context.restore();
+    return;
+  }
   const uniqueBoundaries = new Set();
   uniqueBoundaries.add(Math.round(lanes[0].x));
   for (const lane of lanes) {
@@ -1091,8 +1189,8 @@ function drawLaneSeparators(context, lanes, viewportHeight) {
   }
   for (const x of [...uniqueBoundaries].sort((left, right) => left - right)) {
     context.beginPath();
-    context.moveTo(x + 0.5, 0);
-    context.lineTo(x + 0.5, viewportHeight);
+    context.moveTo(x + 0.5, startY);
+    context.lineTo(x + 0.5, endY);
     context.stroke();
   }
   context.restore();
@@ -1113,14 +1211,19 @@ function getLaneBounds(laneLayout) {
   };
 }
 
-function drawDpGutter(context, laneLayout, viewportHeight) {
+function drawDpGutter(context, laneLayout, viewportHeight, topY = 0, bottomY = viewportHeight) {
   const gutterRect = laneLayout?.gutterRect;
   if (!gutterRect || !(gutterRect.width > 0)) {
     return;
   }
+  const startY = Math.max(Number.isFinite(topY) ? topY : 0, 0);
+  const endY = Math.min(Number.isFinite(bottomY) ? bottomY : viewportHeight, viewportHeight);
+  if (endY <= startY) {
+    return;
+  }
   context.save();
   context.fillStyle = DP_GUTTER_FILL;
-  context.fillRect(gutterRect.x, 0, gutterRect.width, viewportHeight);
+  context.fillRect(gutterRect.x, startY, gutterRect.width, endY - startY);
   context.restore();
 }
 
@@ -1254,8 +1357,52 @@ function gameTrackPositionToViewportY(eventTrackPosition, selectedTrackPosition,
   return judgeLineY - (eventTrackPosition - selectedTrackPosition) * pixelsPerBeat;
 }
 
-function isViewportYVisible(y, viewportHeight, margin = NOTE_HEAD_HEIGHT + 24) {
-  return y >= -margin && y <= viewportHeight + margin;
+function getJudgeLineRatioFromGeometry(viewportHeight, judgeLineY, laneHeightPercent) {
+  const laneGeometry = getGameLaneGeometry(
+    viewportHeight,
+    DEFAULT_JUDGE_LINE_POSITION_RATIO,
+    laneHeightPercent,
+  );
+  if (!(laneGeometry.laneHeightPx > 0)) {
+    return DEFAULT_JUDGE_LINE_POSITION_RATIO;
+  }
+  return clamp(
+    (judgeLineY - laneGeometry.laneTopY) / laneGeometry.laneHeightPx,
+    0,
+    1,
+  );
+}
+
+function normalizeGameProjectionOptions(viewportHeight, options, legacyJudgeLineY) {
+  const isLegacySignature = Number.isFinite(options);
+  const normalizedGameTimingConfig = normalizeGameTimingConfig(
+    !isLegacySignature && options?.gameTimingConfig ? options.gameTimingConfig : createDefaultGameTimingConfig(),
+  );
+  if (!isLegacySignature && options?.laneGeometry) {
+    return {
+      gameTimingConfig: normalizedGameTimingConfig,
+      laneGeometry: options.laneGeometry,
+    };
+  }
+  const judgeLineY = Number.isFinite(legacyJudgeLineY)
+    ? legacyJudgeLineY
+    : getGameJudgeLineY(
+      viewportHeight,
+      DEFAULT_JUDGE_LINE_POSITION_RATIO,
+      normalizedGameTimingConfig.laneHeightPercent,
+    );
+  return {
+    gameTimingConfig: normalizedGameTimingConfig,
+    laneGeometry: getGameLaneGeometry(
+      viewportHeight,
+      getJudgeLineRatioFromGeometry(viewportHeight, judgeLineY, normalizedGameTimingConfig.laneHeightPercent),
+      normalizedGameTimingConfig.laneHeightPercent,
+    ),
+  };
+}
+
+function isViewportYVisible(y, viewportTopY, viewportBottomY, margin = NOTE_HEAD_HEIGHT + 24) {
+  return y >= viewportTopY - margin && y <= viewportBottomY + margin;
 }
 
 function getEventTrackPosition(event) {

@@ -1,5 +1,11 @@
 import {
   createScoreViewerModel,
+  createDefaultGameTimingConfig,
+  DEFAULT_GAME_DURATION_MS,
+  DEFAULT_GAME_LANE_COVER_PERMILLE,
+  DEFAULT_GAME_LANE_COVER_VISIBLE,
+  DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+  DEFAULT_GAME_HS_FIX_MODE,
   DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
   DEFAULT_VIEWER_MODE,
@@ -8,9 +14,15 @@ import {
   getClampedSelectedTimeSec,
   getScoreTotalDurationSec,
   hasViewerSelectionChanged,
+  normalizeGameDurationMs,
+  normalizeGameHsFixMode,
+  normalizeGameLaneCoverPermille,
+  normalizeGameLaneCoverVisible,
+  normalizeGameLaneHeightPercent,
+  normalizeGameTimingConfig,
+  normalizeViewerMode,
   normalizeInvisibleNoteVisibility,
   normalizeJudgeLinePositionRatio,
-  normalizeViewerMode,
   resolveViewerModeForModel,
 } from "./score-viewer-model.js";
 import { createScoreViewerController } from "./score-viewer-controller.js";
@@ -33,10 +45,22 @@ export const SPACING_SCALE_STORAGE_KEYS = Object.freeze({
   editor: "bms-info-extender.spacingScale.editor",
   game: "bms-info-extender.spacingScale.game",
 });
+export const GAME_DURATION_MS_STORAGE_KEY = "bms-info-extender.game.durationMs";
+export const GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY = "bms-info-extender.game.laneHeightPercent";
+export const GAME_LANE_COVER_PERMILLE_STORAGE_KEY = "bms-info-extender.game.laneCoverPermille";
+export const GAME_LANE_COVER_VISIBLE_STORAGE_KEY = "bms-info-extender.game.laneCoverVisible";
+export const GAME_HS_FIX_MODE_STORAGE_KEY = "bms-info-extender.game.hsFixMode";
 export const DEFAULT_SPACING_SCALE = 1.0;
 export { DEFAULT_VIEWER_MODE };
 export { DEFAULT_INVISIBLE_NOTE_VISIBILITY };
 export { DEFAULT_JUDGE_LINE_POSITION_RATIO };
+export {
+  DEFAULT_GAME_DURATION_MS,
+  DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+  DEFAULT_GAME_LANE_COVER_PERMILLE,
+  DEFAULT_GAME_LANE_COVER_VISIBLE,
+  DEFAULT_GAME_HS_FIX_MODE,
+};
 
 export const PREVIEW_RENDER_DIRTY = {
   record: 1 << 0,
@@ -48,7 +72,8 @@ export const PREVIEW_RENDER_DIRTY = {
   invisible: 1 << 6,
   judgeLinePosition: 1 << 7,
   spacing: 1 << 8,
-  viewerOpen: 1 << 9,
+  gameTimingConfig: 1 << 9,
+  viewerOpen: 1 << 10,
 };
 const PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 
@@ -121,6 +146,82 @@ export function createPreviewPreferenceStorage({ read = () => null, write = () =
         // Ignore storage failures and keep runtime state only.
       }
     },
+    getPersistedGameDurationMs() {
+      try {
+        return normalizeGameDurationMs(Number(read(GAME_DURATION_MS_STORAGE_KEY, DEFAULT_GAME_DURATION_MS)));
+      } catch (_error) {
+        return DEFAULT_GAME_DURATION_MS;
+      }
+    },
+    setPersistedGameDurationMs(value) {
+      try {
+        write(GAME_DURATION_MS_STORAGE_KEY, normalizeGameDurationMs(value));
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedGameLaneHeightPercent() {
+      try {
+        return normalizeGameLaneHeightPercent(
+          Number(read(GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY, DEFAULT_GAME_LANE_HEIGHT_PERCENT)),
+        );
+      } catch (_error) {
+        return DEFAULT_GAME_LANE_HEIGHT_PERCENT;
+      }
+    },
+    setPersistedGameLaneHeightPercent(value) {
+      try {
+        write(GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY, normalizeGameLaneHeightPercent(value));
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedGameLaneCoverPermille() {
+      try {
+        return normalizeGameLaneCoverPermille(
+          Number(read(GAME_LANE_COVER_PERMILLE_STORAGE_KEY, DEFAULT_GAME_LANE_COVER_PERMILLE)),
+        );
+      } catch (_error) {
+        return DEFAULT_GAME_LANE_COVER_PERMILLE;
+      }
+    },
+    setPersistedGameLaneCoverPermille(value) {
+      try {
+        write(GAME_LANE_COVER_PERMILLE_STORAGE_KEY, normalizeGameLaneCoverPermille(value));
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedGameLaneCoverVisible() {
+      try {
+        return normalizeGameLaneCoverVisible(
+          read(GAME_LANE_COVER_VISIBLE_STORAGE_KEY, DEFAULT_GAME_LANE_COVER_VISIBLE),
+        );
+      } catch (_error) {
+        return DEFAULT_GAME_LANE_COVER_VISIBLE;
+      }
+    },
+    setPersistedGameLaneCoverVisible(value) {
+      try {
+        write(GAME_LANE_COVER_VISIBLE_STORAGE_KEY, normalizeGameLaneCoverVisible(value));
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedGameHsFixMode() {
+      try {
+        return normalizeGameHsFixMode(read(GAME_HS_FIX_MODE_STORAGE_KEY, DEFAULT_GAME_HS_FIX_MODE));
+      } catch (_error) {
+        return DEFAULT_GAME_HS_FIX_MODE;
+      }
+    },
+    setPersistedGameHsFixMode(value) {
+      try {
+        write(GAME_HS_FIX_MODE_STORAGE_KEY, normalizeGameHsFixMode(value));
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
   };
 }
 
@@ -130,7 +231,8 @@ export function expandPreviewRenderMask(renderMask = 0) {
     expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode
       | PREVIEW_RENDER_DIRTY.invisible
       | PREVIEW_RENDER_DIRTY.judgeLinePosition
-      | PREVIEW_RENDER_DIRTY.spacing;
+      | PREVIEW_RENDER_DIRTY.spacing
+      | PREVIEW_RENDER_DIRTY.gameTimingConfig;
   }
   return expandedMask;
 }
@@ -183,19 +285,25 @@ export const BMSDATA_CSS = `
   .score-viewer-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .score-viewer-status-row.is-time { justify-content: flex-start; gap: 8px; }
   .score-viewer-status-metric { min-width: 0; font-variant-numeric: tabular-nums; }
+  .score-viewer-settings-panel { display: grid; gap: 4px; max-height: 0; overflow: hidden; opacity: 0; pointer-events: none; transition: opacity 120ms ease, max-height 120ms ease; }
+  .score-viewer-settings-group { display: grid; gap: 4px; }
+  .score-viewer-status-panel:hover .score-viewer-settings-panel, .score-viewer-status-panel:focus-within .score-viewer-settings-panel { max-height: 320px; opacity: 1; pointer-events: auto; }
   .score-viewer-spacing-row { padding-top: 2px; }
   .score-viewer-spacing-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
-  .score-viewer-spacing-value { margin-left: auto; color: #fff; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+  .score-viewer-spacing-value { margin-left: auto; display: inline-flex; align-items: baseline; gap: 0; color: #fff; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+  .score-viewer-spacing-value-secondary { color: #00FF00; }
   .score-viewer-mode-row { display: grid; gap: 4px; align-items: stretch; }
   .score-viewer-mode-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .score-viewer-mode-controls { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; }
   .score-viewer-mode-select { width: 100%; min-width: 0; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; box-sizing: border-box; }
   .score-viewer-mode-select:disabled { opacity: 0.55; cursor: not-allowed; }
+  .score-viewer-checkbox-row { justify-content: space-between; gap: 10px; }
+  .score-viewer-checkbox-input { width: auto; min-height: auto; margin: 0; padding: 0; accent-color: #ffffff; }
   .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
   .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; pointer-events: auto; }
-  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%); display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
+  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: var(--score-viewer-judge-line-top, calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%)); display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
   .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
   .score-viewer-judge-line.is-draggable::after, .score-viewer-judge-line.is-dragging::after { background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%); box-shadow: 0 0 28px rgba(255, 120, 88, 0.34); }
   .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
@@ -434,6 +542,16 @@ export function createBmsInfoPreview({
   setPersistedJudgeLinePositionRatio = () => {},
   getPersistedSpacingScale = () => DEFAULT_SPACING_SCALE,
   setPersistedSpacingScale = () => {},
+  getPersistedGameDurationMs = () => DEFAULT_GAME_DURATION_MS,
+  setPersistedGameDurationMs = () => {},
+  getPersistedGameLaneHeightPercent = () => DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+  setPersistedGameLaneHeightPercent = () => {},
+  getPersistedGameLaneCoverPermille = () => DEFAULT_GAME_LANE_COVER_PERMILLE,
+  setPersistedGameLaneCoverPermille = () => {},
+  getPersistedGameLaneCoverVisible = () => DEFAULT_GAME_LANE_COVER_VISIBLE,
+  setPersistedGameLaneCoverVisible = () => {},
+  getPersistedGameHsFixMode = () => DEFAULT_GAME_HS_FIX_MODE,
+  setPersistedGameHsFixMode = () => {},
   onSelectedTimeChange = () => {},
   onPinChange = () => {},
   onPlaybackChange = () => {},
@@ -465,6 +583,13 @@ export function createBmsInfoPreview({
     invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
     judgeLinePositionRatio: getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio),
     spacingScaleByMode: getInitialSpacingScaleByMode(getPersistedSpacingScale),
+    gameTimingConfig: getInitialGameTimingConfig({
+      getPersistedGameDurationMs,
+      getPersistedGameLaneHeightPercent,
+      getPersistedGameLaneCoverPermille,
+      getPersistedGameLaneCoverVisible,
+      getPersistedGameHsFixMode,
+    }),
     isPinned: false,
     isViewerOpen: false,
     isPlaying: false,
@@ -505,6 +630,9 @@ export function createBmsInfoPreview({
     },
     onSpacingScaleChange: (mode, nextScale) => {
       setSpacingScale(mode, nextScale);
+    },
+    onGameTimingConfigChange: (nextGameTimingConfig) => {
+      setGameTimingConfig(nextGameTimingConfig);
     },
   });
 
@@ -549,6 +677,7 @@ export function createBmsInfoPreview({
     setInvisibleNoteVisibility,
     setJudgeLinePositionRatio,
     setSpacingScale,
+    setGameTimingConfig,
     setPinned,
     setPlaybackState,
     prefetch,
@@ -585,7 +714,9 @@ export function createBmsInfoPreview({
 
     const nextSha256 = normalizedRecord.sha256 ? normalizedRecord.sha256.toLowerCase() : null;
     if (parsedScore && nextSha256) {
-      const viewerModel = createScoreViewerModel(parsedScore);
+      const viewerModel = createScoreViewerModel(parsedScore, {
+        bpmSummary: createViewerModelBpmSummary(normalizedRecord),
+      });
       parsedScoreCache.set(nextSha256, { score: parsedScore, viewerModel });
       compressedAvailabilityBySha256.set(nextSha256, { status: "ready" });
       state.parsedScore = parsedScore;
@@ -691,7 +822,9 @@ export function createBmsInfoPreview({
             if (!parsedScore) {
               throw new Error("Parsed score was not returned.");
             }
-            const viewerModel = createScoreViewerModel(parsedScore);
+            const viewerModel = createScoreViewerModel(parsedScore, {
+              bpmSummary: createViewerModelBpmSummary(normalizedRecord),
+            });
             const cached = { score: parsedScore, viewerModel };
             parsedScoreCache.set(sha256, cached);
             loadPromiseCache.delete(sha256);
@@ -873,6 +1006,27 @@ export function createBmsInfoPreview({
     scheduleRender(PREVIEW_RENDER_DIRTY.spacing);
   }
 
+  function setGameTimingConfig(nextGameTimingConfig = {}) {
+    const normalizedGameTimingConfig = normalizeGameTimingConfig({
+      ...state.gameTimingConfig,
+      ...nextGameTimingConfig,
+    });
+    if (areGameTimingConfigsEqual(state.gameTimingConfig, normalizedGameTimingConfig)) {
+      return;
+    }
+    state.gameTimingConfig = normalizedGameTimingConfig;
+    try {
+      setPersistedGameDurationMs(normalizedGameTimingConfig.durationMs);
+      setPersistedGameLaneHeightPercent(normalizedGameTimingConfig.laneHeightPercent);
+      setPersistedGameLaneCoverPermille(normalizedGameTimingConfig.laneCoverPermille);
+      setPersistedGameLaneCoverVisible(normalizedGameTimingConfig.laneCoverVisible);
+      setPersistedGameHsFixMode(normalizedGameTimingConfig.hsFixMode);
+    } catch (error) {
+      console.warn("Failed to persist game timing config:", error);
+    }
+    scheduleRender(PREVIEW_RENDER_DIRTY.gameTimingConfig);
+  }
+
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state.isPinned === normalized) {
@@ -1027,6 +1181,9 @@ export function createBmsInfoPreview({
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.spacing) {
       viewerController.setSpacingScaleByMode(state.spacingScaleByMode);
     }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.gameTimingConfig) {
+      viewerController.setGameTimingConfig(state.gameTimingConfig);
+    }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
       viewerController.setPlaybackState(state.isPlaying);
     }
@@ -1173,6 +1330,22 @@ export function getInitialSpacingScaleByMode(getPersistedSpacingScale) {
   };
 }
 
+export function getInitialGameTimingConfig({
+  getPersistedGameDurationMs,
+  getPersistedGameLaneHeightPercent,
+  getPersistedGameLaneCoverPermille,
+  getPersistedGameLaneCoverVisible,
+  getPersistedGameHsFixMode,
+} = {}) {
+  return normalizeGameTimingConfig({
+    durationMs: getPersistedGameDurationMs?.(),
+    laneHeightPercent: getPersistedGameLaneHeightPercent?.(),
+    laneCoverPermille: getPersistedGameLaneCoverPermille?.(),
+    laneCoverVisible: getPersistedGameLaneCoverVisible?.(),
+    hsFixMode: getPersistedGameHsFixMode?.(),
+  });
+}
+
 export function getInitialSpacingScale(mode, getPersistedSpacingScale) {
   try {
     return normalizeSpacingScale(Number(getPersistedSpacingScale?.(normalizeSpacingMode(mode))));
@@ -1233,6 +1406,25 @@ function formatCompactNumber(value) {
 
 function clampValue(value, minValue, maxValue) {
   return Math.min(Math.max(value, minValue), maxValue);
+}
+
+function createViewerModelBpmSummary(normalizedRecord) {
+  if (!normalizedRecord) {
+    return undefined;
+  }
+  return {
+    minBpm: normalizedRecord.minbpm,
+    maxBpm: normalizedRecord.maxbpm,
+    mainBpm: normalizedRecord.mainbpm,
+  };
+}
+
+function areGameTimingConfigsEqual(left, right) {
+  return Math.abs((left?.durationMs ?? DEFAULT_GAME_DURATION_MS) - (right?.durationMs ?? DEFAULT_GAME_DURATION_MS)) < 0.000001
+    && Math.abs((left?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT) - (right?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT)) < 0.000001
+    && Math.abs((left?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE) - (right?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE)) < 0.000001
+    && (left?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE) === (right?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE)
+    && (left?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE) === (right?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE);
 }
 
 export function getSpacingScaleStorageKey(mode) {

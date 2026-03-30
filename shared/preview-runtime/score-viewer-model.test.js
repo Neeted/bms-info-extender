@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   BEAT_SELECTION_EPSILON,
+  createDefaultGameTimingConfig,
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
+  DEFAULT_GAME_HS_FIX_FALLBACK_BPM,
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
   createEditorMeasureRanges,
@@ -20,6 +22,16 @@ import {
   getGameVisibleTrackRange,
   getGameTrackPositionAtTimeSec,
   getGameTrackPositionForBeat,
+  getGameCurrentDurationMs,
+  getGameCurrentGreenNumber,
+  getGameGreenNumberRange,
+  getGameHsFixBaseBpm,
+  getGameJudgeDistancePx,
+  getGameJudgeLinePositionRatioFromPointer,
+  getGameJudgeLineY,
+  getGameLaneCoverHeightPx,
+  getGameLaneGeometry,
+  getGameTimingDerivedMetrics,
   getJudgeLineY,
   getLongBodyTrackWindow,
   getTrackWindowIndices,
@@ -147,6 +159,181 @@ test("viewer model expands visible ranges asymmetrically around a moved judge li
     getVisibleBeatRange(model, 4, 320, 64, 240),
     loweredEditorRange,
   );
+});
+
+test("viewer model derives game lane geometry and judge line ratios within the active lane region", () => {
+  assert.deepEqual(
+    getGameLaneGeometry(500, 0.5, 50),
+    {
+      viewportHeight: 500,
+      laneTopY: 250,
+      laneBottomY: 500,
+      laneHeightPx: 250,
+      judgeLineY: 375,
+      judgeDistancePx: 125,
+    },
+  );
+  assert.equal(getGameJudgeLineY(500, 0.5, 50), 375);
+  assert.equal(getGameJudgeDistancePx(500, 0.5, 50), 125);
+  assert.equal(getGameLaneCoverHeightPx(500, 0.5, 50, 500), 62.5);
+  assert.equal(getGameJudgeLinePositionRatioFromPointer(250, 500, 50), 0);
+  assert.equal(getGameJudgeLinePositionRatioFromPointer(375, 500, 50), 0.5);
+  assert.equal(getGameJudgeLinePositionRatioFromPointer(500, 500, 50), 1);
+});
+
+test("viewer model resolves HS-FIX BPMs from record summary and parsed score fallbacks", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 12,
+    lastPlayableTimeSec: 12,
+    lastTimelineTimeSec: 12,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [{ beat: 4, timeSec: 2, bpm: 180 }],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  }, {
+    bpmSummary: {
+      mainBpm: 150,
+      maxBpm: 200,
+      minBpm: 90,
+    },
+  });
+
+  assert.equal(getGameHsFixBaseBpm(model, "start"), 120);
+  assert.equal(getGameHsFixBaseBpm(model, "main"), 150);
+  assert.equal(getGameHsFixBaseBpm(model, "max"), 200);
+  assert.equal(getGameHsFixBaseBpm(model, "min"), 90);
+
+  const fallbackModel = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: null,
+    totalDurationSec: 12,
+    lastPlayableTimeSec: 12,
+    lastTimelineTimeSec: 12,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  assert.equal(getGameHsFixBaseBpm(fallbackModel, "main"), DEFAULT_GAME_HS_FIX_FALLBACK_BPM);
+});
+
+test("viewer model calculates current green numbers and range with lane cover and zero-scroll sections", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 12,
+    lastPlayableTimeSec: 12,
+    lastTimelineTimeSec: 12,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],
+    bpmChanges: [{ beat: 8, timeSec: 4, bpm: 240 }],
+    stops: [],
+    scrollChanges: [{ beat: 4, timeSec: 2, rate: 0 }, { beat: 8, timeSec: 4, rate: 2 }],
+    warnings: [],
+  }, {
+    bpmSummary: {
+      mainBpm: 120,
+      maxBpm: 240,
+      minBpm: 120,
+    },
+  });
+
+  const gameTimingConfig = createDefaultGameTimingConfig();
+  assert.equal(getGameCurrentDurationMs(model, 1, gameTimingConfig), 500);
+  assert.equal(getGameCurrentGreenNumber(model, 1, gameTimingConfig), 300);
+  assert.equal(getGameCurrentGreenNumber(model, 2.5, gameTimingConfig), 0);
+  assert.equal(getGameCurrentGreenNumber(model, 4.5, gameTimingConfig), 75);
+  assert.deepEqual(getGameGreenNumberRange(model, gameTimingConfig), {
+    maxGreenNumber: 300,
+    minGreenNumber: 0,
+  });
+});
+
+test("viewer model compresses game timing state points to BPM and SCROLL changes only", () => {
+  const sparseModel = createScoreViewerModel(createGameTimingDensityScore({ dense: false }));
+  const denseModel = createScoreViewerModel(createGameTimingDensityScore({ dense: true }));
+
+  assert.equal(sparseModel.gameTimingStatePoints.length, 3);
+  assert.equal(denseModel.gameTimingStatePoints.length, 3);
+  assert.deepEqual(
+    denseModel.gameTimingStatePoints.map(({ beat, bpm, scrollRate }) => ({ beat, bpm, scrollRate })),
+    [
+      { beat: 0, bpm: 120, scrollRate: 1 },
+      { beat: 8, bpm: 180, scrollRate: 1 },
+      { beat: 12, bpm: 180, scrollRate: 0.5 },
+    ],
+  );
+  assert.deepEqual(
+    getGameGreenNumberRange(denseModel, createDefaultGameTimingConfig()),
+    getGameGreenNumberRange(sparseModel, createDefaultGameTimingConfig()),
+  );
+});
+
+test("viewer model caches game timing derived metrics by normalized config", () => {
+  const model = createScoreViewerModel(createGameTimingDensityScore({ dense: true }));
+  const first = getGameTimingDerivedMetrics(model, {
+    durationMs: 500,
+    laneHeightPercent: 0,
+    laneCoverPermille: 0,
+    laneCoverVisible: true,
+    hsFixMode: "main",
+  });
+  const second = getGameTimingDerivedMetrics(model, createDefaultGameTimingConfig());
+  const third = getGameTimingDerivedMetrics(model, {
+    durationMs: 750,
+    laneHeightPercent: 0,
+    laneCoverPermille: 0,
+    laneCoverVisible: true,
+    hsFixMode: "main",
+  });
+
+  assert.strictEqual(first, second);
+  assert.notStrictEqual(first, third);
+  assert.equal(first.greenNumberRange, undefined);
+  assert.deepEqual(
+    getGameTimingDerivedMetrics(model, createDefaultGameTimingConfig(), { includeGreenNumberRange: true }).greenNumberRange,
+    { maxGreenNumber: 400, minGreenNumber: 200 },
+  );
+});
+
+test("viewer model keeps duration and green number semantics when lane cover visibility is disabled", () => {
+  const model = createScoreViewerModel(createGameTimingDensityScore({ dense: true }));
+  const visibleConfig = {
+    durationMs: 500,
+    laneHeightPercent: 0,
+    laneCoverPermille: 250,
+    laneCoverVisible: true,
+    hsFixMode: "main",
+  };
+  const hiddenConfig = {
+    ...visibleConfig,
+    laneCoverVisible: false,
+  };
+
+  assert.equal(getGameCurrentDurationMs(model, 1, hiddenConfig), getGameCurrentDurationMs(model, 1, visibleConfig));
+  assert.equal(getGameCurrentDurationMs(model, 5, hiddenConfig), getGameCurrentDurationMs(model, 5, visibleConfig));
+  assert.equal(getGameCurrentGreenNumber(model, 1, hiddenConfig), getGameCurrentGreenNumber(model, 1, visibleConfig));
+  assert.equal(getGameCurrentGreenNumber(model, 5, hiddenConfig), getGameCurrentGreenNumber(model, 5, visibleConfig));
+  assert.deepEqual(getGameGreenNumberRange(model, hiddenConfig), getGameGreenNumberRange(model, visibleConfig));
 });
 
 test("viewer model converts between seconds and beats across BPM changes and STOPs", () => {
@@ -674,3 +861,62 @@ test("viewer selection change in editor mode stays monotonic for BPM below one",
   assert.equal(getBeatAtTimeSec(model, nextTimeSec), nextBeat);
   assert.equal(hasViewerSelectionChanged(model, "editor", 0, nextTimeSec, 0, nextBeat), true);
 });
+
+function createGameTimingDensityScore({ dense }) {
+  const timeForBeat = (beat) => (beat <= 8 ? beat / 2 : 4 + ((beat - 8) / 3));
+  const notes = dense
+    ? Array.from({ length: 128 }, (_, index) => {
+      const beat = 4 + index * 0.125;
+      return {
+        lane: index % 8,
+        beat,
+        timeSec: timeForBeat(beat),
+        kind: "normal",
+      };
+    })
+    : [];
+  const comboEvents = notes.map((note) => ({
+    lane: note.lane,
+    beat: note.beat,
+    timeSec: note.timeSec,
+    kind: "normal",
+  }));
+  const barLines = dense
+    ? [
+      { beat: 0, timeSec: 0 },
+      ...Array.from({ length: 16 }, (_, index) => ({
+        beat: (index + 1) * 2,
+        timeSec: timeForBeat((index + 1) * 2),
+      })),
+    ]
+    : [
+      { beat: 0, timeSec: 0 },
+      { beat: 8, timeSec: timeForBeat(8) },
+      { beat: 12, timeSec: timeForBeat(12) },
+      { beat: 16, timeSec: timeForBeat(16) },
+    ];
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: timeForBeat(16),
+    lastPlayableTimeSec: timeForBeat(16),
+    lastTimelineTimeSec: timeForBeat(16),
+    noteCounts: {
+      visible: notes.length,
+      normal: notes.length,
+      long: 0,
+      invisible: 0,
+      mine: 0,
+      all: notes.length,
+    },
+    notes,
+    comboEvents,
+    barLines,
+    bpmChanges: [{ beat: 8, timeSec: timeForBeat(8), bpm: 180 }],
+    stops: [],
+    scrollChanges: [{ beat: 12, timeSec: timeForBeat(12), rate: 0.5 }],
+    warnings: [],
+  };
+}

@@ -1,4 +1,10 @@
 import {
+  createDefaultGameTimingConfig,
+  DEFAULT_GAME_DURATION_MS,
+  DEFAULT_GAME_HS_FIX_MODE,
+  DEFAULT_GAME_LANE_COVER_PERMILLE,
+  DEFAULT_GAME_LANE_COVER_VISIBLE,
+  DEFAULT_GAME_LANE_HEIGHT_PERCENT,
   DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   DEFAULT_EDITOR_PIXELS_PER_BEAT,
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
@@ -12,6 +18,10 @@ import {
   getEditorContentHeightPx,
   getEditorScrollTopForBeat,
   getEditorScrollTopForTimeSec,
+  getGameJudgeLinePositionRatioFromPointer,
+  getGameJudgeLineY,
+  getGameLaneGeometry,
+  getGameSettingGreenNumber,
   getJudgeLineY,
   hasViewerSelectionChanged,
   getTimeSecForBeat,
@@ -19,6 +29,14 @@ import {
   getScrollTopForTimeSec,
   getTimeSecForScrollTop,
   getViewerCursor,
+  normalizeGameDurationMs,
+  normalizeGameHsFixMode,
+  normalizeGameLaneCoverPermille,
+  normalizeGameLaneCoverVisible,
+  normalizeGameLaneHeightPercent,
+  normalizeGameLaneHeightPercentForSlider,
+  normalizeGameLaneHeightPercentForWheel,
+  normalizeGameTimingConfig,
   normalizeInvisibleNoteVisibility,
   normalizeJudgeLinePositionRatio,
   normalizeViewerMode,
@@ -35,9 +53,16 @@ const MAX_SPACING_SCALE = 8.0;
 export const SPACING_STEP = 0.05;
 export const SPACING_WHEEL_STEP = 0.01;
 const DEFAULT_SPACING_SCALE = 1.0;
+export const GAME_DURATION_SLIDER_STEP = 10;
+export const GAME_DURATION_WHEEL_STEP = 1;
+export const GAME_LANE_HEIGHT_SLIDER_STEP = 1;
+export const GAME_LANE_HEIGHT_WHEEL_STEP = 0.1;
+export const GAME_LANE_COVER_SLIDER_STEP = 10;
+export const GAME_LANE_COVER_WHEEL_STEP = 1;
 const GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO = 0.4;
 const GAME_PLAYBACK_SCROLL_SYNC_MIN_PX = 120;
 export const JUDGE_LINE_DRAG_HIT_MARGIN_PX = 10;
+const GAME_GREEN_DISPLAY_COLOR = "#00FF00";
 
 export function createScoreViewerController({
   root,
@@ -47,6 +72,7 @@ export function createScoreViewerController({
   onInvisibleNoteVisibilityChange = () => {},
   onJudgeLinePositionChange = () => {},
   onSpacingScaleChange = () => {},
+  onGameTimingConfigChange = () => {},
 }) {
   const scrollHost = document.createElement("div");
   scrollHost.className = "score-viewer-scroll-host";
@@ -97,6 +123,11 @@ export function createScoreViewerController({
 
   const spacingValue = document.createElement("span");
   spacingValue.className = "score-viewer-spacing-value";
+  const spacingValuePrimary = document.createElement("span");
+  spacingValuePrimary.className = "score-viewer-spacing-value-primary";
+  const spacingValueSecondary = document.createElement("span");
+  spacingValueSecondary.className = "score-viewer-spacing-value-secondary";
+  spacingValue.append(spacingValuePrimary, spacingValueSecondary);
   spacingRow.append(spacingTitle, spacingValue);
 
   const spacingInput = document.createElement("input");
@@ -106,6 +137,66 @@ export function createScoreViewerController({
   spacingInput.max = String(MAX_SPACING_SCALE);
   spacingInput.step = String(SPACING_STEP);
   spacingInput.value = String(DEFAULT_SPACING_SCALE);
+
+  const settingsPanel = document.createElement("div");
+  settingsPanel.className = "score-viewer-settings-panel";
+  const spacingSection = document.createElement("div");
+  spacingSection.className = "score-viewer-settings-group score-viewer-spacing-section";
+  const gameSettingsSection = document.createElement("div");
+  gameSettingsSection.className = "score-viewer-settings-group score-viewer-game-settings-section";
+  const modeSection = document.createElement("div");
+  modeSection.className = "score-viewer-settings-group score-viewer-mode-section";
+
+  const laneHeightRow = createSettingRow("Lane Height", "score-viewer-lane-height-row");
+  laneHeightRow.row.classList.add("score-viewer-game-setting");
+  const laneHeightInput = document.createElement("input");
+  laneHeightInput.className = "score-viewer-spacing-input score-viewer-lane-height-input";
+  laneHeightInput.type = "range";
+  laneHeightInput.min = "0";
+  laneHeightInput.max = "100";
+  laneHeightInput.step = String(GAME_LANE_HEIGHT_SLIDER_STEP);
+  laneHeightInput.value = String(DEFAULT_GAME_LANE_HEIGHT_PERCENT);
+  laneHeightInput.classList.add("score-viewer-game-setting");
+
+  const laneCoverRow = createSettingRow("Lane Cover", "score-viewer-lane-cover-row");
+  laneCoverRow.row.classList.add("score-viewer-game-setting");
+  const laneCoverInput = document.createElement("input");
+  laneCoverInput.className = "score-viewer-spacing-input score-viewer-lane-cover-input";
+  laneCoverInput.type = "range";
+  laneCoverInput.min = "0";
+  laneCoverInput.max = "1000";
+  laneCoverInput.step = String(GAME_LANE_COVER_SLIDER_STEP);
+  laneCoverInput.value = String(DEFAULT_GAME_LANE_COVER_PERMILLE);
+  laneCoverInput.classList.add("score-viewer-game-setting");
+
+  const laneCoverVisibleRow = document.createElement("label");
+  laneCoverVisibleRow.className = "score-viewer-status-row score-viewer-checkbox-row score-viewer-lane-cover-visible-row";
+  laneCoverVisibleRow.classList.add("score-viewer-game-setting");
+  const laneCoverVisibleLabel = document.createElement("span");
+  laneCoverVisibleLabel.className = "score-viewer-mode-title";
+  laneCoverVisibleLabel.textContent = "Cover Visible";
+  const laneCoverVisibleControl = document.createElement("input");
+  laneCoverVisibleControl.className = "score-viewer-checkbox-input";
+  laneCoverVisibleControl.type = "checkbox";
+  laneCoverVisibleControl.checked = DEFAULT_GAME_LANE_COVER_VISIBLE;
+  laneCoverVisibleRow.append(laneCoverVisibleLabel, laneCoverVisibleControl);
+
+  const hsFixRow = document.createElement("div");
+  hsFixRow.className = "score-viewer-status-row score-viewer-mode-row score-viewer-hs-fix-row";
+  hsFixRow.classList.add("score-viewer-game-setting");
+  const hsFixTitle = document.createElement("span");
+  hsFixTitle.className = "score-viewer-mode-title";
+  hsFixTitle.textContent = "HS-FIX";
+  const hsFixSelect = document.createElement("select");
+  hsFixSelect.className = "score-viewer-mode-select score-viewer-hs-fix-select";
+  hsFixSelect.append(
+    createModeOption("start", "START BPM"),
+    createModeOption("max", "MAX BPM"),
+    createModeOption("main", "MAIN BPM"),
+    createModeOption("min", "MIN BPM"),
+  );
+  hsFixSelect.value = DEFAULT_GAME_HS_FIX_MODE;
+  hsFixRow.append(hsFixTitle, hsFixSelect);
 
   const modeRow = document.createElement("div");
   modeRow.className = "score-viewer-status-row score-viewer-mode-row";
@@ -135,7 +226,23 @@ export function createScoreViewerController({
   modeControls.append(modeSelect, invisibleNoteVisibilitySelect);
   modeRow.append(modeTitle, modeControls);
 
-  statusPanel.append(playbackRow, metricsRow, spacingRow, spacingInput, modeRow);
+  spacingSection.append(
+    spacingRow,
+    spacingInput,
+  );
+  gameSettingsSection.append(
+    laneHeightRow.row,
+    laneHeightInput,
+    laneCoverRow.row,
+    laneCoverInput,
+    laneCoverVisibleRow,
+    hsFixRow,
+  );
+  modeSection.append(
+    modeRow,
+  );
+  settingsPanel.append(spacingSection, gameSettingsSection, modeSection);
+  statusPanel.append(playbackRow, metricsRow, settingsPanel);
   bottomBar.append(statusPanel);
 
   const judgeLine = document.createElement("div");
@@ -152,24 +259,47 @@ export function createScoreViewerController({
     isOpen: false,
     isPlaying: false,
     spacingScaleByMode: createDefaultSpacingScaleByMode(),
+    gameTimingConfig: createDefaultGameTimingConfig(),
     viewerMode: DEFAULT_VIEWER_MODE,
     invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
     judgeLinePositionRatio: DEFAULT_JUDGE_LINE_POSITION_RATIO,
     isJudgeLineHovered: false,
   };
   const uiState = {
+    canvasHidden: null,
+    bottomBarHidden: null,
+    judgeLineHidden: null,
+    judgeLineRatioCss: null,
+    judgeLineTopCss: null,
+    scrollHostJudgeLineDraggableClass: null,
+    scrollHostJudgeLineDraggingClass: null,
+    judgeLineDraggableClass: null,
+    judgeLineDraggingClass: null,
     playbackButtonDisabled: null,
     playbackButtonText: null,
     playbackButtonLabel: null,
     playbackTime: null,
     measureText: null,
     comboText: null,
-    spacingText: null,
+    spacingPrimaryText: null,
+    spacingSecondaryText: null,
+    spacingSecondaryDisplay: null,
+    spacingSecondaryColor: null,
     spacingInputValue: null,
+    spacingInputMin: null,
+    spacingInputMax: null,
+    spacingInputStep: null,
+    laneHeightText: null,
+    laneHeightInputValue: null,
+    laneCoverText: null,
+    laneCoverInputValue: null,
+    laneCoverVisibleChecked: null,
+    hsFixValue: null,
     modeSelectValue: null,
     modeSelectDisabled: null,
     invisibleNoteVisibilityValue: null,
     invisibleNoteVisibilityDisabled: null,
+    gameSettingsHidden: null,
   };
 
   let ignoreScrollUntilNextFrame = false;
@@ -246,8 +376,15 @@ export function createScoreViewerController({
   scrollHost.addEventListener("lostpointercapture", handlePointerRelease);
 
   spacingInput.addEventListener("input", () => {
+    const resolvedViewerMode = getResolvedViewerMode();
+    if (resolvedViewerMode === "game") {
+      updateGameTimingConfig({
+        durationMs: normalizeGameDurationMs(Number.parseFloat(spacingInput.value)),
+      }, { notify: true });
+      return;
+    }
     updateSpacingScaleForMode(
-      getResolvedViewerMode(),
+      resolvedViewerMode,
       normalizeSliderSpacingScale(Number.parseFloat(spacingInput.value)),
       { notify: true },
     );
@@ -257,18 +394,91 @@ export function createScoreViewerController({
     if (!state.isOpen || !state.model) {
       return;
     }
-    const delta = event.deltaY < 0 ? SPACING_WHEEL_STEP : event.deltaY > 0 ? -SPACING_WHEEL_STEP : 0;
+    const resolvedViewerMode = getResolvedViewerMode();
+    const delta = event.deltaY < 0
+      ? (resolvedViewerMode === "game" ? GAME_DURATION_WHEEL_STEP : SPACING_WHEEL_STEP)
+      : event.deltaY > 0
+        ? (resolvedViewerMode === "game" ? -GAME_DURATION_WHEEL_STEP : -SPACING_WHEEL_STEP)
+        : 0;
     if (delta === 0) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
+    if (resolvedViewerMode === "game") {
+      updateGameTimingConfig({
+        durationMs: normalizeGameDurationMs(state.gameTimingConfig.durationMs + delta),
+      }, { notify: true });
+      return;
+    }
     updateSpacingScaleForMode(
-      getResolvedViewerMode(),
-      roundSpacingScaleToHundredths(getSpacingScaleForMode(getResolvedViewerMode()) + delta),
+      resolvedViewerMode,
+      roundSpacingScaleToHundredths(getSpacingScaleForMode(resolvedViewerMode) + delta),
       { notify: true },
     );
   }, { passive: false });
+
+  laneHeightInput.addEventListener("input", () => {
+    updateGameTimingConfig({
+      laneHeightPercent: normalizeGameLaneHeightPercentForSlider(Number.parseFloat(laneHeightInput.value)),
+    }, { notify: true });
+  });
+
+  laneHeightInput.addEventListener("wheel", (event) => {
+    if (!state.isOpen || !state.model || getResolvedViewerMode() !== "game") {
+      return;
+    }
+    const delta = event.deltaY < 0
+      ? GAME_LANE_HEIGHT_WHEEL_STEP
+      : event.deltaY > 0
+        ? -GAME_LANE_HEIGHT_WHEEL_STEP
+        : 0;
+    if (delta === 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    updateGameTimingConfig({
+      laneHeightPercent: normalizeGameLaneHeightPercentForWheel(state.gameTimingConfig.laneHeightPercent + delta),
+    }, { notify: true });
+  }, { passive: false });
+
+  laneCoverInput.addEventListener("input", () => {
+    updateGameTimingConfig({
+      laneCoverPermille: normalizeGameLaneCoverPermille(Number.parseFloat(laneCoverInput.value)),
+    }, { notify: true });
+  });
+
+  laneCoverInput.addEventListener("wheel", (event) => {
+    if (!state.isOpen || !state.model || getResolvedViewerMode() !== "game") {
+      return;
+    }
+    const delta = event.deltaY < 0
+      ? GAME_LANE_COVER_WHEEL_STEP
+      : event.deltaY > 0
+        ? -GAME_LANE_COVER_WHEEL_STEP
+        : 0;
+    if (delta === 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    updateGameTimingConfig({
+      laneCoverPermille: normalizeGameLaneCoverPermille(state.gameTimingConfig.laneCoverPermille + delta),
+    }, { notify: true });
+  }, { passive: false });
+
+  laneCoverVisibleControl.addEventListener("change", () => {
+    updateGameTimingConfig({
+      laneCoverVisible: normalizeGameLaneCoverVisible(laneCoverVisibleControl.checked),
+    }, { notify: true });
+  });
+
+  hsFixSelect.addEventListener("change", () => {
+    updateGameTimingConfig({
+      hsFixMode: normalizeGameHsFixMode(hsFixSelect.value),
+    }, { notify: true });
+  });
 
   modeSelect.addEventListener("change", () => {
     const nextMode = normalizeViewerMode(modeSelect.value);
@@ -295,7 +505,7 @@ export function createScoreViewerController({
     }
     state.invisibleNoteVisibility = nextVisibility;
     onInvisibleNoteVisibilityChange(state.invisibleNoteVisibility);
-    renderScene();
+    renderScene({ updateChrome: true });
   });
 
   playbackButton.addEventListener("click", (event) => {
@@ -371,11 +581,11 @@ export function createScoreViewerController({
     state.isOpen = normalizedOpen;
     if (!state.isOpen) {
       clearDragState();
-      setJudgeLineHover(false);
+      setJudgeLineHover(false, { render: false });
     }
     root.classList.toggle("is-visible", state.isOpen && Boolean(state.model));
     syncScrollPosition();
-    renderScene();
+    renderScene({ updateChrome: true });
   }
 
   function setPlaybackState(nextPlaying) {
@@ -408,7 +618,7 @@ export function createScoreViewerController({
       return;
     }
     state.invisibleNoteVisibility = normalizedVisibility;
-    renderScene();
+    renderScene({ updateChrome: true });
   }
 
   function setJudgeLinePositionRatio(nextRatio) {
@@ -419,7 +629,7 @@ export function createScoreViewerController({
     state.judgeLinePositionRatio = normalizedRatio;
     editorFrameStateCache = null;
     syncScrollPosition();
-    renderScene();
+    renderScene({ updateChrome: true });
   }
 
   function setSpacingScaleByMode(nextSpacingScaleByMode = {}) {
@@ -433,6 +643,18 @@ export function createScoreViewerController({
     }
     state.spacingScaleByMode = normalizedSpacingScaleByMode;
     editorFrameStateCache = null;
+    refreshLayout();
+  }
+
+  function setGameTimingConfig(nextGameTimingConfig = {}) {
+    const normalizedGameTimingConfig = normalizeGameTimingConfig({
+      ...state.gameTimingConfig,
+      ...nextGameTimingConfig,
+    });
+    if (areGameTimingConfigsEqual(state.gameTimingConfig, normalizedGameTimingConfig)) {
+      return;
+    }
+    state.gameTimingConfig = normalizedGameTimingConfig;
     refreshLayout();
   }
 
@@ -529,14 +751,16 @@ export function createScoreViewerController({
     renderer.resize(width, height);
     spacer.style.height = `${getContentHeightForResolvedMode(state.model, height)}px`;
     syncScrollPosition();
-    renderScene();
+    renderScene({ updateChrome: true });
   }
 
-  function renderScene() {
+  function renderScene({ updateChrome = false } = {}) {
     const showScene = Boolean(state.model && state.isOpen);
     const resolvedViewerMode = getResolvedViewerMode();
-    const editorFrameState = resolvedViewerMode === "editor"
-      ? getEditorFrameStateForCurrentView(root.clientHeight || 0)
+    const viewportHeight = root.clientHeight || 0;
+    const currentJudgeLineY = getCurrentJudgeLineY(viewportHeight);
+    const editorFrameState = showScene && resolvedViewerMode === "editor"
+      ? getEditorFrameStateForCurrentView(viewportHeight, currentJudgeLineY)
       : null;
     const cursor = getViewerCursor(
       state.model,
@@ -545,16 +769,133 @@ export function createScoreViewerController({
       state.selectedBeat,
     );
 
-    canvas.hidden = !showScene;
-    bottomBar.hidden = !showScene;
-    judgeLine.hidden = !showScene;
-    root.style.setProperty("--score-viewer-judge-line-ratio", String(state.judgeLinePositionRatio));
-    scrollHost.classList.toggle("is-judge-line-draggable", showScene && state.isJudgeLineHovered);
-    scrollHost.classList.toggle("is-judge-line-dragging", dragState?.type === "judge-line");
-    judgeLine.classList.toggle("is-draggable", showScene && state.isJudgeLineHovered);
-    judgeLine.classList.toggle("is-dragging", dragState?.type === "judge-line");
+    if (updateChrome) {
+      renderSceneChrome({
+        showScene,
+        resolvedViewerMode,
+        viewportHeight,
+        currentJudgeLineY,
+      });
+    }
+    renderSceneFrame({
+      showScene,
+      resolvedViewerMode,
+      cursor,
+      editorFrameState,
+      currentJudgeLineY,
+    });
+  }
 
+  function renderSceneChrome({
+    showScene,
+    resolvedViewerMode,
+    viewportHeight,
+    currentJudgeLineY,
+  }) {
+    const isGameMode = resolvedViewerMode === "game";
+    const currentGameLaneGeometry = isGameMode
+      ? getCurrentGameLaneGeometry(viewportHeight)
+      : null;
+    const spacingDisplay = formatSpacingDisplay({
+      mode: resolvedViewerMode,
+      spacingScale: getSpacingScaleForMode(resolvedViewerMode),
+      durationMs: state.gameTimingConfig.durationMs,
+    });
+    const spacingSliderConfig = isGameMode
+      ? {
+        min: String(1),
+        max: String(5000),
+        step: String(GAME_DURATION_SLIDER_STEP),
+        value: String(state.gameTimingConfig.durationMs),
+      }
+      : {
+        min: String(MIN_SPACING_SCALE),
+        max: String(MAX_SPACING_SCALE),
+        step: String(SPACING_STEP),
+        value: getSpacingScaleForMode(resolvedViewerMode).toFixed(2),
+      };
+    setHiddenIfChanged(canvas, !showScene, "canvasHidden");
+    setHiddenIfChanged(bottomBar, !showScene, "bottomBarHidden");
+    setHiddenIfChanged(judgeLine, !showScene, "judgeLineHidden");
+    setStylePropertyIfChanged(root, "--score-viewer-judge-line-ratio", String(state.judgeLinePositionRatio), "judgeLineRatioCss");
+    setStylePropertyIfChanged(root, "--score-viewer-judge-line-top", `${currentJudgeLineY}px`, "judgeLineTopCss");
+    setHiddenIfChanged(gameSettingsSection, !isGameMode, "gameSettingsHidden");
     setDisabledIfChanged(playbackButton, !state.model, "playbackButtonDisabled");
+    setTextIfChanged(spacingValuePrimary, spacingDisplay.primaryText, "spacingPrimaryText");
+    setTextIfChanged(spacingValueSecondary, spacingDisplay.secondaryText, "spacingSecondaryText");
+    setStyleValueIfChanged(
+      spacingValueSecondary,
+      "display",
+      spacingDisplay.secondaryText === "" ? "none" : "inline",
+      "spacingSecondaryDisplay",
+    );
+    setStyleValueIfChanged(
+      spacingValueSecondary,
+      "color",
+      spacingDisplay.secondaryColor,
+      "spacingSecondaryColor",
+    );
+    setAttributeIfChanged(spacingInput, "min", spacingSliderConfig.min, "spacingInputMin");
+    setAttributeIfChanged(spacingInput, "max", spacingSliderConfig.max, "spacingInputMax");
+    setAttributeIfChanged(spacingInput, "step", spacingSliderConfig.step, "spacingInputStep");
+    setValueIfChanged(spacingInput, spacingSliderConfig.value, "spacingInputValue");
+    if (isGameMode && currentGameLaneGeometry) {
+      setTextIfChanged(
+        laneHeightRow.value,
+        formatLaneHeightDisplay(
+          state.gameTimingConfig.laneHeightPercent,
+          currentGameLaneGeometry.viewportHeight,
+          currentGameLaneGeometry.judgeDistancePx,
+        ),
+        "laneHeightText",
+      );
+      setValueIfChanged(laneHeightInput, String(state.gameTimingConfig.laneHeightPercent), "laneHeightInputValue");
+      setTextIfChanged(
+        laneCoverRow.value,
+        formatLaneCoverDisplay(state.gameTimingConfig.laneCoverPermille),
+        "laneCoverText",
+      );
+      setValueIfChanged(laneCoverInput, String(state.gameTimingConfig.laneCoverPermille), "laneCoverInputValue");
+      setCheckedIfChanged(laneCoverVisibleControl, state.gameTimingConfig.laneCoverVisible, "laneCoverVisibleChecked");
+      setValueIfChanged(hsFixSelect, state.gameTimingConfig.hsFixMode, "hsFixValue");
+    }
+    setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");
+    setDisabledIfChanged(modeSelect, !state.model, "modeSelectDisabled");
+    setValueIfChanged(invisibleNoteVisibilitySelect, state.invisibleNoteVisibility, "invisibleNoteVisibilityValue");
+    setDisabledIfChanged(invisibleNoteVisibilitySelect, !state.model, "invisibleNoteVisibilityDisabled");
+  }
+
+  function renderSceneFrame({
+    showScene,
+    resolvedViewerMode,
+    cursor,
+    editorFrameState,
+    currentJudgeLineY,
+  }) {
+    toggleClassIfChanged(
+      scrollHost,
+      "is-judge-line-draggable",
+      showScene && state.isJudgeLineHovered,
+      "scrollHostJudgeLineDraggableClass",
+    );
+    toggleClassIfChanged(
+      scrollHost,
+      "is-judge-line-dragging",
+      dragState?.type === "judge-line",
+      "scrollHostJudgeLineDraggingClass",
+    );
+    toggleClassIfChanged(
+      judgeLine,
+      "is-draggable",
+      showScene && state.isJudgeLineHovered,
+      "judgeLineDraggableClass",
+    );
+    toggleClassIfChanged(
+      judgeLine,
+      "is-dragging",
+      dragState?.type === "judge-line",
+      "judgeLineDraggingClass",
+    );
     setTextIfChanged(playbackButton, state.isPlaying ? "❚❚" : "▶", "playbackButtonText");
     setAttributeIfChanged(
       playbackButton,
@@ -569,25 +910,14 @@ export function createScoreViewerController({
       "measureText",
     );
     setTextIfChanged(comboRow, `CB: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
-    const activeSpacingScale = getSpacingScaleForMode(resolvedViewerMode);
-    setTextIfChanged(
-      spacingValue,
-      formatSpacingScaleDisplay(resolvedViewerMode, activeSpacingScale),
-      "spacingText",
-    );
-    setValueIfChanged(spacingInput, activeSpacingScale.toFixed(2), "spacingInputValue");
-    setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");
-    setDisabledIfChanged(modeSelect, !state.model, "modeSelectDisabled");
-    setValueIfChanged(invisibleNoteVisibilitySelect, state.invisibleNoteVisibility, "invisibleNoteVisibilityValue");
-    setDisabledIfChanged(invisibleNoteVisibilitySelect, !state.model, "invisibleNoteVisibilityDisabled");
-
     renderer.render(showScene ? state.model : null, cursor.timeSec, {
       viewerMode: resolvedViewerMode,
       pixelsPerSecond: getPixelsPerSecond(),
       pixelsPerBeat: getPixelsPerBeat(),
       editorFrameState,
       showInvisibleNotes: state.invisibleNoteVisibility === "show",
-      judgeLineY: getCurrentJudgeLineY(),
+      judgeLineY: currentJudgeLineY,
+      gameTimingConfig: state.gameTimingConfig,
     });
   }
 
@@ -601,7 +931,14 @@ export function createScoreViewerController({
   }
 
   setPinned(false);
-  spacingValue.textContent = formatSpacingScaleDisplay(DEFAULT_VIEWER_MODE, DEFAULT_SPACING_SCALE);
+  const initialSpacingDisplay = formatSpacingDisplay({
+    mode: DEFAULT_VIEWER_MODE,
+    spacingScale: DEFAULT_SPACING_SCALE,
+  });
+  spacingValuePrimary.textContent = initialSpacingDisplay.primaryText;
+  spacingValueSecondary.textContent = initialSpacingDisplay.secondaryText;
+  spacingValueSecondary.style.display = initialSpacingDisplay.secondaryText === "" ? "none" : "inline";
+  spacingValueSecondary.style.color = initialSpacingDisplay.secondaryColor;
   modeSelect.value = DEFAULT_VIEWER_MODE;
   invisibleNoteVisibilitySelect.value = DEFAULT_INVISIBLE_NOTE_VISIBILITY;
   refreshLayout();
@@ -616,6 +953,7 @@ export function createScoreViewerController({
     setInvisibleNoteVisibility,
     setJudgeLinePositionRatio,
     setSpacingScaleByMode,
+    setGameTimingConfig,
     setEmptyState,
     refreshLayout,
     destroy,
@@ -694,20 +1032,37 @@ export function createScoreViewerController({
   }
 
   function getPixelsPerBeat() {
-    return DEFAULT_EDITOR_PIXELS_PER_BEAT * getSpacingScaleForMode(getResolvedViewerMode());
+    return DEFAULT_EDITOR_PIXELS_PER_BEAT * getSpacingScaleForMode("editor");
   }
 
   function getCurrentJudgeLineY(viewportHeight = root.clientHeight || 0) {
+    if (getResolvedViewerMode() === "game") {
+      return getGameJudgeLineY(
+        viewportHeight,
+        state.judgeLinePositionRatio,
+        state.gameTimingConfig.laneHeightPercent,
+      );
+    }
     return getJudgeLineY(viewportHeight, state.judgeLinePositionRatio);
   }
 
-  function getEditorFrameStateForCurrentView(viewportHeight = root.clientHeight || 0) {
+  function getCurrentGameLaneGeometry(viewportHeight = root.clientHeight || 0) {
+    return getGameLaneGeometry(
+      viewportHeight,
+      state.judgeLinePositionRatio,
+      state.gameTimingConfig.laneHeightPercent,
+    );
+  }
+
+  function getEditorFrameStateForCurrentView(
+    viewportHeight = root.clientHeight || 0,
+    judgeLineY = getCurrentJudgeLineY(viewportHeight),
+  ) {
     if (!state.model || getResolvedViewerMode() !== "editor") {
       editorFrameStateCache = null;
       return null;
     }
     const pixelsPerBeat = getPixelsPerBeat();
-    const judgeLineY = getCurrentJudgeLineY(viewportHeight);
     if (
       editorFrameStateCache
       && editorFrameStateCache.model === state.model
@@ -799,9 +1154,62 @@ export function createScoreViewerController({
     element.setAttribute(attributeName, nextValue);
   }
 
-  function setJudgeLineHover(nextHovered) {
-    state.isJudgeLineHovered = Boolean(nextHovered);
-    renderScene();
+  function setStylePropertyIfChanged(element, propertyName, nextValue, key) {
+    if (uiState[key] === nextValue) {
+      return;
+    }
+    uiState[key] = nextValue;
+    element.style.setProperty(propertyName, nextValue);
+  }
+
+  function setStyleValueIfChanged(element, styleName, nextValue, key) {
+    if (uiState[key] === nextValue) {
+      return;
+    }
+    uiState[key] = nextValue;
+    element.style[styleName] = nextValue;
+  }
+
+  function setCheckedIfChanged(element, nextValue, key) {
+    if (uiState[key] === nextValue) {
+      return;
+    }
+    uiState[key] = nextValue;
+    element.checked = Boolean(nextValue);
+  }
+
+  function setHiddenIfChanged(element, nextValue, key = null) {
+    if (!element) {
+      return;
+    }
+    if (key && uiState[key] === nextValue) {
+      return;
+    }
+    element.hidden = Boolean(nextValue);
+    element.style.display = nextValue ? "none" : "";
+    if (key) {
+      uiState[key] = Boolean(nextValue);
+    }
+  }
+
+  function toggleClassIfChanged(element, className, nextValue, key) {
+    const normalizedValue = Boolean(nextValue);
+    if (uiState[key] === normalizedValue) {
+      return;
+    }
+    uiState[key] = normalizedValue;
+    element.classList.toggle(className, normalizedValue);
+  }
+
+  function setJudgeLineHover(nextHovered, { render = true } = {}) {
+    const normalizedHovered = Boolean(nextHovered);
+    if (state.isJudgeLineHovered === normalizedHovered) {
+      return;
+    }
+    state.isJudgeLineHovered = normalizedHovered;
+    if (render) {
+      renderScene();
+    }
   }
 
   function updateJudgeLineHover(event) {
@@ -828,20 +1236,27 @@ export function createScoreViewerController({
 
   function updateJudgeLinePositionFromPointer(event, { notify = false } = {}) {
     const rootRect = root.getBoundingClientRect();
-    const nextRatio = getJudgeLinePositionRatioFromPointer({
-      pointerClientY: event.clientY,
-      rootTop: rootRect.top,
-      rootHeight: rootRect.height,
-    });
+    const pointerOffsetY = event.clientY - rootRect.top;
+    const nextRatio = getResolvedViewerMode() === "game"
+      ? getGameJudgeLinePositionRatioFromPointer(
+        pointerOffsetY,
+        rootRect.height,
+        state.gameTimingConfig.laneHeightPercent,
+      )
+      : getJudgeLinePositionRatioFromPointer({
+        pointerClientY: event.clientY,
+        rootTop: rootRect.top,
+        rootHeight: rootRect.height,
+      });
     if (Math.abs(state.judgeLinePositionRatio - nextRatio) < 0.000001) {
       setJudgeLineHover(true);
       return;
     }
     state.judgeLinePositionRatio = nextRatio;
     editorFrameStateCache = null;
-    setJudgeLineHover(true);
+    setJudgeLineHover(true, { render: false });
     syncScrollPosition();
-    renderScene();
+    renderScene({ updateChrome: true });
     if (notify) {
       onJudgeLinePositionChange(state.judgeLinePositionRatio);
     }
@@ -855,11 +1270,6 @@ export function createScoreViewerController({
     const normalizedMode = normalizeSpacingMode(mode);
     const normalizedScale = clampScale(nextScale);
     if (Math.abs(getSpacingScaleForMode(normalizedMode) - normalizedScale) < 0.0005) {
-      setTextIfChanged(
-        spacingValue,
-        formatSpacingScaleDisplay(getResolvedViewerMode(), getSpacingScaleForMode(getResolvedViewerMode())),
-        "spacingText",
-      );
       return;
     }
     state.spacingScaleByMode = {
@@ -872,6 +1282,21 @@ export function createScoreViewerController({
       onSpacingScaleChange(normalizedMode, normalizedScale);
     }
   }
+
+  function updateGameTimingConfig(nextPartialConfig = {}, { notify = false } = {}) {
+    const normalizedGameTimingConfig = normalizeGameTimingConfig({
+      ...state.gameTimingConfig,
+      ...nextPartialConfig,
+    });
+    if (areGameTimingConfigsEqual(state.gameTimingConfig, normalizedGameTimingConfig)) {
+      return;
+    }
+    state.gameTimingConfig = normalizedGameTimingConfig;
+    refreshLayout();
+    if (notify) {
+      onGameTimingConfigChange(state.gameTimingConfig);
+    }
+  }
 }
 
 function createModeOption(value, label, disabled = false) {
@@ -880,6 +1305,18 @@ function createModeOption(value, label, disabled = false) {
   option.textContent = label;
   option.disabled = disabled;
   return option;
+}
+
+function createSettingRow(title, className) {
+  const row = document.createElement("div");
+  row.className = `score-viewer-status-row score-viewer-spacing-row ${className}`;
+  const titleElement = document.createElement("span");
+  titleElement.className = "score-viewer-spacing-title";
+  titleElement.textContent = title;
+  const valueElement = document.createElement("span");
+  valueElement.className = "score-viewer-spacing-value";
+  row.append(titleElement, valueElement);
+  return { row, title: titleElement, value: valueElement };
 }
 
 export function normalizeWheelDeltaY(deltaY, deltaMode, viewportHeight, lineHeightPx = DEFAULT_WHEEL_LINE_HEIGHT_PX) {
@@ -994,6 +1431,14 @@ function areSpacingScaleMapsEqual(left, right) {
     && Math.abs((left?.game ?? DEFAULT_SPACING_SCALE) - (right?.game ?? DEFAULT_SPACING_SCALE)) < 0.0005;
 }
 
+function areGameTimingConfigsEqual(left, right) {
+  return Math.abs((left?.durationMs ?? DEFAULT_GAME_DURATION_MS) - (right?.durationMs ?? DEFAULT_GAME_DURATION_MS)) < 0.000001
+    && Math.abs((left?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT) - (right?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT)) < 0.000001
+    && Math.abs((left?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE) - (right?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE)) < 0.000001
+    && (left?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE) === (right?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE)
+    && (left?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE) === (right?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE);
+}
+
 function isPrimaryPointer(event) {
   return event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen";
 }
@@ -1012,6 +1457,47 @@ export function formatSpacingScaleDisplay(mode, value) {
     return `${normalizedScale.toFixed(2)}x(${Math.round(DEFAULT_EDITOR_PIXELS_PER_BEAT * normalizedScale)}px/beat)`;
   }
   return `${normalizedScale.toFixed(2)}x`;
+}
+
+function formatSpacingDisplay({
+  mode,
+  spacingScale = DEFAULT_SPACING_SCALE,
+  durationMs = DEFAULT_GAME_DURATION_MS,
+} = {}) {
+  const normalizedMode = normalizeSpacingMode(mode);
+  if (normalizedMode === "game") {
+    const gameDurationDisplay = formatGameDurationDisplay(durationMs);
+    return {
+      primaryText: gameDurationDisplay.primaryText,
+      secondaryText: gameDurationDisplay.secondaryText,
+      secondaryColor: GAME_GREEN_DISPLAY_COLOR,
+    };
+  }
+  return {
+    primaryText: formatSpacingScaleDisplay(normalizedMode, spacingScale),
+    secondaryText: "",
+    secondaryColor: "",
+  };
+}
+
+function formatGameDurationDisplay(durationMs) {
+  const normalizedDurationMs = normalizeGameDurationMs(durationMs);
+  return {
+    primaryText: `${normalizedDurationMs}ms`,
+    secondaryText: `(${getGameSettingGreenNumber(normalizedDurationMs)})`,
+  };
+}
+
+function formatLaneHeightDisplay(laneHeightPercent, viewportHeight, judgeDistancePx) {
+  const normalizedLaneHeightPercent = normalizeGameLaneHeightPercent(laneHeightPercent);
+  const normalizedViewportHeight = Math.max(Number.isFinite(viewportHeight) ? viewportHeight : 0, 0);
+  const normalizedJudgeDistancePx = Math.max(Number.isFinite(judgeDistancePx) ? judgeDistancePx : 0, 0);
+  return `${normalizedLaneHeightPercent.toFixed(1)}%(${Math.round(normalizedViewportHeight)}px ${Math.round(normalizedJudgeDistancePx)}px)`;
+}
+
+function formatLaneCoverDisplay(laneCoverPermille) {
+  const normalizedLaneCoverPermille = normalizeGameLaneCoverPermille(laneCoverPermille);
+  return `${normalizedLaneCoverPermille}(${(normalizedLaneCoverPermille / 10).toFixed(1)}%)`;
 }
 
 function formatPlaybackTime(timeSec) {

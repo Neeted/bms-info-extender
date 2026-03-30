@@ -6030,6 +6030,204 @@
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
     const SCORE_PARSER_VERSION = "0.6.3";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
+    const SCRIPT_VERSION_FALLBACK = "2.1.0";
+    const SKIP_VERSION_NOTIFICATION = false;
+    const VERSION_NOTIFICATION_STORAGE_KEYS = {
+      lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",
+      notificationLanguage: "bms-info-extender.versionNotification.language"
+    };
+    const VERSION_NOTIFICATION_DEFAULT_LANGUAGE = "ja";
+    const VERSION_NOTIFICATION_MODAL_ID = "bms-info-extender-version-notification";
+    const VERSION_NOTIFICATION_STYLE = `
+    :host {
+      all: initial;
+    }
+    :host, :host * {
+      box-sizing: border-box;
+      font-family: "Inconsolata", "Noto Sans JP", sans-serif;
+    }
+    .bmsie-version-notice-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.56);
+      z-index: 2147483647;
+      color: #f4f6ff;
+      line-height: 1.5;
+      text-align: left;
+    }
+    .bmsie-version-notice-window {
+      width: min(680px, calc(100vw - 32px));
+      max-height: min(760px, calc(100vh - 32px));
+      overflow: auto;
+      padding: 20px 20px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      background: #1d2030;
+      color: #f4f6ff;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4);
+    }
+    .bmsie-version-notice-version {
+      margin: 0 0 10px;
+      color: #b7c2ff;
+      font-size: 0.95rem;
+    }
+    .bmsie-version-notice-title {
+      margin: 0 0 14px;
+      font-size: 1.25rem;
+      line-height: 1.35;
+    }
+    .bmsie-version-notice-section + .bmsie-version-notice-section {
+      margin-top: 14px;
+    }
+    .bmsie-version-notice-section-title {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      line-height: 1.4;
+      color: #ffffff;
+    }
+    .bmsie-version-notice-list {
+      margin: 0;
+      padding-left: 1.25rem;
+      line-height: 1.6;
+    }
+    .bmsie-version-notice-sublist {
+      margin-top: 6px;
+      padding-left: 1.1rem;
+      line-height: 1.5;
+    }
+    .bmsie-version-notice-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .bmsie-version-notice-language {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #d9def8;
+      font-size: 0.95rem;
+    }
+    .bmsie-version-notice-select {
+      min-width: 140px;
+      padding: 4px 8px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 6px;
+      background: #11131d;
+      color: #f4f6ff;
+      font-size: 0.95rem;
+    }
+    .bmsie-version-notice-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .bmsie-version-notice-checkbox {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      line-height: 1.45;
+      color: #f4f6ff;
+      cursor: pointer;
+    }
+    .bmsie-version-notice-checkbox input {
+      margin: 0;
+      accent-color: #84a4ff;
+    }
+    .bmsie-version-notice-ok {
+      min-width: 92px;
+      padding: 7px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      background: linear-gradient(180deg, #7ea1ff 0%, #4f73d6 100%);
+      color: #ffffff;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+  `;
+    const VERSION_NOTIFICATION_CONTENT = {
+      "2.1.0": {
+        ja: {
+          title: "譜面ビューアに変更を加えました",
+          sections: [
+            {
+              title: null,
+              items: [
+                "判定ラインをドラッグ可能にしました",
+                "譜面ビューアをダブルクリックで再生・停止できるようにしました",
+                "下部情報ウィンドウの設定情報は自動的に隠すようにしました",
+                "Game モードの挙動を beatoraja に近づけました",
+                {
+                  text: "緑数字、レーン高さ、レーンカバー、HS-FIX が設定可能です",
+                  subitems: [
+                    "レーン高さ、レーンカバーはドラッグ可能です"
+                  ]
+                },
+                "スライダーの設定値を保存するようにしました",
+                "スライダーはホイールで微調整可能です"
+              ]
+            },
+            {
+              title: "従来からの挙動について補足",
+              items: [
+                "譜面ビューアはドラッグやホイールでも動かすことができます"
+              ]
+            }
+          ],
+          languageLabel: "言語",
+          dontShowAgainLabel: "このバージョンの通知を再度表示しない",
+          okLabel: "OK",
+          languageOptions: {
+            ja: "日本語",
+            en: "English"
+          }
+        },
+        en: {
+          title: "The score viewer has been updated",
+          sections: [
+            {
+              title: null,
+              items: [
+                "The judge line is now draggable",
+                "You can now play or stop the score viewer by double-clicking it",
+                "The settings in the bottom info panel are now hidden automatically",
+                "Game mode now behaves more like beatoraja",
+                {
+                  text: "Green number, lane height, lane cover, and HS-FIX are now configurable",
+                  subitems: [
+                    "Lane height and lane cover can also be adjusted by dragging"
+                  ]
+                },
+                "Slider values are now persisted",
+                "Sliders can now be fine-tuned with the mouse wheel"
+              ]
+            },
+            {
+              title: "Notes about existing behavior",
+              items: [
+                "The score viewer can still be moved by dragging or using the mouse wheel"
+              ]
+            }
+          ],
+          languageLabel: "Language",
+          dontShowAgainLabel: "Do not show this version notice again",
+          okLabel: "OK",
+          languageOptions: {
+            ja: "日本語",
+            en: "English"
+          }
+        }
+      }
+    };
     let scoreLoaderContextPromise = null;
     let activeBmsPreviewRuntime = null;
     const LR2IR_SELECTORS = {
@@ -6073,7 +6271,197 @@
     const MOCHA_LINK_INDEXES = {
       lr2irInOtherIrRow: 2
     };
+    void initializeVersionNotification();
     bootstrap();
+    async function initializeVersionNotification() {
+      const currentVersion = getCurrentScriptVersion();
+      if (SKIP_VERSION_NOTIFICATION) {
+        persistNotifiedVersion(currentVersion);
+        return;
+      }
+      if (!shouldShowVersionNotification(currentVersion)) {
+        return;
+      }
+      const notificationContent = getVersionNotificationContent(currentVersion);
+      if (!notificationContent) {
+        persistNotifiedVersion(currentVersion);
+        return;
+      }
+      await ensureDocumentBodyReady();
+      if (!document.body || document.getElementById(VERSION_NOTIFICATION_MODAL_ID)) {
+        return;
+      }
+      showVersionNotificationModal({
+        version: currentVersion,
+        notificationContent,
+        initialLanguage: getPersistedNotificationLanguage()
+      });
+    }
+    function getCurrentScriptVersion() {
+      return typeof GM_info === "object" && GM_info?.script?.version ? String(GM_info.script.version) : SCRIPT_VERSION_FALLBACK;
+    }
+    function getVersionNotificationContent(version) {
+      return VERSION_NOTIFICATION_CONTENT[version] ?? null;
+    }
+    function shouldShowVersionNotification(currentVersion) {
+      return getLastNotifiedVersion() !== currentVersion;
+    }
+    function getLastNotifiedVersion() {
+      return typeof GM_getValue === "function" ? String(GM_getValue(VERSION_NOTIFICATION_STORAGE_KEYS.lastNotifiedVersion, "")) : "";
+    }
+    function persistNotifiedVersion(version) {
+      if (typeof GM_setValue === "function") {
+        GM_setValue(VERSION_NOTIFICATION_STORAGE_KEYS.lastNotifiedVersion, version);
+      }
+    }
+    function getPersistedNotificationLanguage() {
+      const persistedLanguage = typeof GM_getValue === "function" ? String(GM_getValue(VERSION_NOTIFICATION_STORAGE_KEYS.notificationLanguage, VERSION_NOTIFICATION_DEFAULT_LANGUAGE)) : VERSION_NOTIFICATION_DEFAULT_LANGUAGE;
+      return persistedLanguage === "en" ? "en" : "ja";
+    }
+    function persistNotificationLanguage(language) {
+      if (typeof GM_setValue === "function") {
+        GM_setValue(VERSION_NOTIFICATION_STORAGE_KEYS.notificationLanguage, language === "en" ? "en" : "ja");
+      }
+    }
+    function ensureDocumentBodyReady() {
+      if (document.body) {
+        return Promise.resolve();
+      }
+      return new Promise((resolve) => {
+        const onReady = () => {
+          if (!document.body) {
+            return;
+          }
+          document.removeEventListener("DOMContentLoaded", onReady);
+          resolve();
+        };
+        document.addEventListener("DOMContentLoaded", onReady);
+      });
+    }
+    function showVersionNotificationModal({ version, notificationContent, initialLanguage }) {
+      const host = document.createElement("div");
+      host.id = VERSION_NOTIFICATION_MODAL_ID;
+      const shadowRoot = host.attachShadow({ mode: "open" });
+      const styleElement = document.createElement("style");
+      styleElement.textContent = VERSION_NOTIFICATION_STYLE;
+      const overlay = document.createElement("div");
+      overlay.className = "bmsie-version-notice-overlay";
+      const windowElement = document.createElement("div");
+      windowElement.className = "bmsie-version-notice-window";
+      const versionElement = document.createElement("p");
+      versionElement.className = "bmsie-version-notice-version";
+      const titleElement = document.createElement("h2");
+      titleElement.className = "bmsie-version-notice-title";
+      const contentElement = document.createElement("div");
+      contentElement.className = "bmsie-version-notice-content";
+      const controlsElement = document.createElement("div");
+      controlsElement.className = "bmsie-version-notice-controls";
+      const languageLabel = document.createElement("label");
+      languageLabel.className = "bmsie-version-notice-language";
+      const languageLabelText = document.createElement("span");
+      const languageSelect = document.createElement("select");
+      languageSelect.className = "bmsie-version-notice-select";
+      languageSelect.append(
+        createNotificationLanguageOption("ja", "日本語"),
+        createNotificationLanguageOption("en", "English")
+      );
+      languageLabel.append(languageLabelText, languageSelect);
+      controlsElement.append(languageLabel);
+      const footerElement = document.createElement("div");
+      footerElement.className = "bmsie-version-notice-footer";
+      const checkboxLabel = document.createElement("label");
+      checkboxLabel.className = "bmsie-version-notice-checkbox";
+      const suppressCheckbox = document.createElement("input");
+      suppressCheckbox.type = "checkbox";
+      suppressCheckbox.checked = false;
+      const checkboxText = document.createElement("span");
+      checkboxLabel.append(suppressCheckbox, checkboxText);
+      const okButton = document.createElement("button");
+      okButton.type = "button";
+      okButton.className = "bmsie-version-notice-ok";
+      footerElement.append(checkboxLabel, okButton);
+      windowElement.append(versionElement, titleElement, contentElement, controlsElement, footerElement);
+      overlay.append(windowElement);
+      let currentLanguage = initialLanguage === "en" ? "en" : "ja";
+      languageSelect.value = currentLanguage;
+      renderNotificationLanguage(currentLanguage);
+      languageSelect.addEventListener("change", () => {
+        currentLanguage = languageSelect.value === "en" ? "en" : "ja";
+        persistNotificationLanguage(currentLanguage);
+        renderNotificationLanguage(currentLanguage);
+      });
+      okButton.addEventListener("click", () => {
+        if (suppressCheckbox.checked) {
+          persistNotifiedVersion(version);
+        }
+        host.remove();
+      });
+      shadowRoot.append(styleElement, overlay);
+      document.body.appendChild(host);
+      function renderNotificationLanguage(language) {
+        const localizedContent = notificationContent[language] ?? notificationContent.ja;
+        versionElement.textContent = `version: ${version}`;
+        titleElement.textContent = localizedContent.title;
+        languageLabelText.textContent = localizedContent.languageLabel;
+        checkboxText.textContent = localizedContent.dontShowAgainLabel;
+        okButton.textContent = localizedContent.okLabel;
+        updateNotificationLanguageOptions(languageSelect, localizedContent.languageOptions);
+        renderNotificationSections(contentElement, localizedContent.sections);
+      }
+    }
+    function createNotificationLanguageOption(value, label) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      return option;
+    }
+    function updateNotificationLanguageOptions(languageSelect, languageOptions = {}) {
+      if (!languageSelect) {
+        return;
+      }
+      for (const option of languageSelect.options) {
+        option.textContent = languageOptions[option.value] ?? option.textContent;
+      }
+    }
+    function renderNotificationSections(contentElement, sections) {
+      contentElement.replaceChildren();
+      for (const section of sections) {
+        const sectionElement = document.createElement("section");
+        sectionElement.className = "bmsie-version-notice-section";
+        if (section.title) {
+          const sectionTitleElement = document.createElement("h3");
+          sectionTitleElement.className = "bmsie-version-notice-section-title";
+          sectionTitleElement.textContent = section.title;
+          sectionElement.appendChild(sectionTitleElement);
+        }
+        sectionElement.appendChild(createNotificationList(section.items));
+        contentElement.appendChild(sectionElement);
+      }
+    }
+    function createNotificationList(items = []) {
+      const listElement = document.createElement("ul");
+      listElement.className = "bmsie-version-notice-list";
+      for (const item of items) {
+        const listItemElement = document.createElement("li");
+        if (typeof item === "string") {
+          listItemElement.textContent = item;
+        } else {
+          listItemElement.textContent = item.text;
+          if (Array.isArray(item.subitems) && item.subitems.length > 0) {
+            const sublistElement = document.createElement("ul");
+            sublistElement.className = "bmsie-version-notice-sublist";
+            for (const subitem of item.subitems) {
+              const subitemElement = document.createElement("li");
+              subitemElement.textContent = subitem;
+              sublistElement.appendChild(subitemElement);
+            }
+            listItemElement.appendChild(sublistElement);
+          }
+        }
+        listElement.appendChild(listItemElement);
+      }
+      return listElement;
+    }
     function bootstrap() {
       switch (location.hostname) {
         case "www.dream-pro.info":

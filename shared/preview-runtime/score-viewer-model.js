@@ -165,6 +165,40 @@ export function getGameJudgeLinePositionRatioFromPointer(
   );
 }
 
+export function getGameLaneHeightPercentFromPointer(
+  pointerOffsetY,
+  viewportHeight,
+  fallbackLaneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+) {
+  const normalizedViewportHeight = Math.max(Number.isFinite(viewportHeight) ? viewportHeight : 0, 0);
+  if (!(normalizedViewportHeight > 0)) {
+    return normalizeGameLaneHeightPercent(fallbackLaneHeightPercent);
+  }
+  return normalizeGameLaneHeightPercent(
+    clamp(pointerOffsetY / normalizedViewportHeight, 0, 1) * 100,
+  );
+}
+
+export function getGameLaneCoverPermilleFromPointer(
+  pointerOffsetY,
+  viewportHeight,
+  judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO,
+  laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+  fallbackLaneCoverPermille = DEFAULT_GAME_LANE_COVER_PERMILLE,
+) {
+  const geometry = getGameLaneGeometry(
+    viewportHeight,
+    judgeLinePositionRatio,
+    laneHeightPercent,
+  );
+  if (!(geometry.judgeDistancePx > 0)) {
+    return normalizeGameLaneCoverPermille(fallbackLaneCoverPermille);
+  }
+  return normalizeGameLaneCoverPermille(
+    clamp((pointerOffsetY - geometry.laneTopY) / geometry.judgeDistancePx, 0, 1) * 1000,
+  );
+}
+
 export function createScoreViewerModel(score, { bpmSummary = undefined } = {}) {
   if (!score) {
     return null;

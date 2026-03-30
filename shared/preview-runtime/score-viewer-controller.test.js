@@ -78,18 +78,48 @@ test("judge line hit testing uses the configured 10px drag band", () => {
 test("pointer drag intent prioritizes the judge line over score scrolling within the hit band", () => {
   assert.equal(resolvePointerDragIntent({
     canDragJudgeLine: true,
+    canDragLaneHeight: true,
+    canDragLaneCover: true,
     canDragScroll: true,
     isJudgeLineHit: true,
+    isLaneHeightHit: true,
+    isLaneCoverHit: true,
   }), "judge-line");
   assert.equal(resolvePointerDragIntent({
-    canDragJudgeLine: false,
+    canDragJudgeLine: true,
+    canDragLaneHeight: true,
+    canDragLaneCover: true,
     canDragScroll: true,
     isJudgeLineHit: false,
+    isLaneHeightHit: true,
+    isLaneCoverHit: true,
+  }), "lane-height");
+  assert.equal(resolvePointerDragIntent({
+    canDragJudgeLine: true,
+    canDragLaneHeight: true,
+    canDragLaneCover: true,
+    canDragScroll: true,
+    isJudgeLineHit: false,
+    isLaneHeightHit: false,
+    isLaneCoverHit: true,
+  }), "lane-cover");
+  assert.equal(resolvePointerDragIntent({
+    canDragJudgeLine: false,
+    canDragLaneHeight: false,
+    canDragLaneCover: false,
+    canDragScroll: true,
+    isJudgeLineHit: false,
+    isLaneHeightHit: false,
+    isLaneCoverHit: false,
   }), "scroll");
   assert.equal(resolvePointerDragIntent({
     canDragJudgeLine: true,
+    canDragLaneHeight: false,
+    canDragLaneCover: false,
     canDragScroll: false,
     isJudgeLineHit: false,
+    isLaneHeightHit: false,
+    isLaneCoverHit: false,
   }), null);
 });
 
@@ -333,6 +363,191 @@ test("controller avoids rewriting chrome-only styles during selection-only updat
   }
 });
 
+test("controller shows game drag handles only in game mode and hides cover handle when cover is invisible", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const controller = createScoreViewerController({ root });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+
+    const laneHeightHandle = findElementByClass(root, "score-viewer-lane-height-handle");
+    const laneCoverHandle = findElementByClass(root, "score-viewer-lane-cover-handle");
+
+    assert.equal(laneHeightHandle.hidden, true);
+    assert.equal(laneCoverHandle.hidden, true);
+
+    controller.setViewerMode("game");
+
+    assert.equal(laneHeightHandle.hidden, false);
+    assert.equal(laneCoverHandle.hidden, false);
+
+    controller.setGameTimingConfig({ laneCoverVisible: false });
+
+    assert.equal(laneHeightHandle.hidden, false);
+    assert.equal(laneCoverHandle.hidden, true);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller applies resize cursor classes on hover before dragging", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const controller = createScoreViewerController({ root });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+    controller.setViewerMode("game");
+    controller.setGameTimingConfig({
+      laneHeightPercent: 20,
+      laneCoverPermille: 250,
+      laneCoverVisible: true,
+    });
+
+    const scrollHost = findElementByClass(root, "score-viewer-scroll-host");
+
+    dispatchPointerEvent(scrollHost, "pointermove", {
+      pointerId: 10,
+      button: -1,
+      clientY: 144,
+    });
+
+    assert.equal(root.classList.contains("is-drag-handle-hovered"), true);
+
+    dispatchPointerEvent(scrollHost, "pointerleave", {
+      pointerId: 10,
+    });
+
+    assert.equal(root.classList.contains("is-drag-handle-hovered"), false);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller updates lane height and lane cover by pointer drag in game mode", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const gameTimingConfigChanges = [];
+    const controller = createScoreViewerController({
+      root,
+      onGameTimingConfigChange: (config) => {
+        gameTimingConfigChanges.push(config);
+      },
+    });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+    controller.setViewerMode("game");
+    controller.setGameTimingConfig({
+      durationMs: 500,
+      laneHeightPercent: 20,
+      laneCoverPermille: 250,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    });
+
+    const scrollHost = findElementByClass(root, "score-viewer-scroll-host");
+    const laneHeightHandle = findElementByClass(root, "score-viewer-lane-height-handle");
+    const laneCoverHandle = findElementByClass(root, "score-viewer-lane-cover-handle");
+
+    dispatchPointerEvent(scrollHost, "pointerdown", {
+      pointerId: 1,
+      clientY: 144,
+    });
+    dispatchPointerEvent(scrollHost, "pointermove", {
+      pointerId: 1,
+      clientY: 288,
+    });
+    dispatchPointerEvent(scrollHost, "pointerup", {
+      pointerId: 1,
+      clientY: 288,
+    });
+
+    assert.equal(gameTimingConfigChanges.at(-1)?.laneHeightPercent, 40);
+    assert.equal(laneHeightHandle.style.top, "288px");
+
+    dispatchPointerEvent(scrollHost, "pointerdown", {
+      pointerId: 2,
+      clientY: 342,
+    });
+    dispatchPointerEvent(scrollHost, "pointermove", {
+      pointerId: 2,
+      clientY: 450,
+    });
+    dispatchPointerEvent(scrollHost, "pointerup", {
+      pointerId: 2,
+      clientY: 450,
+    });
+
+    assert.equal(gameTimingConfigChanges.at(-1)?.laneCoverPermille, 750);
+    assert.equal(laneCoverHandle.style.top, "450px");
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller does not allow lane-cover drag when cover is hidden", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const gameTimingConfigChanges = [];
+    const controller = createScoreViewerController({
+      root,
+      onGameTimingConfigChange: (config) => {
+        gameTimingConfigChanges.push(config);
+      },
+    });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+    controller.setViewerMode("game");
+    controller.setGameTimingConfig({
+      laneHeightPercent: 20,
+      laneCoverPermille: 250,
+      laneCoverVisible: false,
+    });
+
+    const scrollHost = findElementByClass(root, "score-viewer-scroll-host");
+
+    dispatchPointerEvent(scrollHost, "pointerdown", {
+      pointerId: 3,
+      clientY: 342,
+    });
+    dispatchPointerEvent(scrollHost, "pointermove", {
+      pointerId: 3,
+      clientY: 450,
+    });
+    dispatchPointerEvent(scrollHost, "pointerup", {
+      pointerId: 3,
+      clientY: 450,
+    });
+
+    assert.equal(gameTimingConfigChanges.some((config) => config.laneCoverPermille !== 250), false);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
 function installControllerTestEnvironment() {
   const previousGlobals = {
     document: globalThis.document,
@@ -385,6 +600,20 @@ function findElementByClass(root, className) {
   return null;
 }
 
+function dispatchPointerEvent(element, type, overrides = {}) {
+  const listeners = element.listeners.get(type) ?? [];
+  const event = {
+    button: 0,
+    pointerType: "mouse",
+    preventDefault() {},
+    stopPropagation() {},
+    ...overrides,
+  };
+  for (const listener of listeners) {
+    listener(event);
+  }
+}
+
 function createControllerTestModel() {
   return createScoreViewerModel({
     format: "bms",
@@ -430,6 +659,7 @@ class ControllerMockElement {
     this.clientWidth = 640;
     this.clientHeight = 360;
     this.scrollTop = 0;
+    this._pointerCaptures = new Set();
   }
 
   appendChild(child) {
@@ -469,6 +699,18 @@ class ControllerMockElement {
 
   getBoundingClientRect() {
     return { top: 0, left: 0, height: this.clientHeight, width: this.clientWidth };
+  }
+
+  setPointerCapture(pointerId) {
+    this._pointerCaptures.add(pointerId);
+  }
+
+  releasePointerCapture(pointerId) {
+    this._pointerCaptures.delete(pointerId);
+  }
+
+  hasPointerCapture(pointerId) {
+    return this._pointerCaptures.has(pointerId);
   }
 }
 

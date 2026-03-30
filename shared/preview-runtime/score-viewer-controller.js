@@ -18,9 +18,12 @@ import {
   getEditorContentHeightPx,
   getEditorScrollTopForBeat,
   getEditorScrollTopForTimeSec,
+  getGameLaneCoverHeightPx,
+  getGameLaneCoverPermilleFromPointer,
   getGameJudgeLinePositionRatioFromPointer,
   getGameJudgeLineY,
   getGameLaneGeometry,
+  getGameLaneHeightPercentFromPointer,
   getGameSettingGreenNumber,
   getJudgeLineY,
   hasViewerSelectionChanged,
@@ -147,7 +150,7 @@ export function createScoreViewerController({
   const modeSection = document.createElement("div");
   modeSection.className = "score-viewer-settings-group score-viewer-mode-section";
 
-  const laneHeightRow = createSettingRow("Lane Height", "score-viewer-lane-height-row");
+  const laneHeightRow = createSettingRow("Height", "score-viewer-lane-height-row");
   laneHeightRow.row.classList.add("score-viewer-game-setting");
   const laneHeightInput = document.createElement("input");
   laneHeightInput.className = "score-viewer-spacing-input score-viewer-lane-height-input";
@@ -158,7 +161,7 @@ export function createScoreViewerController({
   laneHeightInput.value = String(DEFAULT_GAME_LANE_HEIGHT_PERCENT);
   laneHeightInput.classList.add("score-viewer-game-setting");
 
-  const laneCoverRow = createSettingRow("Lane Cover", "score-viewer-lane-cover-row");
+  const laneCoverRow = createSettingRow("Cover", "score-viewer-lane-cover-row");
   laneCoverRow.row.classList.add("score-viewer-game-setting");
   const laneCoverInput = document.createElement("input");
   laneCoverInput.className = "score-viewer-spacing-input score-viewer-lane-cover-input";
@@ -247,8 +250,12 @@ export function createScoreViewerController({
 
   const judgeLine = document.createElement("div");
   judgeLine.className = "score-viewer-judge-line";
+  const laneHeightHandle = document.createElement("div");
+  laneHeightHandle.className = "score-viewer-drag-line score-viewer-lane-height-handle";
+  const laneCoverHandle = document.createElement("div");
+  laneCoverHandle.className = "score-viewer-drag-line score-viewer-lane-cover-handle";
 
-  root.replaceChildren(scrollHost, canvas, bottomBar, judgeLine);
+  root.replaceChildren(scrollHost, canvas, bottomBar, laneHeightHandle, laneCoverHandle, judgeLine);
 
   const renderer = createScoreViewerRenderer(canvas);
   const state = {
@@ -263,18 +270,28 @@ export function createScoreViewerController({
     viewerMode: DEFAULT_VIEWER_MODE,
     invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
     judgeLinePositionRatio: DEFAULT_JUDGE_LINE_POSITION_RATIO,
-    isJudgeLineHovered: false,
+    hoveredDragHandle: null,
   };
   const uiState = {
     canvasHidden: null,
     bottomBarHidden: null,
     judgeLineHidden: null,
+    laneHeightHandleHidden: null,
+    laneCoverHandleHidden: null,
     judgeLineRatioCss: null,
     judgeLineTopCss: null,
-    scrollHostJudgeLineDraggableClass: null,
-    scrollHostJudgeLineDraggingClass: null,
+    laneHeightHandleTopCss: null,
+    laneCoverHandleTopCss: null,
+    rootDragHandleHoveredClass: null,
+    rootDragHandleDraggingClass: null,
+    scrollHostDragHandleHoveredClass: null,
+    scrollHostDragHandleDraggingClass: null,
     judgeLineDraggableClass: null,
     judgeLineDraggingClass: null,
+    laneHeightHandleDraggableClass: null,
+    laneHeightHandleDraggingClass: null,
+    laneCoverHandleDraggableClass: null,
+    laneCoverHandleDraggingClass: null,
     playbackButtonDisabled: null,
     playbackButtonText: null,
     playbackButtonLabel: null,
@@ -323,18 +340,22 @@ export function createScoreViewerController({
   scrollHost.addEventListener("pointerdown", (event) => {
     const dragIntent = resolvePointerDragIntent({
       canDragJudgeLine: canDragJudgeLine(event),
+      canDragLaneHeight: canDragGameTimingHandle(event),
+      canDragLaneCover: canDragGameTimingHandle(event),
       canDragScroll: canDragScroll(event),
       isJudgeLineHit: isPointerNearJudgeLine(event),
+      isLaneHeightHit: isPointerNearLaneHeightHandle(event),
+      isLaneCoverHit: isPointerNearLaneCoverHandle(event),
     });
     if (!dragIntent) {
       return;
     }
-    if (dragIntent === "judge-line") {
+    if (isActiveDragHandleType(dragIntent)) {
       dragState = {
-        type: "judge-line",
+        type: dragIntent,
         pointerId: event.pointerId,
       };
-      updateJudgeLinePositionFromPointer(event, { notify: true });
+      updateDragHandleFromPointer(dragIntent, event, { notify: true });
     } else {
       dragState = {
         type: "scroll",
@@ -352,11 +373,11 @@ export function createScoreViewerController({
 
   scrollHost.addEventListener("pointermove", (event) => {
     if (!dragState || event.pointerId !== dragState.pointerId) {
-      updateJudgeLineHover(event);
+      updateHoveredDragHandle(event);
       return;
     }
-    if (dragState.type === "judge-line") {
-      updateJudgeLinePositionFromPointer(event, { notify: true });
+    if (isActiveDragHandleType(dragState.type)) {
+      updateDragHandleFromPointer(dragState.type, event, { notify: true });
     } else {
       const deltaY = event.clientY - dragState.startY;
       scrollHost.scrollTop = dragState.startScrollTop + deltaY;
@@ -366,10 +387,10 @@ export function createScoreViewerController({
   });
 
   scrollHost.addEventListener("pointerleave", () => {
-    if (dragState?.type === "judge-line") {
+    if (isActiveDragHandleType(dragState?.type)) {
       return;
     }
-    setJudgeLineHover(false);
+    setHoveredDragHandle(null);
   });
   scrollHost.addEventListener("pointerup", handlePointerRelease);
   scrollHost.addEventListener("pointercancel", handlePointerRelease);
@@ -581,7 +602,7 @@ export function createScoreViewerController({
     state.isOpen = normalizedOpen;
     if (!state.isOpen) {
       clearDragState();
-      setJudgeLineHover(false, { render: false });
+      setHoveredDragHandle(null, { render: false });
     }
     root.classList.toggle("is-visible", state.isOpen && Boolean(state.model));
     syncScrollPosition();
@@ -817,8 +838,31 @@ export function createScoreViewerController({
     setHiddenIfChanged(canvas, !showScene, "canvasHidden");
     setHiddenIfChanged(bottomBar, !showScene, "bottomBarHidden");
     setHiddenIfChanged(judgeLine, !showScene, "judgeLineHidden");
+    setHiddenIfChanged(laneHeightHandle, !showScene || !isGameMode, "laneHeightHandleHidden");
+    setHiddenIfChanged(
+      laneCoverHandle,
+      !showScene || !isGameMode || !state.gameTimingConfig.laneCoverVisible,
+      "laneCoverHandleHidden",
+    );
     setStylePropertyIfChanged(root, "--score-viewer-judge-line-ratio", String(state.judgeLinePositionRatio), "judgeLineRatioCss");
     setStylePropertyIfChanged(root, "--score-viewer-judge-line-top", `${currentJudgeLineY}px`, "judgeLineTopCss");
+    if (isGameMode && currentGameLaneGeometry) {
+      setStyleValueIfChanged(laneHeightHandle, "top", `${currentGameLaneGeometry.laneTopY}px`, "laneHeightHandleTopCss");
+      setStyleValueIfChanged(
+        laneCoverHandle,
+        "top",
+        `${Math.min(
+          currentGameLaneGeometry.laneTopY + getGameLaneCoverHeightPx(
+            viewportHeight,
+            state.judgeLinePositionRatio,
+            state.gameTimingConfig.laneHeightPercent,
+            state.gameTimingConfig.laneCoverPermille,
+          ),
+          currentGameLaneGeometry.judgeLineY,
+        )}px`,
+        "laneCoverHandleTopCss",
+      );
+    }
     setHiddenIfChanged(gameSettingsSection, !isGameMode, "gameSettingsHidden");
     setDisabledIfChanged(playbackButton, !state.model, "playbackButtonDisabled");
     setTextIfChanged(spacingValuePrimary, spacingDisplay.primaryText, "spacingPrimaryText");
@@ -873,21 +917,33 @@ export function createScoreViewerController({
     currentJudgeLineY,
   }) {
     toggleClassIfChanged(
-      scrollHost,
-      "is-judge-line-draggable",
-      showScene && state.isJudgeLineHovered,
-      "scrollHostJudgeLineDraggableClass",
+      root,
+      "is-drag-handle-hovered",
+      showScene && isActiveDragHandleType(state.hoveredDragHandle),
+      "rootDragHandleHoveredClass",
+    );
+    toggleClassIfChanged(
+      root,
+      "is-drag-handle-dragging",
+      isActiveDragHandleType(dragState?.type),
+      "rootDragHandleDraggingClass",
     );
     toggleClassIfChanged(
       scrollHost,
-      "is-judge-line-dragging",
-      dragState?.type === "judge-line",
-      "scrollHostJudgeLineDraggingClass",
+      "is-drag-handle-hovered",
+      showScene && isActiveDragHandleType(state.hoveredDragHandle),
+      "scrollHostDragHandleHoveredClass",
+    );
+    toggleClassIfChanged(
+      scrollHost,
+      "is-drag-handle-dragging",
+      isActiveDragHandleType(dragState?.type),
+      "scrollHostDragHandleDraggingClass",
     );
     toggleClassIfChanged(
       judgeLine,
       "is-draggable",
-      showScene && state.isJudgeLineHovered,
+      showScene && state.hoveredDragHandle === "judge-line",
       "judgeLineDraggableClass",
     );
     toggleClassIfChanged(
@@ -895,6 +951,30 @@ export function createScoreViewerController({
       "is-dragging",
       dragState?.type === "judge-line",
       "judgeLineDraggingClass",
+    );
+    toggleClassIfChanged(
+      laneHeightHandle,
+      "is-draggable",
+      showScene && state.hoveredDragHandle === "lane-height",
+      "laneHeightHandleDraggableClass",
+    );
+    toggleClassIfChanged(
+      laneHeightHandle,
+      "is-dragging",
+      dragState?.type === "lane-height",
+      "laneHeightHandleDraggingClass",
+    );
+    toggleClassIfChanged(
+      laneCoverHandle,
+      "is-draggable",
+      showScene && state.hoveredDragHandle === "lane-cover",
+      "laneCoverHandleDraggableClass",
+    );
+    toggleClassIfChanged(
+      laneCoverHandle,
+      "is-dragging",
+      dragState?.type === "lane-cover",
+      "laneCoverHandleDraggingClass",
     );
     setTextIfChanged(playbackButton, state.isPlaying ? "❚❚" : "▶", "playbackButtonText");
     setAttributeIfChanged(
@@ -964,6 +1044,7 @@ export function createScoreViewerController({
       return;
     }
     clearDragState();
+    renderScene();
   }
 
   function clearDragState() {
@@ -978,8 +1059,10 @@ export function createScoreViewerController({
     }
     dragState = null;
     scrollHost.classList.remove("is-dragging");
-    scrollHost.classList.remove("is-judge-line-dragging");
+    scrollHost.classList.remove("is-drag-handle-dragging");
     judgeLine.classList.remove("is-dragging");
+    laneHeightHandle.classList.remove("is-dragging");
+    laneCoverHandle.classList.remove("is-dragging");
   }
 
   function canDragScroll(event) {
@@ -995,6 +1078,15 @@ export function createScoreViewerController({
     return Boolean(
       state.model
         && state.isOpen
+        && isPrimaryPointer(event),
+    );
+  }
+
+  function canDragGameTimingHandle(event) {
+    return Boolean(
+      state.model
+        && state.isOpen
+        && getResolvedViewerMode() === "game"
         && isPrimaryPointer(event),
     );
   }
@@ -1201,27 +1293,36 @@ export function createScoreViewerController({
     element.classList.toggle(className, normalizedValue);
   }
 
-  function setJudgeLineHover(nextHovered, { render = true } = {}) {
-    const normalizedHovered = Boolean(nextHovered);
-    if (state.isJudgeLineHovered === normalizedHovered) {
+  function setHoveredDragHandle(nextHandle, { render = true } = {}) {
+    const normalizedHandle = isActiveDragHandleType(nextHandle) ? nextHandle : null;
+    if (state.hoveredDragHandle === normalizedHandle) {
       return;
     }
-    state.isJudgeLineHovered = normalizedHovered;
+    state.hoveredDragHandle = normalizedHandle;
     if (render) {
       renderScene();
     }
   }
 
-  function updateJudgeLineHover(event) {
+  function updateHoveredDragHandle(event) {
     if (!state.model || !state.isOpen) {
-      if (state.isJudgeLineHovered) {
-        setJudgeLineHover(false);
+      if (state.hoveredDragHandle) {
+        setHoveredDragHandle(null);
       }
       return;
     }
-    const hovered = isPointerNearJudgeLine(event);
-    if (hovered !== state.isJudgeLineHovered) {
-      setJudgeLineHover(hovered);
+    const hoveredHandle = resolvePointerDragIntent({
+      canDragJudgeLine: canDragJudgeLine(event),
+      canDragLaneHeight: canDragGameTimingHandle(event),
+      canDragLaneCover: canDragGameTimingHandle(event),
+      canDragScroll: false,
+      isJudgeLineHit: isPointerNearJudgeLine(event),
+      isLaneHeightHit: isPointerNearLaneHeightHandle(event),
+      isLaneCoverHit: isPointerNearLaneCoverHandle(event),
+    });
+    const nextHandle = isActiveDragHandleType(hoveredHandle) ? hoveredHandle : null;
+    if (nextHandle !== state.hoveredDragHandle) {
+      setHoveredDragHandle(nextHandle);
     }
   }
 
@@ -1232,6 +1333,53 @@ export function createScoreViewerController({
       rootTop: rootRect.top,
       judgeLineY: getCurrentJudgeLineY(rootRect.height),
     });
+  }
+
+  function isPointerNearLaneHeightHandle(event) {
+    if (getResolvedViewerMode() !== "game") {
+      return false;
+    }
+    const rootRect = root.getBoundingClientRect();
+    return isJudgeLineHit({
+      pointerClientY: event.clientY,
+      rootTop: rootRect.top,
+      judgeLineY: getCurrentGameLaneGeometry(rootRect.height).laneTopY,
+    });
+  }
+
+  function isPointerNearLaneCoverHandle(event) {
+    if (getResolvedViewerMode() !== "game" || !state.gameTimingConfig.laneCoverVisible) {
+      return false;
+    }
+    const rootRect = root.getBoundingClientRect();
+    const laneGeometry = getCurrentGameLaneGeometry(rootRect.height);
+    return isJudgeLineHit({
+      pointerClientY: event.clientY,
+      rootTop: rootRect.top,
+      judgeLineY: Math.min(
+        laneGeometry.laneTopY + getGameLaneCoverHeightPx(
+          rootRect.height,
+          state.judgeLinePositionRatio,
+          state.gameTimingConfig.laneHeightPercent,
+          state.gameTimingConfig.laneCoverPermille,
+        ),
+        laneGeometry.judgeLineY,
+      ),
+    });
+  }
+
+  function updateDragHandleFromPointer(handleType, event, { notify = false } = {}) {
+    if (handleType === "judge-line") {
+      updateJudgeLinePositionFromPointer(event, { notify });
+      return;
+    }
+    if (handleType === "lane-height") {
+      updateLaneHeightFromPointer(event, { notify });
+      return;
+    }
+    if (handleType === "lane-cover") {
+      updateLaneCoverFromPointer(event, { notify });
+    }
   }
 
   function updateJudgeLinePositionFromPointer(event, { notify = false } = {}) {
@@ -1249,17 +1397,41 @@ export function createScoreViewerController({
         rootHeight: rootRect.height,
       });
     if (Math.abs(state.judgeLinePositionRatio - nextRatio) < 0.000001) {
-      setJudgeLineHover(true);
+      setHoveredDragHandle("judge-line");
       return;
     }
     state.judgeLinePositionRatio = nextRatio;
     editorFrameStateCache = null;
-    setJudgeLineHover(true, { render: false });
+    setHoveredDragHandle("judge-line", { render: false });
     syncScrollPosition();
     renderScene({ updateChrome: true });
     if (notify) {
       onJudgeLinePositionChange(state.judgeLinePositionRatio);
     }
+  }
+
+  function updateLaneHeightFromPointer(event, { notify = false } = {}) {
+    const rootRect = root.getBoundingClientRect();
+    const nextLaneHeightPercent = getGameLaneHeightPercentFromPointer(
+      event.clientY - rootRect.top,
+      rootRect.height,
+      state.gameTimingConfig.laneHeightPercent,
+    );
+    setHoveredDragHandle("lane-height", { render: false });
+    updateGameTimingConfig({ laneHeightPercent: nextLaneHeightPercent }, { notify });
+  }
+
+  function updateLaneCoverFromPointer(event, { notify = false } = {}) {
+    const rootRect = root.getBoundingClientRect();
+    const nextLaneCoverPermille = getGameLaneCoverPermilleFromPointer(
+      event.clientY - rootRect.top,
+      rootRect.height,
+      state.judgeLinePositionRatio,
+      state.gameTimingConfig.laneHeightPercent,
+      state.gameTimingConfig.laneCoverPermille,
+    );
+    setHoveredDragHandle("lane-cover", { render: false });
+    updateGameTimingConfig({ laneCoverPermille: nextLaneCoverPermille }, { notify });
   }
 
   function getSpacingScaleForMode(mode) {
@@ -1378,16 +1550,30 @@ export function getJudgeLinePositionRatioFromPointer({
 
 export function resolvePointerDragIntent({
   canDragJudgeLine,
+  canDragLaneHeight,
+  canDragLaneCover,
   canDragScroll,
   isJudgeLineHit,
+  isLaneHeightHit,
+  isLaneCoverHit,
 }) {
   if (canDragJudgeLine && isJudgeLineHit) {
     return "judge-line";
+  }
+  if (canDragLaneHeight && isLaneHeightHit) {
+    return "lane-height";
+  }
+  if (canDragLaneCover && isLaneCoverHit) {
+    return "lane-cover";
   }
   if (canDragScroll) {
     return "scroll";
   }
   return null;
+}
+
+function isActiveDragHandleType(value) {
+  return value === "judge-line" || value === "lane-height" || value === "lane-cover";
 }
 
 function clampScale(value) {
@@ -1440,7 +1626,11 @@ function areGameTimingConfigsEqual(left, right) {
 }
 
 function isPrimaryPointer(event) {
-  return event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen";
+  return event.button === 0
+    || event.button === -1
+    || event.button === undefined
+    || event.pointerType === "touch"
+    || event.pointerType === "pen";
 }
 
 function clamp(value, minValue, maxValue) {

@@ -122,6 +122,28 @@ function getGameJudgeLinePositionRatioFromPointer(pointerOffsetY, viewportHeight
     clamp((pointerOffsetY - geometry.laneTopY) / geometry.laneHeightPx, 0, 1)
   );
 }
+function getGameLaneHeightPercentFromPointer(pointerOffsetY, viewportHeight, fallbackLaneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT) {
+  const normalizedViewportHeight = Math.max(Number.isFinite(viewportHeight) ? viewportHeight : 0, 0);
+  if (!(normalizedViewportHeight > 0)) {
+    return normalizeGameLaneHeightPercent(fallbackLaneHeightPercent);
+  }
+  return normalizeGameLaneHeightPercent(
+    clamp(pointerOffsetY / normalizedViewportHeight, 0, 1) * 100
+  );
+}
+function getGameLaneCoverPermilleFromPointer(pointerOffsetY, viewportHeight, judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO, laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT, fallbackLaneCoverPermille = DEFAULT_GAME_LANE_COVER_PERMILLE) {
+  const geometry = getGameLaneGeometry(
+    viewportHeight,
+    judgeLinePositionRatio,
+    laneHeightPercent
+  );
+  if (!(geometry.judgeDistancePx > 0)) {
+    return normalizeGameLaneCoverPermille(fallbackLaneCoverPermille);
+  }
+  return normalizeGameLaneCoverPermille(
+    clamp((pointerOffsetY - geometry.laneTopY) / geometry.judgeDistancePx, 0, 1) * 1e3
+  );
+}
 function createScoreViewerModel(score, { bpmSummary = void 0 } = {}) {
   if (!score) {
     return null;
@@ -2702,7 +2724,7 @@ function createScoreViewerController({
   gameSettingsSection.className = "score-viewer-settings-group score-viewer-game-settings-section";
   const modeSection = document.createElement("div");
   modeSection.className = "score-viewer-settings-group score-viewer-mode-section";
-  const laneHeightRow = createSettingRow("Lane Height", "score-viewer-lane-height-row");
+  const laneHeightRow = createSettingRow("Height", "score-viewer-lane-height-row");
   laneHeightRow.row.classList.add("score-viewer-game-setting");
   const laneHeightInput = document.createElement("input");
   laneHeightInput.className = "score-viewer-spacing-input score-viewer-lane-height-input";
@@ -2712,7 +2734,7 @@ function createScoreViewerController({
   laneHeightInput.step = String(GAME_LANE_HEIGHT_SLIDER_STEP);
   laneHeightInput.value = String(DEFAULT_GAME_LANE_HEIGHT_PERCENT);
   laneHeightInput.classList.add("score-viewer-game-setting");
-  const laneCoverRow = createSettingRow("Lane Cover", "score-viewer-lane-cover-row");
+  const laneCoverRow = createSettingRow("Cover", "score-viewer-lane-cover-row");
   laneCoverRow.row.classList.add("score-viewer-game-setting");
   const laneCoverInput = document.createElement("input");
   laneCoverInput.className = "score-viewer-spacing-input score-viewer-lane-cover-input";
@@ -2791,7 +2813,11 @@ function createScoreViewerController({
   bottomBar.append(statusPanel);
   const judgeLine = document.createElement("div");
   judgeLine.className = "score-viewer-judge-line";
-  root.replaceChildren(scrollHost, canvas, bottomBar, judgeLine);
+  const laneHeightHandle = document.createElement("div");
+  laneHeightHandle.className = "score-viewer-drag-line score-viewer-lane-height-handle";
+  const laneCoverHandle = document.createElement("div");
+  laneCoverHandle.className = "score-viewer-drag-line score-viewer-lane-cover-handle";
+  root.replaceChildren(scrollHost, canvas, bottomBar, laneHeightHandle, laneCoverHandle, judgeLine);
   const renderer = createScoreViewerRenderer(canvas);
   const state2 = {
     model: null,
@@ -2805,18 +2831,28 @@ function createScoreViewerController({
     viewerMode: DEFAULT_VIEWER_MODE,
     invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
     judgeLinePositionRatio: DEFAULT_JUDGE_LINE_POSITION_RATIO,
-    isJudgeLineHovered: false
+    hoveredDragHandle: null
   };
   const uiState = {
     canvasHidden: null,
     bottomBarHidden: null,
     judgeLineHidden: null,
+    laneHeightHandleHidden: null,
+    laneCoverHandleHidden: null,
     judgeLineRatioCss: null,
     judgeLineTopCss: null,
-    scrollHostJudgeLineDraggableClass: null,
-    scrollHostJudgeLineDraggingClass: null,
+    laneHeightHandleTopCss: null,
+    laneCoverHandleTopCss: null,
+    rootDragHandleHoveredClass: null,
+    rootDragHandleDraggingClass: null,
+    scrollHostDragHandleHoveredClass: null,
+    scrollHostDragHandleDraggingClass: null,
     judgeLineDraggableClass: null,
     judgeLineDraggingClass: null,
+    laneHeightHandleDraggableClass: null,
+    laneHeightHandleDraggingClass: null,
+    laneCoverHandleDraggableClass: null,
+    laneCoverHandleDraggingClass: null,
     playbackButtonDisabled: null,
     playbackButtonText: null,
     playbackButtonLabel: null,
@@ -2861,18 +2897,22 @@ function createScoreViewerController({
   scrollHost.addEventListener("pointerdown", (event) => {
     const dragIntent = resolvePointerDragIntent({
       canDragJudgeLine: canDragJudgeLine(event),
+      canDragLaneHeight: canDragGameTimingHandle(event),
+      canDragLaneCover: canDragGameTimingHandle(event),
       canDragScroll: canDragScroll(event),
-      isJudgeLineHit: isPointerNearJudgeLine(event)
+      isJudgeLineHit: isPointerNearJudgeLine(event),
+      isLaneHeightHit: isPointerNearLaneHeightHandle(event),
+      isLaneCoverHit: isPointerNearLaneCoverHandle(event)
     });
     if (!dragIntent) {
       return;
     }
-    if (dragIntent === "judge-line") {
+    if (isActiveDragHandleType(dragIntent)) {
       dragState = {
-        type: "judge-line",
+        type: dragIntent,
         pointerId: event.pointerId
       };
-      updateJudgeLinePositionFromPointer(event, { notify: true });
+      updateDragHandleFromPointer(dragIntent, event, { notify: true });
     } else {
       dragState = {
         type: "scroll",
@@ -2889,11 +2929,11 @@ function createScoreViewerController({
   });
   scrollHost.addEventListener("pointermove", (event) => {
     if (!dragState || event.pointerId !== dragState.pointerId) {
-      updateJudgeLineHover(event);
+      updateHoveredDragHandle(event);
       return;
     }
-    if (dragState.type === "judge-line") {
-      updateJudgeLinePositionFromPointer(event, { notify: true });
+    if (isActiveDragHandleType(dragState.type)) {
+      updateDragHandleFromPointer(dragState.type, event, { notify: true });
     } else {
       const deltaY = event.clientY - dragState.startY;
       scrollHost.scrollTop = dragState.startScrollTop + deltaY;
@@ -2902,10 +2942,10 @@ function createScoreViewerController({
     event.preventDefault();
   });
   scrollHost.addEventListener("pointerleave", () => {
-    if (dragState?.type === "judge-line") {
+    if (isActiveDragHandleType(dragState?.type)) {
       return;
     }
-    setJudgeLineHover(false);
+    setHoveredDragHandle(null);
   });
   scrollHost.addEventListener("pointerup", handlePointerRelease);
   scrollHost.addEventListener("pointercancel", handlePointerRelease);
@@ -3087,7 +3127,7 @@ function createScoreViewerController({
     state2.isOpen = normalizedOpen;
     if (!state2.isOpen) {
       clearDragState();
-      setJudgeLineHover(false, { render: false });
+      setHoveredDragHandle(null, { render: false });
     }
     root.classList.toggle("is-visible", state2.isOpen && Boolean(state2.model));
     syncScrollPosition();
@@ -3302,8 +3342,31 @@ function createScoreViewerController({
     setHiddenIfChanged(canvas, !showScene, "canvasHidden");
     setHiddenIfChanged(bottomBar, !showScene, "bottomBarHidden");
     setHiddenIfChanged(judgeLine, !showScene, "judgeLineHidden");
+    setHiddenIfChanged(laneHeightHandle, !showScene || !isGameMode, "laneHeightHandleHidden");
+    setHiddenIfChanged(
+      laneCoverHandle,
+      !showScene || !isGameMode || !state2.gameTimingConfig.laneCoverVisible,
+      "laneCoverHandleHidden"
+    );
     setStylePropertyIfChanged(root, "--score-viewer-judge-line-ratio", String(state2.judgeLinePositionRatio), "judgeLineRatioCss");
     setStylePropertyIfChanged(root, "--score-viewer-judge-line-top", `${currentJudgeLineY}px`, "judgeLineTopCss");
+    if (isGameMode && currentGameLaneGeometry) {
+      setStyleValueIfChanged(laneHeightHandle, "top", `${currentGameLaneGeometry.laneTopY}px`, "laneHeightHandleTopCss");
+      setStyleValueIfChanged(
+        laneCoverHandle,
+        "top",
+        `${Math.min(
+          currentGameLaneGeometry.laneTopY + getGameLaneCoverHeightPx(
+            viewportHeight,
+            state2.judgeLinePositionRatio,
+            state2.gameTimingConfig.laneHeightPercent,
+            state2.gameTimingConfig.laneCoverPermille
+          ),
+          currentGameLaneGeometry.judgeLineY
+        )}px`,
+        "laneCoverHandleTopCss"
+      );
+    }
     setHiddenIfChanged(gameSettingsSection, !isGameMode, "gameSettingsHidden");
     setDisabledIfChanged(playbackButton, !state2.model, "playbackButtonDisabled");
     setTextIfChanged(spacingValuePrimary, spacingDisplay.primaryText, "spacingPrimaryText");
@@ -3357,21 +3420,33 @@ function createScoreViewerController({
     currentJudgeLineY
   }) {
     toggleClassIfChanged(
-      scrollHost,
-      "is-judge-line-draggable",
-      showScene && state2.isJudgeLineHovered,
-      "scrollHostJudgeLineDraggableClass"
+      root,
+      "is-drag-handle-hovered",
+      showScene && isActiveDragHandleType(state2.hoveredDragHandle),
+      "rootDragHandleHoveredClass"
+    );
+    toggleClassIfChanged(
+      root,
+      "is-drag-handle-dragging",
+      isActiveDragHandleType(dragState?.type),
+      "rootDragHandleDraggingClass"
     );
     toggleClassIfChanged(
       scrollHost,
-      "is-judge-line-dragging",
-      dragState?.type === "judge-line",
-      "scrollHostJudgeLineDraggingClass"
+      "is-drag-handle-hovered",
+      showScene && isActiveDragHandleType(state2.hoveredDragHandle),
+      "scrollHostDragHandleHoveredClass"
+    );
+    toggleClassIfChanged(
+      scrollHost,
+      "is-drag-handle-dragging",
+      isActiveDragHandleType(dragState?.type),
+      "scrollHostDragHandleDraggingClass"
     );
     toggleClassIfChanged(
       judgeLine,
       "is-draggable",
-      showScene && state2.isJudgeLineHovered,
+      showScene && state2.hoveredDragHandle === "judge-line",
       "judgeLineDraggableClass"
     );
     toggleClassIfChanged(
@@ -3379,6 +3454,30 @@ function createScoreViewerController({
       "is-dragging",
       dragState?.type === "judge-line",
       "judgeLineDraggingClass"
+    );
+    toggleClassIfChanged(
+      laneHeightHandle,
+      "is-draggable",
+      showScene && state2.hoveredDragHandle === "lane-height",
+      "laneHeightHandleDraggableClass"
+    );
+    toggleClassIfChanged(
+      laneHeightHandle,
+      "is-dragging",
+      dragState?.type === "lane-height",
+      "laneHeightHandleDraggingClass"
+    );
+    toggleClassIfChanged(
+      laneCoverHandle,
+      "is-draggable",
+      showScene && state2.hoveredDragHandle === "lane-cover",
+      "laneCoverHandleDraggableClass"
+    );
+    toggleClassIfChanged(
+      laneCoverHandle,
+      "is-dragging",
+      dragState?.type === "lane-cover",
+      "laneCoverHandleDraggingClass"
     );
     setTextIfChanged(playbackButton, state2.isPlaying ? "❚❚" : "▶", "playbackButtonText");
     setAttributeIfChanged(
@@ -3444,6 +3543,7 @@ function createScoreViewerController({
       return;
     }
     clearDragState();
+    renderScene();
   }
   function clearDragState() {
     if (dragState && typeof scrollHost.releasePointerCapture === "function") {
@@ -3456,8 +3556,10 @@ function createScoreViewerController({
     }
     dragState = null;
     scrollHost.classList.remove("is-dragging");
-    scrollHost.classList.remove("is-judge-line-dragging");
+    scrollHost.classList.remove("is-drag-handle-dragging");
     judgeLine.classList.remove("is-dragging");
+    laneHeightHandle.classList.remove("is-dragging");
+    laneCoverHandle.classList.remove("is-dragging");
   }
   function canDragScroll(event) {
     return Boolean(
@@ -3467,6 +3569,11 @@ function createScoreViewerController({
   function canDragJudgeLine(event) {
     return Boolean(
       state2.model && state2.isOpen && isPrimaryPointer(event)
+    );
+  }
+  function canDragGameTimingHandle(event) {
+    return Boolean(
+      state2.model && state2.isOpen && getResolvedViewerMode2() === "game" && isPrimaryPointer(event)
     );
   }
   function isScrollInteractive() {
@@ -3639,26 +3746,35 @@ function createScoreViewerController({
     uiState[key] = normalizedValue;
     element.classList.toggle(className, normalizedValue);
   }
-  function setJudgeLineHover(nextHovered, { render: render2 = true } = {}) {
-    const normalizedHovered = Boolean(nextHovered);
-    if (state2.isJudgeLineHovered === normalizedHovered) {
+  function setHoveredDragHandle(nextHandle, { render: render2 = true } = {}) {
+    const normalizedHandle = isActiveDragHandleType(nextHandle) ? nextHandle : null;
+    if (state2.hoveredDragHandle === normalizedHandle) {
       return;
     }
-    state2.isJudgeLineHovered = normalizedHovered;
+    state2.hoveredDragHandle = normalizedHandle;
     if (render2) {
       renderScene();
     }
   }
-  function updateJudgeLineHover(event) {
+  function updateHoveredDragHandle(event) {
     if (!state2.model || !state2.isOpen) {
-      if (state2.isJudgeLineHovered) {
-        setJudgeLineHover(false);
+      if (state2.hoveredDragHandle) {
+        setHoveredDragHandle(null);
       }
       return;
     }
-    const hovered = isPointerNearJudgeLine(event);
-    if (hovered !== state2.isJudgeLineHovered) {
-      setJudgeLineHover(hovered);
+    const hoveredHandle = resolvePointerDragIntent({
+      canDragJudgeLine: canDragJudgeLine(event),
+      canDragLaneHeight: canDragGameTimingHandle(event),
+      canDragLaneCover: canDragGameTimingHandle(event),
+      canDragScroll: false,
+      isJudgeLineHit: isPointerNearJudgeLine(event),
+      isLaneHeightHit: isPointerNearLaneHeightHandle(event),
+      isLaneCoverHit: isPointerNearLaneCoverHandle(event)
+    });
+    const nextHandle = isActiveDragHandleType(hoveredHandle) ? hoveredHandle : null;
+    if (nextHandle !== state2.hoveredDragHandle) {
+      setHoveredDragHandle(nextHandle);
     }
   }
   function isPointerNearJudgeLine(event) {
@@ -3668,6 +3784,50 @@ function createScoreViewerController({
       rootTop: rootRect.top,
       judgeLineY: getCurrentJudgeLineY(rootRect.height)
     });
+  }
+  function isPointerNearLaneHeightHandle(event) {
+    if (getResolvedViewerMode2() !== "game") {
+      return false;
+    }
+    const rootRect = root.getBoundingClientRect();
+    return isJudgeLineHit({
+      pointerClientY: event.clientY,
+      rootTop: rootRect.top,
+      judgeLineY: getCurrentGameLaneGeometry(rootRect.height).laneTopY
+    });
+  }
+  function isPointerNearLaneCoverHandle(event) {
+    if (getResolvedViewerMode2() !== "game" || !state2.gameTimingConfig.laneCoverVisible) {
+      return false;
+    }
+    const rootRect = root.getBoundingClientRect();
+    const laneGeometry = getCurrentGameLaneGeometry(rootRect.height);
+    return isJudgeLineHit({
+      pointerClientY: event.clientY,
+      rootTop: rootRect.top,
+      judgeLineY: Math.min(
+        laneGeometry.laneTopY + getGameLaneCoverHeightPx(
+          rootRect.height,
+          state2.judgeLinePositionRatio,
+          state2.gameTimingConfig.laneHeightPercent,
+          state2.gameTimingConfig.laneCoverPermille
+        ),
+        laneGeometry.judgeLineY
+      )
+    });
+  }
+  function updateDragHandleFromPointer(handleType, event, { notify = false } = {}) {
+    if (handleType === "judge-line") {
+      updateJudgeLinePositionFromPointer(event, { notify });
+      return;
+    }
+    if (handleType === "lane-height") {
+      updateLaneHeightFromPointer(event, { notify });
+      return;
+    }
+    if (handleType === "lane-cover") {
+      updateLaneCoverFromPointer(event, { notify });
+    }
   }
   function updateJudgeLinePositionFromPointer(event, { notify = false } = {}) {
     const rootRect = root.getBoundingClientRect();
@@ -3682,17 +3842,39 @@ function createScoreViewerController({
       rootHeight: rootRect.height
     });
     if (Math.abs(state2.judgeLinePositionRatio - nextRatio) < 1e-6) {
-      setJudgeLineHover(true);
+      setHoveredDragHandle("judge-line");
       return;
     }
     state2.judgeLinePositionRatio = nextRatio;
     editorFrameStateCache = null;
-    setJudgeLineHover(true, { render: false });
+    setHoveredDragHandle("judge-line", { render: false });
     syncScrollPosition();
     renderScene({ updateChrome: true });
     if (notify) {
       onJudgeLinePositionChange(state2.judgeLinePositionRatio);
     }
+  }
+  function updateLaneHeightFromPointer(event, { notify = false } = {}) {
+    const rootRect = root.getBoundingClientRect();
+    const nextLaneHeightPercent = getGameLaneHeightPercentFromPointer(
+      event.clientY - rootRect.top,
+      rootRect.height,
+      state2.gameTimingConfig.laneHeightPercent
+    );
+    setHoveredDragHandle("lane-height", { render: false });
+    updateGameTimingConfig({ laneHeightPercent: nextLaneHeightPercent }, { notify });
+  }
+  function updateLaneCoverFromPointer(event, { notify = false } = {}) {
+    const rootRect = root.getBoundingClientRect();
+    const nextLaneCoverPermille = getGameLaneCoverPermilleFromPointer(
+      event.clientY - rootRect.top,
+      rootRect.height,
+      state2.judgeLinePositionRatio,
+      state2.gameTimingConfig.laneHeightPercent,
+      state2.gameTimingConfig.laneCoverPermille
+    );
+    setHoveredDragHandle("lane-cover", { render: false });
+    updateGameTimingConfig({ laneCoverPermille: nextLaneCoverPermille }, { notify });
   }
   function getSpacingScaleForMode(mode) {
     return state2.spacingScaleByMode[normalizeSpacingMode(mode)] ?? DEFAULT_SPACING_SCALE;
@@ -3797,16 +3979,29 @@ function getJudgeLinePositionRatioFromPointer({
 }
 function resolvePointerDragIntent({
   canDragJudgeLine,
+  canDragLaneHeight,
+  canDragLaneCover,
   canDragScroll,
-  isJudgeLineHit: isJudgeLineHit2
+  isJudgeLineHit: isJudgeLineHit2,
+  isLaneHeightHit,
+  isLaneCoverHit
 }) {
   if (canDragJudgeLine && isJudgeLineHit2) {
     return "judge-line";
+  }
+  if (canDragLaneHeight && isLaneHeightHit) {
+    return "lane-height";
+  }
+  if (canDragLaneCover && isLaneCoverHit) {
+    return "lane-cover";
   }
   if (canDragScroll) {
     return "scroll";
   }
   return null;
+}
+function isActiveDragHandleType(value) {
+  return value === "judge-line" || value === "lane-height" || value === "lane-cover";
 }
 function clampScale(value) {
   if (!Number.isFinite(value)) {
@@ -3844,7 +4039,7 @@ function areGameTimingConfigsEqual(left, right) {
   return Math.abs((left?.durationMs ?? DEFAULT_GAME_DURATION_MS) - (right?.durationMs ?? DEFAULT_GAME_DURATION_MS)) < 1e-6 && Math.abs((left?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT) - (right?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT)) < 1e-6 && Math.abs((left?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE) - (right?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE)) < 1e-6 && (left?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE) === (right?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE) && (left?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE) === (right?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE);
 }
 function isPrimaryPointer(event) {
-  return event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen";
+  return event.button === 0 || event.button === -1 || event.button === void 0 || event.pointerType === "touch" || event.pointerType === "pen";
 }
 function clamp3(value, minValue, maxValue) {
   return Math.min(Math.max(value, minValue), maxValue);
@@ -4680,10 +4875,11 @@ var BMSDATA_CSS = `
   .score-viewer-shell * { box-sizing: content-box; }
   .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; isolation: isolate; contain: layout paint style; }
   .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
+  .score-viewer-shell.is-drag-handle-hovered, .score-viewer-shell.is-drag-handle-dragging { cursor: ns-resize; }
   .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; contain: layout paint; }
   .score-viewer-scroll-host.is-scrollable { overflow-y: auto; cursor: grab; touch-action: none; }
   .score-viewer-scroll-host.is-scrollable.is-dragging { cursor: grabbing; }
-  .score-viewer-scroll-host.is-judge-line-draggable, .score-viewer-scroll-host.is-judge-line-dragging { cursor: ns-resize; }
+  .score-viewer-scroll-host.is-drag-handle-hovered, .score-viewer-scroll-host.is-drag-handle-dragging { cursor: ns-resize; }
   .score-viewer-spacer { width: 1px; opacity: 0; }
   .score-viewer-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; contain: layout paint; }
@@ -4710,10 +4906,15 @@ var BMSDATA_CSS = `
   .score-viewer-mode-select:disabled { opacity: 0.55; cursor: not-allowed; }
   .score-viewer-checkbox-row { justify-content: space-between; gap: 10px; }
   .score-viewer-checkbox-input { width: auto; min-height: auto; margin: 0; padding: 0; accent-color: #ffffff; }
-  .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
+  .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 16px; min-width: 16px; height: 16px; min-height: 16px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
   .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; pointer-events: auto; }
+  .score-viewer-drag-line { position: absolute; left: 0; right: 0; display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; z-index: 2; }
+  .score-viewer-drag-line::after { content: ""; width: 100%; height: 1px; background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.48) 48%, rgba(255, 255, 255, 0.06) 100%); box-shadow: 0 0 16px rgba(255, 255, 255, 0.08); }
+  .score-viewer-drag-line.is-draggable::after, .score-viewer-drag-line.is-dragging::after { height: 2px; background: linear-gradient(90deg, rgba(145, 210, 255, 0.18) 0%, rgba(145, 210, 255, 0.95) 48%, rgba(145, 210, 255, 0.18) 100%); box-shadow: 0 0 22px rgba(145, 210, 255, 0.2); }
+  .score-viewer-lane-height-handle::after { background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.3) 48%, rgba(255, 255, 255, 0.04) 100%); }
+  .score-viewer-lane-cover-handle::after { background: linear-gradient(90deg, rgba(137, 255, 178, 0.06) 0%, rgba(137, 255, 178, 0.42) 48%, rgba(137, 255, 178, 0.06) 100%); }
   .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: var(--score-viewer-judge-line-top, calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%)); display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
   .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
   .score-viewer-judge-line.is-draggable::after, .score-viewer-judge-line.is-dragging::after { background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%); box-shadow: 0 0 28px rgba(255, 120, 88, 0.34); }

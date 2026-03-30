@@ -269,10 +269,11 @@ export const BMSDATA_CSS = `
   .score-viewer-shell * { box-sizing: content-box; }
   .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; isolation: isolate; contain: layout paint style; }
   .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
+  .score-viewer-shell.is-drag-handle-hovered, .score-viewer-shell.is-drag-handle-dragging { cursor: ns-resize; }
   .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; contain: layout paint; }
   .score-viewer-scroll-host.is-scrollable { overflow-y: auto; cursor: grab; touch-action: none; }
   .score-viewer-scroll-host.is-scrollable.is-dragging { cursor: grabbing; }
-  .score-viewer-scroll-host.is-judge-line-draggable, .score-viewer-scroll-host.is-judge-line-dragging { cursor: ns-resize; }
+  .score-viewer-scroll-host.is-drag-handle-hovered, .score-viewer-scroll-host.is-drag-handle-dragging { cursor: ns-resize; }
   .score-viewer-spacer { width: 1px; opacity: 0; }
   .score-viewer-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; contain: layout paint; }
@@ -299,10 +300,15 @@ export const BMSDATA_CSS = `
   .score-viewer-mode-select:disabled { opacity: 0.55; cursor: not-allowed; }
   .score-viewer-checkbox-row { justify-content: space-between; gap: 10px; }
   .score-viewer-checkbox-input { width: auto; min-height: auto; margin: 0; padding: 0; accent-color: #ffffff; }
-  .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
+  .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 16px; min-width: 16px; height: 16px; min-height: 16px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
   .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; pointer-events: auto; }
+  .score-viewer-drag-line { position: absolute; left: 0; right: 0; display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; z-index: 2; }
+  .score-viewer-drag-line::after { content: ""; width: 100%; height: 1px; background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.48) 48%, rgba(255, 255, 255, 0.06) 100%); box-shadow: 0 0 16px rgba(255, 255, 255, 0.08); }
+  .score-viewer-drag-line.is-draggable::after, .score-viewer-drag-line.is-dragging::after { height: 2px; background: linear-gradient(90deg, rgba(145, 210, 255, 0.18) 0%, rgba(145, 210, 255, 0.95) 48%, rgba(145, 210, 255, 0.18) 100%); box-shadow: 0 0 22px rgba(145, 210, 255, 0.2); }
+  .score-viewer-lane-height-handle::after { background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.3) 48%, rgba(255, 255, 255, 0.04) 100%); }
+  .score-viewer-lane-cover-handle::after { background: linear-gradient(90deg, rgba(137, 255, 178, 0.06) 0%, rgba(137, 255, 178, 0.42) 48%, rgba(137, 255, 178, 0.06) 100%); }
   .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: var(--score-viewer-judge-line-top, calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%)); display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
   .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
   .score-viewer-judge-line.is-draggable::after, .score-viewer-judge-line.is-dragging::after { background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%); box-shadow: 0 0 28px rgba(255, 120, 88, 0.34); }

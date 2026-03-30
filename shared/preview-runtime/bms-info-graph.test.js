@@ -99,6 +99,103 @@ test("graph click updates the selected time", () => {
   assert.deepEqual(selectedTimes, [7]);
 });
 
+test("graph right-click starts sticky drag at the clicked position", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+
+  canvas.dispatchEvent({ type: "contextmenu", clientX: 20, clientY: 10 });
+  canvas.dispatchEvent({ type: "mousemove", clientX: 30, clientY: 10 });
+
+  assert.deepEqual(selectedTimes, [4, 6]);
+  assert.equal(canvas.style.cursor, "ew-resize");
+});
+
+test("graph right-click toggles sticky drag off", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+
+  canvas.dispatchEvent({ type: "contextmenu", clientX: 20, clientY: 10 });
+  canvas.dispatchEvent({ type: "contextmenu", clientX: 20, clientY: 10 });
+  canvas.dispatchEvent({ type: "mousemove", clientX: 30, clientY: 10 });
+
+  assert.deepEqual(selectedTimes, [4]);
+  assert.equal(canvas.style.cursor, "");
+});
+
+test("graph clears sticky drag state on mouseleave", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const hoverLeaves = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+    onHoverLeave: () => {
+      hoverLeaves.push("leave");
+    },
+  });
+
+  graph.setRecord(createRecord());
+
+  canvas.dispatchEvent({ type: "contextmenu", clientX: 20, clientY: 10 });
+  canvas.dispatchEvent({ type: "mouseleave" });
+  canvas.dispatchEvent({ type: "mousemove", clientX: 30, clientY: 10 });
+
+  assert.deepEqual(selectedTimes, [4]);
+  assert.deepEqual(hoverLeaves, ["leave"]);
+  assert.equal(canvas.style.cursor, "");
+});
+
+test("graph suppresses the context menu for right-click sticky drag", () => {
+  const { canvas } = createGraphCanvas();
+  let prevented = false;
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+  });
+
+  graph.setRecord(createRecord());
+
+  canvas.dispatchEvent({
+    type: "contextmenu",
+    clientX: 20,
+    clientY: 10,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+
+  assert.equal(prevented, true);
+});
+
 test("graph drags the selected line when the pointer starts near it", () => {
   const { canvas } = createGraphCanvas();
   const selectedTimes = [];

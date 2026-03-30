@@ -33,6 +33,7 @@ export function createBmsInfoGraph({
     selectedTimeSec: 0,
     isPinned: false,
     dragPointerId: null,
+    stickyDragActive: false,
   };
 
   canvas.addEventListener("mousemove", (event) => {
@@ -43,6 +44,12 @@ export function createBmsInfoGraph({
     }
 
     const timeSec = getHoverTimeSec(event, canvas);
+    if (state.stickyDragActive) {
+      updateSelectionFromPointer(event);
+      updateCanvasCursor(event, { forceDragging: true });
+      return;
+    }
+
     if (timeSec < 0 || timeSec > state.record.distributionSegments.length) {
       hideTooltip(tooltip);
       updateCanvasCursor(event);
@@ -58,9 +65,24 @@ export function createBmsInfoGraph({
     if (state.dragPointerId !== null) {
       return;
     }
+    deactivateStickyDrag();
     hideTooltip(tooltip);
     updateCanvasCursor();
     onHoverLeave();
+  });
+
+  canvas.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    if (!state.record) {
+      return;
+    }
+    if (state.stickyDragActive) {
+      deactivateStickyDrag(event);
+      return;
+    }
+    state.stickyDragActive = true;
+    updateSelectionFromPointer(event);
+    updateCanvasCursor(event, { forceDragging: true });
   });
 
   canvas.addEventListener("click", (event) => {
@@ -149,11 +171,19 @@ export function createBmsInfoGraph({
     updateCanvasCursor(event);
   }
 
+  function deactivateStickyDrag(event = null) {
+    if (!state.stickyDragActive) {
+      return;
+    }
+    state.stickyDragActive = false;
+    updateCanvasCursor(event);
+  }
+
   function updateCanvasCursor(event = null, { forceDragging = false } = {}) {
     if (!canvas?.style) {
       return;
     }
-    const showDragCursor = forceDragging || (event && state.record && isPointerNearSelectedLine(event, canvas, state.selectedTimeSec));
+    const showDragCursor = state.stickyDragActive || forceDragging || (event && state.record && isPointerNearSelectedLine(event, canvas, state.selectedTimeSec));
     canvas.style.cursor = showDragCursor ? GRAPH_SELECTED_LINE_DRAG_CURSOR : "";
   }
 

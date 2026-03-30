@@ -4371,7 +4371,8 @@
       record: null,
       selectedTimeSec: 0,
       isPinned: false,
-      dragPointerId: null
+      dragPointerId: null,
+      stickyDragActive: false
     };
     canvas.addEventListener("mousemove", (event) => {
       if (!state.record) {
@@ -4380,6 +4381,11 @@
         return;
       }
       const timeSec = getHoverTimeSec(event, canvas);
+      if (state.stickyDragActive) {
+        updateSelectionFromPointer(event);
+        updateCanvasCursor(event, { forceDragging: true });
+        return;
+      }
       if (timeSec < 0 || timeSec > state.record.distributionSegments.length) {
         hideTooltip(tooltip);
         updateCanvasCursor(event);
@@ -4393,9 +4399,23 @@
       if (state.dragPointerId !== null) {
         return;
       }
+      deactivateStickyDrag();
       hideTooltip(tooltip);
       updateCanvasCursor();
       onHoverLeave();
+    });
+    canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      if (!state.record) {
+        return;
+      }
+      if (state.stickyDragActive) {
+        deactivateStickyDrag(event);
+        return;
+      }
+      state.stickyDragActive = true;
+      updateSelectionFromPointer(event);
+      updateCanvasCursor(event, { forceDragging: true });
     });
     canvas.addEventListener("click", (event) => {
       if (!state.record) {
@@ -4472,11 +4492,18 @@
       state.dragPointerId = null;
       updateCanvasCursor(event);
     }
+    function deactivateStickyDrag(event = null) {
+      if (!state.stickyDragActive) {
+        return;
+      }
+      state.stickyDragActive = false;
+      updateCanvasCursor(event);
+    }
     function updateCanvasCursor(event = null, { forceDragging = false } = {}) {
       if (!canvas?.style) {
         return;
       }
-      const showDragCursor = forceDragging || event && state.record && isPointerNearSelectedLine(event, canvas, state.selectedTimeSec);
+      const showDragCursor = state.stickyDragActive || forceDragging || event && state.record && isPointerNearSelectedLine(event, canvas, state.selectedTimeSec);
       canvas.style.cursor = showDragCursor ? GRAPH_SELECTED_LINE_DRAG_CURSOR : "";
     }
     function renderStaticScene() {
@@ -6234,7 +6261,7 @@
               items: [
                 "判定ラインをドラッグ可能にしました",
                 "譜面ビューアをダブルクリックで再生・停止できるようにしました",
-                "グラフ hover では譜面ビューアが即移動しないようにし、クリックと再生ラインのドラッグで動かせるようにしました",
+                "グラフ hover では譜面ビューアが即移動しないようにし、クリック・再生ラインのドラッグ・右クリックの掴みっぱなしで動かせるようにしました",
                 "下部情報ウィンドウの設定情報は自動的に隠すようにしました",
                 "Game モードの挙動を beatoraja に近づけました",
                 {
@@ -6270,7 +6297,7 @@
               items: [
                 "The judge line is now draggable",
                 "You can now play or stop the score viewer by double-clicking it",
-                "Hovering the graph no longer moves the score viewer immediately; use clicks or drag the playback line instead",
+                "Hovering the graph no longer moves the score viewer immediately; use clicks, drag the playback line, or right-click sticky dragging instead",
                 "The settings in the bottom info panel are now hidden automatically",
                 "Game mode now behaves more like beatoraja",
                 {

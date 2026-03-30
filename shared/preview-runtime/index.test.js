@@ -285,6 +285,39 @@ test("graph playback line drag updates the viewer selected time", async () => {
   }
 });
 
+test("graph right-click sticky drag updates the viewer and closes on mouseleave", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview, elements } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("4".repeat(64)));
+    await environment.settle();
+
+    elements.graphCanvas.dispatchEvent({ type: "contextmenu", clientX: 25, clientY: 0 });
+    elements.graphCanvas.dispatchEvent({ type: "mousemove", clientX: 35, clientY: 0 });
+    await environment.settle();
+
+    let state = preview.getState();
+    assert.equal(state.isViewerOpen, true);
+    assert.equal(state.isPinned, false);
+    assert.ok(Math.abs(state.selectedTimeSec - 7) < 0.000001);
+
+    elements.graphCanvas.dispatchEvent({ type: "mouseleave" });
+    await environment.settle();
+
+    state = preview.getState();
+    assert.equal(state.isViewerOpen, false);
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
 test("preview prefetch starts one availability fetch and hover waits on the same pending attempt", async () => {
   const environment = installPreviewTestEnvironment();
   try {

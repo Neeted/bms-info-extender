@@ -4342,7 +4342,8 @@ function createBmsInfoGraph({
     record: null,
     selectedTimeSec: 0,
     isPinned: false,
-    dragPointerId: null
+    dragPointerId: null,
+    stickyDragActive: false
   };
   canvas.addEventListener("mousemove", (event) => {
     if (!state2.record) {
@@ -4351,6 +4352,11 @@ function createBmsInfoGraph({
       return;
     }
     const timeSec = getHoverTimeSec(event, canvas);
+    if (state2.stickyDragActive) {
+      updateSelectionFromPointer(event);
+      updateCanvasCursor(event, { forceDragging: true });
+      return;
+    }
     if (timeSec < 0 || timeSec > state2.record.distributionSegments.length) {
       hideTooltip(tooltip);
       updateCanvasCursor(event);
@@ -4364,9 +4370,23 @@ function createBmsInfoGraph({
     if (state2.dragPointerId !== null) {
       return;
     }
+    deactivateStickyDrag();
     hideTooltip(tooltip);
     updateCanvasCursor();
     onHoverLeave();
+  });
+  canvas.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    if (!state2.record) {
+      return;
+    }
+    if (state2.stickyDragActive) {
+      deactivateStickyDrag(event);
+      return;
+    }
+    state2.stickyDragActive = true;
+    updateSelectionFromPointer(event);
+    updateCanvasCursor(event, { forceDragging: true });
   });
   canvas.addEventListener("click", (event) => {
     if (!state2.record) {
@@ -4443,11 +4463,18 @@ function createBmsInfoGraph({
     state2.dragPointerId = null;
     updateCanvasCursor(event);
   }
+  function deactivateStickyDrag(event = null) {
+    if (!state2.stickyDragActive) {
+      return;
+    }
+    state2.stickyDragActive = false;
+    updateCanvasCursor(event);
+  }
   function updateCanvasCursor(event = null, { forceDragging = false } = {}) {
     if (!canvas?.style) {
       return;
     }
-    const showDragCursor = forceDragging || event && state2.record && isPointerNearSelectedLine(event, canvas, state2.selectedTimeSec);
+    const showDragCursor = state2.stickyDragActive || forceDragging || event && state2.record && isPointerNearSelectedLine(event, canvas, state2.selectedTimeSec);
     canvas.style.cursor = showDragCursor ? GRAPH_SELECTED_LINE_DRAG_CURSOR : "";
   }
   function renderStaticScene() {

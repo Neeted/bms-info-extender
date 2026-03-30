@@ -532,10 +532,16 @@ export function createScoreViewerController({
   playbackButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (!state.model) {
+    togglePlayback();
+  });
+
+  scrollHost.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (dragState) {
       return;
     }
-    onPlaybackToggle(!state.isPlaying);
+    togglePlayback();
   });
 
   if (typeof ResizeObserver !== "undefined") {
@@ -680,6 +686,13 @@ export function createScoreViewerController({
   }
 
   function setEmptyState(_title, _message) {}
+
+  function togglePlayback() {
+    if (!state.model || !state.isOpen) {
+      return;
+    }
+    onPlaybackToggle(!state.isPlaying);
+  }
 
   function syncScrollPosition() {
     if (!state.model) {

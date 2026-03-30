@@ -363,6 +363,117 @@ test("controller avoids rewriting chrome-only styles during selection-only updat
   }
 });
 
+test("controller toggles playback by double-clicking the viewer area", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const playbackToggleCalls = [];
+    const controller = createScoreViewerController({
+      root,
+      onPlaybackToggle: (nextPlaying) => {
+        playbackToggleCalls.push(nextPlaying);
+      },
+    });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+
+    const scrollHost = findElementByClass(root, "score-viewer-scroll-host");
+
+    dispatchEvent(scrollHost, "dblclick");
+
+    assert.deepEqual(playbackToggleCalls, [true]);
+
+    controller.setPlaybackState(true);
+    dispatchEvent(scrollHost, "dblclick");
+
+    assert.deepEqual(playbackToggleCalls, [true, false]);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller ignores viewer double-click when closed or unloaded", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const playbackToggleCalls = [];
+    const controller = createScoreViewerController({
+      root,
+      onPlaybackToggle: (nextPlaying) => {
+        playbackToggleCalls.push(nextPlaying);
+      },
+    });
+
+    const scrollHost = findElementByClass(root, "score-viewer-scroll-host");
+
+    dispatchEvent(scrollHost, "dblclick");
+
+    controller.setModel(createControllerTestModel());
+    dispatchEvent(scrollHost, "dblclick");
+
+    assert.deepEqual(playbackToggleCalls, []);
+
+    controller.setOpen(true);
+    dispatchEvent(scrollHost, "dblclick");
+
+    assert.deepEqual(playbackToggleCalls, [true]);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller does not toggle playback from playback button double-click or during drag", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const playbackToggleCalls = [];
+    const controller = createScoreViewerController({
+      root,
+      onPlaybackToggle: (nextPlaying) => {
+        playbackToggleCalls.push(nextPlaying);
+      },
+    });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+    controller.setViewerMode("game");
+
+    const scrollHost = findElementByClass(root, "score-viewer-scroll-host");
+    const playbackButton = findElementByClass(root, "score-viewer-playback-button");
+
+    dispatchEvent(playbackButton, "dblclick");
+    assert.deepEqual(playbackToggleCalls, []);
+
+    dispatchPointerEvent(scrollHost, "pointerdown", {
+      pointerId: 21,
+      clientY: 360,
+    });
+    dispatchEvent(scrollHost, "dblclick");
+    dispatchPointerEvent(scrollHost, "pointerup", {
+      pointerId: 21,
+      clientY: 360,
+    });
+
+    assert.deepEqual(playbackToggleCalls, []);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
 test("controller shows game drag handles only in game mode and hides cover handle when cover is invisible", () => {
   const environment = installControllerTestEnvironment();
   try {
@@ -601,12 +712,20 @@ function findElementByClass(root, className) {
 }
 
 function dispatchPointerEvent(element, type, overrides = {}) {
-  const listeners = element.listeners.get(type) ?? [];
-  const event = {
+  dispatchEvent(element, type, {
     button: 0,
     pointerType: "mouse",
+    ...overrides,
+  });
+}
+
+function dispatchEvent(element, type, overrides = {}) {
+  const listeners = element.listeners.get(type) ?? [];
+  const event = {
     preventDefault() {},
     stopPropagation() {},
+    target: element,
+    currentTarget: element,
     ...overrides,
   };
   for (const listener of listeners) {

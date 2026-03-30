@@ -647,8 +647,8 @@ export function createBmsInfoPreview({
     canvas: graphCanvas,
     tooltip: graphTooltip,
     pinInput,
-    onHoverTime: (timeSec) => {
-      handleGraphHover(timeSec);
+    onHoverTime: () => {
+      handleGraphHover();
     },
     onHoverLeave: () => {
       state.isGraphHovered = false;
@@ -658,8 +658,6 @@ export function createBmsInfoPreview({
       scheduleRender(PREVIEW_RENDER_DIRTY.viewerOpen);
     },
     onSelectTime: (timeSec) => {
-      state.isPinned = true;
-      onPinChange(true);
       void activateRecord({ openViewer: true });
       setSelectedTimeSec(timeSec, { openViewer: true, notify: true });
     },
@@ -750,13 +748,9 @@ export function createBmsInfoPreview({
     await ensureCompressedScoreAvailability(state.record);
   }
 
-  function handleGraphHover(timeSec) {
+  function handleGraphHover() {
     state.isGraphHovered = true;
     void activateRecord({ openViewer: true });
-    if (state.isPlaying) {
-      return;
-    }
-    setSelectedTimeSec(timeSec, { openViewer: true, notify: true });
   }
 
   async function activateRecord({ openViewer = false } = {}) {

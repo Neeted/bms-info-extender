@@ -4348,6 +4348,8 @@
   var MAX_LOG = Math.log10(MAX_RATIO);
   var GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX = 48;
   var GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX = 160;
+  var GRAPH_SELECTED_LINE_DRAG_HIT_PX = 10;
+  var GRAPH_SELECTED_LINE_DRAG_CURSOR = "ew-resize";
   function createBmsInfoGraph({
     scrollHost,
     canvas,
@@ -4368,23 +4370,31 @@
     const state = {
       record: null,
       selectedTimeSec: 0,
-      isPinned: false
+      isPinned: false,
+      dragPointerId: null
     };
     canvas.addEventListener("mousemove", (event) => {
       if (!state.record) {
         hideTooltip(tooltip);
+        updateCanvasCursor();
         return;
       }
       const timeSec = getHoverTimeSec(event, canvas);
       if (timeSec < 0 || timeSec > state.record.distributionSegments.length) {
         hideTooltip(tooltip);
+        updateCanvasCursor(event);
         return;
       }
       renderTooltip(tooltip, event, state.record, timeSec);
       onHoverTime(timeSec);
+      updateCanvasCursor(event);
     });
     canvas.addEventListener("mouseleave", () => {
+      if (state.dragPointerId !== null) {
+        return;
+      }
       hideTooltip(tooltip);
+      updateCanvasCursor();
       onHoverLeave();
     });
     canvas.addEventListener("click", (event) => {
@@ -4396,6 +4406,32 @@
         return;
       }
       onSelectTime(timeSec);
+    });
+    canvas.addEventListener("pointerdown", (event) => {
+      if (!state.record || !isPrimaryPointer2(event) || !isPointerNearSelectedLine(event, canvas, state.selectedTimeSec)) {
+        return;
+      }
+      state.dragPointerId = event.pointerId ?? 0;
+      if (typeof canvas.setPointerCapture === "function" && event.pointerId !== void 0) {
+        canvas.setPointerCapture(event.pointerId);
+      }
+      updateSelectionFromPointer(event);
+      updateCanvasCursor(event, { forceDragging: true });
+      event.preventDefault();
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (state.dragPointerId === null || event.pointerId !== state.dragPointerId) {
+        return;
+      }
+      updateSelectionFromPointer(event);
+      updateCanvasCursor(event, { forceDragging: true });
+      event.preventDefault();
+    });
+    canvas.addEventListener("pointerup", (event) => {
+      releaseDragPointer(event);
+    });
+    canvas.addEventListener("pointercancel", (event) => {
+      releaseDragPointer(event);
     });
     pinInput.addEventListener("change", () => {
       onPinChange(pinInput.checked);
@@ -4415,6 +4451,33 @@
       state.isPinned = Boolean(nextPinned);
       pinInput.checked = state.isPinned;
       pinInput.disabled = !state.record;
+    }
+    function updateSelectionFromPointer(event) {
+      const timeSec = getClampedHoverTimeSec(event, canvas, state.record);
+      renderTooltip(tooltip, event, state.record, timeSec);
+      onSelectTime(timeSec);
+    }
+    function releaseDragPointer(event) {
+      if (state.dragPointerId === null || event.pointerId !== state.dragPointerId) {
+        return;
+      }
+      if (typeof canvas.releasePointerCapture === "function" && event.pointerId !== void 0) {
+        try {
+          if (typeof canvas.hasPointerCapture !== "function" || canvas.hasPointerCapture(event.pointerId)) {
+            canvas.releasePointerCapture(event.pointerId);
+          }
+        } catch {
+        }
+      }
+      state.dragPointerId = null;
+      updateCanvasCursor(event);
+    }
+    function updateCanvasCursor(event = null, { forceDragging = false } = {}) {
+      if (!canvas?.style) {
+        return;
+      }
+      const showDragCursor = forceDragging || event && state.record && isPointerNearSelectedLine(event, canvas, state.selectedTimeSec);
+      canvas.style.cursor = showDragCursor ? GRAPH_SELECTED_LINE_DRAG_CURSOR : "";
     }
     function renderStaticScene() {
       const record = state.record;
@@ -4675,6 +4738,19 @@
     const rect = canvas.getBoundingClientRect();
     const mouseX = event.clientX - rect.left;
     return mouseX / (RECT_WIDTH + SPACING);
+  }
+  function getClampedHoverTimeSec(event, canvas, record) {
+    const maxTimeSec = Math.max(record?.distributionSegments?.length ?? 0, 0);
+    return clamp4(getHoverTimeSec(event, canvas), 0, maxTimeSec);
+  }
+  function isPointerNearSelectedLine(event, canvas, selectedTimeSec) {
+    const rect = canvas.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left;
+    const selectedLineX = timeToX(selectedTimeSec);
+    return Math.abs(pointerX - selectedLineX) <= GRAPH_SELECTED_LINE_DRAG_HIT_PX;
+  }
+  function isPrimaryPointer2(event) {
+    return event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen";
   }
   function logScaleY(bpm, mainBpm, canvasHeight) {
     const ratio = Math.min(Math.max(bpm / mainBpm, MIN_RATIO), MAX_RATIO);
@@ -5290,8 +5366,8 @@
       canvas: graphCanvas,
       tooltip: graphTooltip,
       pinInput,
-      onHoverTime: (timeSec) => {
-        handleGraphHover(timeSec);
+      onHoverTime: () => {
+        handleGraphHover();
       },
       onHoverLeave: () => {
         state.isGraphHovered = false;
@@ -5301,8 +5377,6 @@
         scheduleRender(PREVIEW_RENDER_DIRTY.viewerOpen);
       },
       onSelectTime: (timeSec) => {
-        state.isPinned = true;
-        onPinChange(true);
         void activateRecord({ openViewer: true });
         setSelectedTimeSec(timeSec, { openViewer: true, notify: true });
       },
@@ -5386,13 +5460,9 @@
       }
       await ensureCompressedScoreAvailability(state.record);
     }
-    function handleGraphHover(timeSec) {
+    function handleGraphHover() {
       state.isGraphHovered = true;
       void activateRecord({ openViewer: true });
-      if (state.isPlaying) {
-        return;
-      }
-      setSelectedTimeSec(timeSec, { openViewer: true, notify: true });
     }
     async function activateRecord({ openViewer = false } = {}) {
       if (!state.record) {
@@ -6164,6 +6234,7 @@
               items: [
                 "判定ラインをドラッグ可能にしました",
                 "譜面ビューアをダブルクリックで再生・停止できるようにしました",
+                "グラフ hover では譜面ビューアが即移動しないようにし、クリックと再生ラインのドラッグで動かせるようにしました",
                 "下部情報ウィンドウの設定情報は自動的に隠すようにしました",
                 "Game モードの挙動を beatoraja に近づけました",
                 {
@@ -6199,6 +6270,7 @@
               items: [
                 "The judge line is now draggable",
                 "You can now play or stop the score viewer by double-clicking it",
+                "Hovering the graph no longer moves the score viewer immediately; use clicks or drag the playback line instead",
                 "The settings in the bottom info panel are now hidden automatically",
                 "Game mode now behaves more like beatoraja",
                 {

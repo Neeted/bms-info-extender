@@ -54,6 +54,126 @@ test("graph reuses the static layer when only the selected cursor changes", () =
   assert.equal(context.drawImageCalls.length, drawImageCountAfterRecord + 1);
 });
 
+test("graph hover updates the tooltip without changing the selected time", () => {
+  const { canvas } = createGraphCanvas();
+  const hoverTimes = [];
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    onHoverTime: (timeSec) => {
+      hoverTimes.push(timeSec);
+    },
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  graph.setSelectedTimeSec(2);
+
+  canvas.dispatchEvent({ type: "mousemove", clientX: 20, clientY: 10 });
+
+  assert.deepEqual(hoverTimes, [4]);
+  assert.deepEqual(selectedTimes, []);
+});
+
+test("graph click updates the selected time", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  canvas.dispatchEvent({ type: "click", clientX: 35, clientY: 10 });
+
+  assert.deepEqual(selectedTimes, [7]);
+});
+
+test("graph drags the selected line when the pointer starts near it", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  graph.setSelectedTimeSec(2);
+
+  canvas.dispatchEvent({ type: "pointerdown", pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointermove", pointerId: 1, clientX: 26, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointerup", pointerId: 1, clientX: 26, clientY: 10 });
+
+  assert.equal(selectedTimes.length, 2);
+  assert.ok(Math.abs(selectedTimes[0] - 2) < 0.000001);
+  assert.ok(Math.abs(selectedTimes[1] - 5.2) < 0.000001);
+  assert.equal(canvas.style.cursor, "");
+});
+
+test("graph ignores pointer drags that do not start near the selected line", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  graph.setSelectedTimeSec(2);
+
+  canvas.dispatchEvent({ type: "pointerdown", pointerId: 1, button: 0, clientX: 60, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointermove", pointerId: 1, clientX: 80, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointerup", pointerId: 1, clientX: 80, clientY: 10 });
+
+  assert.deepEqual(selectedTimes, []);
+});
+
+test("graph clears drag state on pointercancel", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  graph.setSelectedTimeSec(2);
+
+  canvas.dispatchEvent({ type: "pointerdown", pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointercancel", pointerId: 1, clientX: 10, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointermove", pointerId: 1, clientX: 31, clientY: 10 });
+  canvas.dispatchEvent({ type: "mousemove", clientX: 80, clientY: 10 });
+
+  assert.equal(selectedTimes.length, 1);
+  assert.ok(Math.abs(selectedTimes[0] - 2) < 0.000001);
+  assert.equal(canvas.style.cursor, "");
+});
+
 test("graph skips duplicate BPM transition lines when the same x region is already painted", () => {
   const { staticContexts } = createGraphWithRecord({
     distributionSegments: Array.from({ length: 4 }, () => [0, 0, 0, 0, 0, 0, 0]),
@@ -130,6 +250,17 @@ function createGraphWithRecord(record) {
   return graphCanvas;
 }
 
+function createRecord() {
+  return {
+    distributionSegments: Array.from({ length: 8 }, () => [0, 0, 0, 0, 0, 0, 0]),
+    peakdensity: 12,
+    speedChangePoints: [[120, 0]],
+    mainbpm: 120,
+    minbpm: 120,
+    maxbpm: 120,
+  };
+}
+
 function getVerticalTransitionStrokes(context) {
   return context.strokeCalls.filter(({ strokeStyle, path, lineWidth }) => (
     strokeStyle === "rgba(127, 127, 127, 0.5)"
@@ -162,6 +293,8 @@ function createGraphCanvas() {
     },
   };
   const context = new MockRenderingContext2D();
+  const listeners = new Map();
+  const capturedPointerIds = new Set();
   return {
     canvas: {
       width: 0,
@@ -171,7 +304,33 @@ function createGraphCanvas() {
       getContext() {
         return context;
       },
-      addEventListener() {},
+      addEventListener(type, callback) {
+        const typeListeners = listeners.get(type) ?? [];
+        typeListeners.push(callback);
+        listeners.set(type, typeListeners);
+      },
+      dispatchEvent(event) {
+        const normalizedEvent = {
+          preventDefault() {},
+          stopPropagation() {},
+          currentTarget: this,
+          target: this,
+          ...event,
+        };
+        const typeListeners = listeners.get(normalizedEvent.type) ?? [];
+        for (const listener of typeListeners) {
+          listener(normalizedEvent);
+        }
+      },
+      setPointerCapture(pointerId) {
+        capturedPointerIds.add(pointerId);
+      },
+      releasePointerCapture(pointerId) {
+        capturedPointerIds.delete(pointerId);
+      },
+      hasPointerCapture(pointerId) {
+        return capturedPointerIds.has(pointerId);
+      },
       getBoundingClientRect() {
         return { left: 0, top: 0 };
       },
@@ -182,10 +341,28 @@ function createGraphCanvas() {
 }
 
 function createEventTarget() {
+  const listeners = new Map();
   return {
     checked: false,
     disabled: false,
-    addEventListener() {},
+    addEventListener(type, callback) {
+      const typeListeners = listeners.get(type) ?? [];
+      typeListeners.push(callback);
+      listeners.set(type, typeListeners);
+    },
+    dispatchEvent(event) {
+      const normalizedEvent = {
+        preventDefault() {},
+        stopPropagation() {},
+        currentTarget: this,
+        target: this,
+        ...event,
+      };
+      const typeListeners = listeners.get(normalizedEvent.type) ?? [];
+      for (const listener of typeListeners) {
+        listener(normalizedEvent);
+      }
+    },
   };
 }
 

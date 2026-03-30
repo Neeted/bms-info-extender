@@ -12,6 +12,8 @@ const MIN_LOG = Math.log10(MIN_RATIO);
 const MAX_LOG = Math.log10(MAX_RATIO);
 const GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX = 48;
 const GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX = 160;
+const GRAPH_SELECTED_LINE_DRAG_HIT_PX = 10;
+const GRAPH_SELECTED_LINE_DRAG_CURSOR = "ew-resize";
 
 export function createBmsInfoGraph({
   scrollHost,
@@ -30,26 +32,34 @@ export function createBmsInfoGraph({
     record: null,
     selectedTimeSec: 0,
     isPinned: false,
+    dragPointerId: null,
   };
 
   canvas.addEventListener("mousemove", (event) => {
     if (!state.record) {
       hideTooltip(tooltip);
+      updateCanvasCursor();
       return;
     }
 
     const timeSec = getHoverTimeSec(event, canvas);
     if (timeSec < 0 || timeSec > state.record.distributionSegments.length) {
       hideTooltip(tooltip);
+      updateCanvasCursor(event);
       return;
     }
 
     renderTooltip(tooltip, event, state.record, timeSec);
     onHoverTime(timeSec);
+    updateCanvasCursor(event);
   });
 
   canvas.addEventListener("mouseleave", () => {
+    if (state.dragPointerId !== null) {
+      return;
+    }
     hideTooltip(tooltip);
+    updateCanvasCursor();
     onHoverLeave();
   });
 
@@ -62,6 +72,36 @@ export function createBmsInfoGraph({
       return;
     }
     onSelectTime(timeSec);
+  });
+
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!state.record || !isPrimaryPointer(event) || !isPointerNearSelectedLine(event, canvas, state.selectedTimeSec)) {
+      return;
+    }
+    state.dragPointerId = event.pointerId ?? 0;
+    if (typeof canvas.setPointerCapture === "function" && event.pointerId !== undefined) {
+      canvas.setPointerCapture(event.pointerId);
+    }
+    updateSelectionFromPointer(event);
+    updateCanvasCursor(event, { forceDragging: true });
+    event.preventDefault();
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    if (state.dragPointerId === null || event.pointerId !== state.dragPointerId) {
+      return;
+    }
+    updateSelectionFromPointer(event);
+    updateCanvasCursor(event, { forceDragging: true });
+    event.preventDefault();
+  });
+
+  canvas.addEventListener("pointerup", (event) => {
+    releaseDragPointer(event);
+  });
+
+  canvas.addEventListener("pointercancel", (event) => {
+    releaseDragPointer(event);
   });
 
   pinInput.addEventListener("change", () => {
@@ -85,6 +125,36 @@ export function createBmsInfoGraph({
     state.isPinned = Boolean(nextPinned);
     pinInput.checked = state.isPinned;
     pinInput.disabled = !state.record;
+  }
+
+  function updateSelectionFromPointer(event) {
+    const timeSec = getClampedHoverTimeSec(event, canvas, state.record);
+    renderTooltip(tooltip, event, state.record, timeSec);
+    onSelectTime(timeSec);
+  }
+
+  function releaseDragPointer(event) {
+    if (state.dragPointerId === null || event.pointerId !== state.dragPointerId) {
+      return;
+    }
+    if (typeof canvas.releasePointerCapture === "function" && event.pointerId !== undefined) {
+      try {
+        if (typeof canvas.hasPointerCapture !== "function" || canvas.hasPointerCapture(event.pointerId)) {
+          canvas.releasePointerCapture(event.pointerId);
+        }
+      } catch {
+      }
+    }
+    state.dragPointerId = null;
+    updateCanvasCursor(event);
+  }
+
+  function updateCanvasCursor(event = null, { forceDragging = false } = {}) {
+    if (!canvas?.style) {
+      return;
+    }
+    const showDragCursor = forceDragging || (event && state.record && isPointerNearSelectedLine(event, canvas, state.selectedTimeSec));
+    canvas.style.cursor = showDragCursor ? GRAPH_SELECTED_LINE_DRAG_CURSOR : "";
   }
 
   function renderStaticScene() {
@@ -372,6 +442,22 @@ function getHoverTimeSec(event, canvas) {
   const rect = canvas.getBoundingClientRect();
   const mouseX = event.clientX - rect.left;
   return mouseX / (RECT_WIDTH + SPACING);
+}
+
+function getClampedHoverTimeSec(event, canvas, record) {
+  const maxTimeSec = Math.max(record?.distributionSegments?.length ?? 0, 0);
+  return clamp(getHoverTimeSec(event, canvas), 0, maxTimeSec);
+}
+
+function isPointerNearSelectedLine(event, canvas, selectedTimeSec) {
+  const rect = canvas.getBoundingClientRect();
+  const pointerX = event.clientX - rect.left;
+  const selectedLineX = timeToX(selectedTimeSec);
+  return Math.abs(pointerX - selectedLineX) <= GRAPH_SELECTED_LINE_DRAG_HIT_PX;
+}
+
+function isPrimaryPointer(event) {
+  return event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen";
 }
 
 function logScaleY(bpm, mainBpm, canvasHeight) {

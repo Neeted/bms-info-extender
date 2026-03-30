@@ -193,6 +193,98 @@ test("viewer model dirty render also reapplies persisted viewer chrome", () => {
   );
 });
 
+test("graph hover opens the viewer without changing the selected time", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview, elements } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("1".repeat(64)));
+    await environment.settle();
+
+    elements.graphCanvas.dispatchEvent({ type: "mousemove", clientX: 25, clientY: 0 });
+    await environment.settle();
+
+    const state = preview.getState();
+    assert.equal(state.isViewerOpen, true);
+    assert.equal(state.selectedTimeSec, 0);
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("graph click syncs the selected time with the viewer", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview, elements } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("2".repeat(64)));
+    await environment.settle();
+
+    elements.graphCanvas.dispatchEvent({ type: "click", clientX: 25, clientY: 0 });
+    await environment.settle();
+
+    let state = preview.getState();
+    assert.equal(state.isViewerOpen, true);
+    assert.equal(state.isPinned, false);
+    assert.equal(state.selectedTimeSec, 5);
+
+    elements.graphCanvas.dispatchEvent({ type: "mouseleave" });
+    await environment.settle();
+
+    state = preview.getState();
+    assert.equal(state.isViewerOpen, false);
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("graph playback line drag updates the viewer selected time", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview, elements } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("3".repeat(64)));
+    preview.setSelectedTimeSec(5);
+    await environment.settle();
+
+    elements.graphCanvas.dispatchEvent({ type: "pointerdown", pointerId: 1, button: 0, clientX: 25, clientY: 0 });
+    elements.graphCanvas.dispatchEvent({ type: "pointermove", pointerId: 1, clientX: 36, clientY: 0 });
+    elements.graphCanvas.dispatchEvent({ type: "pointerup", pointerId: 1, clientX: 36, clientY: 0 });
+    await environment.settle();
+
+    let state = preview.getState();
+    assert.equal(state.isViewerOpen, true);
+    assert.equal(state.isPinned, false);
+    assert.ok(Math.abs(state.selectedTimeSec - 7.2) < 0.000001);
+
+    elements.graphCanvas.dispatchEvent({ type: "mouseleave" });
+    await environment.settle();
+
+    state = preview.getState();
+    assert.equal(state.isViewerOpen, false);
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
 test("preview prefetch starts one availability fetch and hover waits on the same pending attempt", async () => {
   const environment = installPreviewTestEnvironment();
   try {
@@ -653,10 +745,23 @@ class MockCanvasElement extends MockElement {
     this.width = 0;
     this.height = 0;
     this.context = new MockRenderingContext2D();
+    this.capturedPointerIds = new Set();
   }
 
   getContext() {
     return this.context;
+  }
+
+  setPointerCapture(pointerId) {
+    this.capturedPointerIds.add(pointerId);
+  }
+
+  releasePointerCapture(pointerId) {
+    this.capturedPointerIds.delete(pointerId);
+  }
+
+  hasPointerCapture(pointerId) {
+    return this.capturedPointerIds.has(pointerId);
   }
 }
 

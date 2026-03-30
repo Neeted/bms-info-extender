@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  formatSpacingScaleDisplay,
   JUDGE_LINE_DRAG_HIT_MARGIN_PX,
   getJudgeLinePositionRatioFromPointer,
   isJudgeLineHit,
   normalizeWheelDeltaY,
+  normalizeSliderSpacingScale,
+  roundSpacingScaleToHundredths,
   resolvePointerDragIntent,
+  SPACING_STEP,
+  SPACING_WHEEL_STEP,
   shouldSyncPlaybackScrollPosition,
 } from "./score-viewer-controller.js";
 
@@ -100,4 +105,23 @@ test("judge line pointer ratios clamp to the viewport and default to center for 
     rootTop: 100,
     rootHeight: 0,
   }), 0.5);
+});
+
+test("spacing slider input snaps to 0.05x and wheel adjustments snap to 0.01x", () => {
+  assert.equal(SPACING_STEP, 0.05);
+  assert.equal(SPACING_WHEEL_STEP, 0.01);
+  assert.equal(normalizeSliderSpacingScale(1.02), 1.0);
+  assert.equal(normalizeSliderSpacingScale(1.03), 1.05);
+  assert.equal(normalizeSliderSpacingScale(0.11), 0.5);
+  assert.equal(roundSpacingScaleToHundredths(1.234), 1.23);
+  assert.equal(roundSpacingScaleToHundredths(1.235), 1.24);
+  assert.equal(roundSpacingScaleToHundredths(9), 8.0);
+});
+
+test("spacing display text includes mode-specific units for time and editor", () => {
+  assert.equal(formatSpacingScaleDisplay("time", 1.0), "Time: 1.00x(160px/s)");
+  assert.equal(formatSpacingScaleDisplay("editor", 1.0), "Editor: 1.00x(64px/beat)");
+  assert.equal(formatSpacingScaleDisplay("game", 1.0), "Game: 1.00x");
+  assert.equal(formatSpacingScaleDisplay("time", 1.25), "Time: 1.25x(200px/s)");
+  assert.equal(formatSpacingScaleDisplay("editor", 1.5), "Editor: 1.50x(96px/beat)");
 });

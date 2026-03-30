@@ -2157,7 +2157,8 @@ function hexToRgb(color) {
 var DEFAULT_WHEEL_LINE_HEIGHT_PX = 16;
 var MIN_SPACING_SCALE = 0.5;
 var MAX_SPACING_SCALE = 8;
-var SPACING_STEP = 0.01;
+var SPACING_STEP = 0.05;
+var SPACING_WHEEL_STEP = 0.01;
 var DEFAULT_SPACING_SCALE = 1;
 var GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO = 0.4;
 var GAME_PLAYBACK_SCROLL_SYNC_MIN_PX = 120;
@@ -2173,6 +2174,8 @@ function createScoreViewerController({
   onInvisibleNoteVisibilityChange = () => {
   },
   onJudgeLinePositionChange = () => {
+  },
+  onSpacingScaleChange = () => {
   }
 }) {
   const scrollHost = document.createElement("div");
@@ -2253,7 +2256,7 @@ function createScoreViewerController({
     isPinned: false,
     isOpen: false,
     isPlaying: false,
-    spacingScale: DEFAULT_SPACING_SCALE,
+    spacingScaleByMode: createDefaultSpacingScaleByMode(),
     viewerMode: DEFAULT_VIEWER_MODE,
     invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
     judgeLinePositionRatio: DEFAULT_JUDGE_LINE_POSITION_RATIO,
@@ -2341,15 +2344,28 @@ function createScoreViewerController({
   scrollHost.addEventListener("pointercancel", handlePointerRelease);
   scrollHost.addEventListener("lostpointercapture", handlePointerRelease);
   spacingInput.addEventListener("input", () => {
-    const nextScale = clampScale(Number.parseFloat(spacingInput.value));
-    if (Math.abs(nextScale - state2.spacingScale) < 5e-4) {
-      spacingValue.textContent = formatSpacingScale(state2.spacingScale);
+    updateSpacingScaleForMode(
+      getResolvedViewerMode2(),
+      normalizeSliderSpacingScale(Number.parseFloat(spacingInput.value)),
+      { notify: true }
+    );
+  });
+  spacingInput.addEventListener("wheel", (event) => {
+    if (!state2.isOpen || !state2.model) {
       return;
     }
-    state2.spacingScale = nextScale;
-    spacingValue.textContent = formatSpacingScale(state2.spacingScale);
-    refreshLayout();
-  });
+    const delta = event.deltaY < 0 ? SPACING_WHEEL_STEP : event.deltaY > 0 ? -SPACING_WHEEL_STEP : 0;
+    if (delta === 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    updateSpacingScaleForMode(
+      getResolvedViewerMode2(),
+      roundSpacingScaleToHundredths(getSpacingScaleForMode(getResolvedViewerMode2()) + delta),
+      { notify: true }
+    );
+  }, { passive: false });
   modeSelect.addEventListener("change", () => {
     const nextMode = normalizeViewerMode(modeSelect.value);
     if (nextMode === "game" && !state2.model?.supportsGameMode) {
@@ -2488,6 +2504,19 @@ function createScoreViewerController({
     syncScrollPosition();
     renderScene();
   }
+  function setSpacingScaleByMode(nextSpacingScaleByMode = {}) {
+    const normalizedSpacingScaleByMode = {
+      time: clampScale(nextSpacingScaleByMode.time),
+      editor: clampScale(nextSpacingScaleByMode.editor),
+      game: clampScale(nextSpacingScaleByMode.game)
+    };
+    if (areSpacingScaleMapsEqual(state2.spacingScaleByMode, normalizedSpacingScaleByMode)) {
+      return;
+    }
+    state2.spacingScaleByMode = normalizedSpacingScaleByMode;
+    editorFrameStateCache = null;
+    refreshLayout();
+  }
   function setEmptyState(_title, _message) {
   }
   function syncScrollPosition() {
@@ -2611,8 +2640,13 @@ function createScoreViewerController({
       "measureText"
     );
     setTextIfChanged(comboRow, `CB: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
-    setTextIfChanged(spacingValue, formatSpacingScale(state2.spacingScale), "spacingText");
-    setValueIfChanged(spacingInput, String(state2.spacingScale), "spacingInputValue");
+    const activeSpacingScale = getSpacingScaleForMode(resolvedViewerMode);
+    setTextIfChanged(
+      spacingValue,
+      formatSpacingScaleDisplay(resolvedViewerMode, activeSpacingScale),
+      "spacingText"
+    );
+    setValueIfChanged(spacingInput, activeSpacingScale.toFixed(2), "spacingInputValue");
     setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");
     setDisabledIfChanged(modeSelect, !state2.model, "modeSelectDisabled");
     setValueIfChanged(invisibleNoteVisibilitySelect, state2.invisibleNoteVisibility, "invisibleNoteVisibilityValue");
@@ -2635,7 +2669,7 @@ function createScoreViewerController({
     }
   }
   setPinned(false);
-  spacingValue.textContent = formatSpacingScale(state2.spacingScale);
+  spacingValue.textContent = formatSpacingScaleDisplay(DEFAULT_VIEWER_MODE, DEFAULT_SPACING_SCALE);
   modeSelect.value = DEFAULT_VIEWER_MODE;
   invisibleNoteVisibilitySelect.value = DEFAULT_INVISIBLE_NOTE_VISIBILITY;
   refreshLayout();
@@ -2648,6 +2682,7 @@ function createScoreViewerController({
     setViewerMode,
     setInvisibleNoteVisibility,
     setJudgeLinePositionRatio,
+    setSpacingScaleByMode,
     setEmptyState,
     refreshLayout,
     destroy
@@ -2707,10 +2742,10 @@ function createScoreViewerController({
     return resolveViewerModeForModel(state2.model, state2.viewerMode);
   }
   function getPixelsPerSecond() {
-    return DEFAULT_VIEWER_PIXELS_PER_SECOND * state2.spacingScale;
+    return DEFAULT_VIEWER_PIXELS_PER_SECOND * getSpacingScaleForMode("time");
   }
   function getPixelsPerBeat() {
-    return DEFAULT_EDITOR_PIXELS_PER_BEAT * state2.spacingScale;
+    return DEFAULT_EDITOR_PIXELS_PER_BEAT * getSpacingScaleForMode(getResolvedViewerMode2());
   }
   function getCurrentJudgeLineY(viewportHeight = root.clientHeight || 0) {
     return getJudgeLineY(viewportHeight, state2.judgeLinePositionRatio);
@@ -2841,6 +2876,30 @@ function createScoreViewerController({
       onJudgeLinePositionChange(state2.judgeLinePositionRatio);
     }
   }
+  function getSpacingScaleForMode(mode) {
+    return state2.spacingScaleByMode[normalizeSpacingMode(mode)] ?? DEFAULT_SPACING_SCALE;
+  }
+  function updateSpacingScaleForMode(mode, nextScale, { notify = false } = {}) {
+    const normalizedMode = normalizeSpacingMode(mode);
+    const normalizedScale = clampScale(nextScale);
+    if (Math.abs(getSpacingScaleForMode(normalizedMode) - normalizedScale) < 5e-4) {
+      setTextIfChanged(
+        spacingValue,
+        formatSpacingScaleDisplay(getResolvedViewerMode2(), getSpacingScaleForMode(getResolvedViewerMode2())),
+        "spacingText"
+      );
+      return;
+    }
+    state2.spacingScaleByMode = {
+      ...state2.spacingScaleByMode,
+      [normalizedMode]: normalizedScale
+    };
+    editorFrameStateCache = null;
+    refreshLayout();
+    if (notify) {
+      onSpacingScaleChange(normalizedMode, normalizedScale);
+    }
+  }
 }
 function createModeOption(value, label, disabled = false) {
   const option = document.createElement("option");
@@ -2917,14 +2976,48 @@ function clampScale(value) {
   }
   return Math.min(Math.max(value, MIN_SPACING_SCALE), MAX_SPACING_SCALE);
 }
+function createDefaultSpacingScaleByMode() {
+  return {
+    time: DEFAULT_SPACING_SCALE,
+    editor: DEFAULT_SPACING_SCALE,
+    game: DEFAULT_SPACING_SCALE
+  };
+}
+function normalizeSpacingMode(mode) {
+  return mode === "editor" || mode === "game" ? mode : "time";
+}
+function normalizeSliderSpacingScale(value) {
+  return roundSpacingScaleToStep(clampScale(value), SPACING_STEP);
+}
+function roundSpacingScaleToHundredths(value) {
+  return roundSpacingScaleToStep(clampScale(value), SPACING_WHEEL_STEP);
+}
+function roundSpacingScaleToStep(value, step) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_SPACING_SCALE;
+  }
+  const baseValue = Math.round(value / step) * step;
+  return Number(clampScale(baseValue).toFixed(2));
+}
+function areSpacingScaleMapsEqual(left, right) {
+  return Math.abs((left?.time ?? DEFAULT_SPACING_SCALE) - (right?.time ?? DEFAULT_SPACING_SCALE)) < 5e-4 && Math.abs((left?.editor ?? DEFAULT_SPACING_SCALE) - (right?.editor ?? DEFAULT_SPACING_SCALE)) < 5e-4 && Math.abs((left?.game ?? DEFAULT_SPACING_SCALE) - (right?.game ?? DEFAULT_SPACING_SCALE)) < 5e-4;
+}
 function isPrimaryPointer(event) {
   return event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen";
 }
 function clamp3(value, minValue, maxValue) {
   return Math.min(Math.max(value, minValue), maxValue);
 }
-function formatSpacingScale(value) {
-  return `${clampScale(value).toFixed(2)}x`;
+function formatSpacingScaleDisplay(mode, value) {
+  const normalizedMode = normalizeSpacingMode(mode);
+  const normalizedScale = clampScale(value);
+  if (normalizedMode === "time") {
+    return `${normalizedScale.toFixed(2)}x(${Math.round(DEFAULT_VIEWER_PIXELS_PER_SECOND * normalizedScale)}px/s)`;
+  }
+  if (normalizedMode === "editor") {
+    return `${normalizedScale.toFixed(2)}x(${Math.round(DEFAULT_EDITOR_PIXELS_PER_BEAT * normalizedScale)}px/beat)`;
+  }
+  return `${normalizedScale.toFixed(2)}x`;
 }
 function formatPlaybackTime(timeSec) {
   const safeTimeSec = Number.isFinite(timeSec) ? Math.max(timeSec, 0) : 0;
@@ -3507,6 +3600,12 @@ var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
 var VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
 var INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibleNoteVisibility";
 var JUDGE_LINE_POSITION_RATIO_STORAGE_KEY = "bms-info-extender.judgeLinePositionRatio";
+var SPACING_SCALE_STORAGE_KEYS = Object.freeze({
+  time: "bms-info-extender.spacingScale.time",
+  editor: "bms-info-extender.spacingScale.editor",
+  game: "bms-info-extender.spacingScale.game"
+});
+var DEFAULT_SPACING_SCALE2 = 1;
 var PREVIEW_RENDER_DIRTY = {
   record: 1 << 0,
   selection: 1 << 1,
@@ -3516,7 +3615,8 @@ var PREVIEW_RENDER_DIRTY = {
   viewerMode: 1 << 5,
   invisible: 1 << 6,
   judgeLinePosition: 1 << 7,
-  viewerOpen: 1 << 8
+  spacing: 1 << 8,
+  viewerOpen: 1 << 9
 };
 var PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 var bmsSearchPatternAvailabilityCache = /* @__PURE__ */ new Map();
@@ -3568,13 +3668,28 @@ function createPreviewPreferenceStorage({ read = () => null, write = () => {
         write(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, normalizeJudgeLinePositionRatio(nextRatio));
       } catch (_error) {
       }
+    },
+    getPersistedSpacingScale(mode) {
+      try {
+        return normalizeSpacingScale(
+          Number(read(getSpacingScaleStorageKey(mode), DEFAULT_SPACING_SCALE2))
+        );
+      } catch (_error) {
+        return DEFAULT_SPACING_SCALE2;
+      }
+    },
+    setPersistedSpacingScale(mode, value) {
+      try {
+        write(getSpacingScaleStorageKey(mode), normalizeSpacingScale(value));
+      } catch (_error) {
+      }
     }
   };
 }
 function expandPreviewRenderMask(renderMask = 0) {
   let expandedMask = renderMask;
   if (expandedMask & PREVIEW_RENDER_DIRTY.viewerModel) {
-    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible | PREVIEW_RENDER_DIRTY.judgeLinePosition;
+    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible | PREVIEW_RENDER_DIRTY.judgeLinePosition | PREVIEW_RENDER_DIRTY.spacing;
   }
   return expandedMask;
 }
@@ -3861,6 +3976,9 @@ function createBmsInfoPreview({
   getPersistedJudgeLinePositionRatio = () => DEFAULT_JUDGE_LINE_POSITION_RATIO,
   setPersistedJudgeLinePositionRatio = () => {
   },
+  getPersistedSpacingScale = () => DEFAULT_SPACING_SCALE2,
+  setPersistedSpacingScale = () => {
+  },
   onSelectedTimeChange = () => {
   },
   onPinChange = () => {
@@ -3893,6 +4011,7 @@ function createBmsInfoPreview({
     viewerMode: getInitialViewerMode(getPersistedViewerMode),
     invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
     judgeLinePositionRatio: getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio),
+    spacingScaleByMode: getInitialSpacingScaleByMode(getPersistedSpacingScale),
     isPinned: false,
     isViewerOpen: false,
     isPlaying: false,
@@ -3929,6 +4048,9 @@ function createBmsInfoPreview({
     },
     onJudgeLinePositionChange: (nextRatio) => {
       setJudgeLinePositionRatio(nextRatio);
+    },
+    onSpacingScaleChange: (mode, nextScale) => {
+      setSpacingScale(mode, nextScale);
     }
   });
   const graphController = createBmsInfoGraph({
@@ -3970,6 +4092,7 @@ function createBmsInfoPreview({
     setViewerMode,
     setInvisibleNoteVisibility,
     setJudgeLinePositionRatio,
+    setSpacingScale,
     setPinned,
     setPlaybackState,
     prefetch,
@@ -4242,6 +4365,23 @@ function createBmsInfoPreview({
     }
     scheduleRender(PREVIEW_RENDER_DIRTY.judgeLinePosition);
   }
+  function setSpacingScale(mode, nextScale) {
+    const normalizedMode = normalizeSpacingMode2(mode);
+    const normalizedScale = normalizeSpacingScale(nextScale);
+    if (Math.abs((state2.spacingScaleByMode[normalizedMode] ?? DEFAULT_SPACING_SCALE2) - normalizedScale) < 1e-6) {
+      return;
+    }
+    state2.spacingScaleByMode = {
+      ...state2.spacingScaleByMode,
+      [normalizedMode]: normalizedScale
+    };
+    try {
+      setPersistedSpacingScale(normalizedMode, normalizedScale);
+    } catch (error) {
+      console.warn("Failed to persist spacing scale:", error);
+    }
+    scheduleRender(PREVIEW_RENDER_DIRTY.spacing);
+  }
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state2.isPinned === normalized) {
@@ -4387,6 +4527,9 @@ function createBmsInfoPreview({
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.judgeLinePosition) {
       viewerController.setJudgeLinePositionRatio(state2.judgeLinePositionRatio);
     }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.spacing) {
+      viewerController.setSpacingScaleByMode(state2.spacingScaleByMode);
+    }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
       viewerController.setPlaybackState(state2.isPlaying);
     }
@@ -4511,6 +4654,21 @@ function getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio) {
     return DEFAULT_JUDGE_LINE_POSITION_RATIO;
   }
 }
+function getInitialSpacingScaleByMode(getPersistedSpacingScale) {
+  return {
+    time: getInitialSpacingScale("time", getPersistedSpacingScale),
+    editor: getInitialSpacingScale("editor", getPersistedSpacingScale),
+    game: getInitialSpacingScale("game", getPersistedSpacingScale)
+  };
+}
+function getInitialSpacingScale(mode, getPersistedSpacingScale) {
+  try {
+    return normalizeSpacingScale(Number(getPersistedSpacingScale?.(normalizeSpacingMode2(mode))));
+  } catch (error) {
+    console.warn("Failed to read persisted spacing scale:", error);
+    return DEFAULT_SPACING_SCALE2;
+  }
+}
 function estimateViewerWidthFromNumericMode(mode) {
   switch (Number(mode)) {
     case 5:
@@ -4559,6 +4717,18 @@ function formatCompactNumber(value) {
 }
 function clampValue(value, minValue, maxValue) {
   return Math.min(Math.max(value, minValue), maxValue);
+}
+function getSpacingScaleStorageKey(mode) {
+  return SPACING_SCALE_STORAGE_KEYS[normalizeSpacingMode2(mode)];
+}
+function normalizeSpacingMode2(mode) {
+  return mode === "editor" || mode === "game" ? mode : "time";
+}
+function normalizeSpacingScale(value) {
+  if (!Number.isFinite(value) || value < 0.5 || value > 8) {
+    return DEFAULT_SPACING_SCALE2;
+  }
+  return value;
 }
 
 // site/dev/score-viewer/src/app.js

@@ -28,6 +28,12 @@ const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
 export const VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
 export const INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibleNoteVisibility";
 export const JUDGE_LINE_POSITION_RATIO_STORAGE_KEY = "bms-info-extender.judgeLinePositionRatio";
+export const SPACING_SCALE_STORAGE_KEYS = Object.freeze({
+  time: "bms-info-extender.spacingScale.time",
+  editor: "bms-info-extender.spacingScale.editor",
+  game: "bms-info-extender.spacingScale.game",
+});
+export const DEFAULT_SPACING_SCALE = 1.0;
 export { DEFAULT_VIEWER_MODE };
 export { DEFAULT_INVISIBLE_NOTE_VISIBILITY };
 export { DEFAULT_JUDGE_LINE_POSITION_RATIO };
@@ -41,7 +47,8 @@ export const PREVIEW_RENDER_DIRTY = {
   viewerMode: 1 << 5,
   invisible: 1 << 6,
   judgeLinePosition: 1 << 7,
-  viewerOpen: 1 << 8,
+  spacing: 1 << 8,
+  viewerOpen: 1 << 9,
 };
 const PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 
@@ -98,13 +105,32 @@ export function createPreviewPreferenceStorage({ read = () => null, write = () =
         // Ignore storage failures and keep runtime state only.
       }
     },
+    getPersistedSpacingScale(mode) {
+      try {
+        return normalizeSpacingScale(
+          Number(read(getSpacingScaleStorageKey(mode), DEFAULT_SPACING_SCALE)),
+        );
+      } catch (_error) {
+        return DEFAULT_SPACING_SCALE;
+      }
+    },
+    setPersistedSpacingScale(mode, value) {
+      try {
+        write(getSpacingScaleStorageKey(mode), normalizeSpacingScale(value));
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
   };
 }
 
 export function expandPreviewRenderMask(renderMask = 0) {
   let expandedMask = renderMask;
   if (expandedMask & PREVIEW_RENDER_DIRTY.viewerModel) {
-    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible | PREVIEW_RENDER_DIRTY.judgeLinePosition;
+    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode
+      | PREVIEW_RENDER_DIRTY.invisible
+      | PREVIEW_RENDER_DIRTY.judgeLinePosition
+      | PREVIEW_RENDER_DIRTY.spacing;
   }
   return expandedMask;
 }
@@ -406,6 +432,8 @@ export function createBmsInfoPreview({
   setPersistedInvisibleNoteVisibility = () => {},
   getPersistedJudgeLinePositionRatio = () => DEFAULT_JUDGE_LINE_POSITION_RATIO,
   setPersistedJudgeLinePositionRatio = () => {},
+  getPersistedSpacingScale = () => DEFAULT_SPACING_SCALE,
+  setPersistedSpacingScale = () => {},
   onSelectedTimeChange = () => {},
   onPinChange = () => {},
   onPlaybackChange = () => {},
@@ -433,11 +461,12 @@ export function createBmsInfoPreview({
     selectedSha256: null,
     selectedTimeSec: 0,
     selectedBeat: 0,
-      viewerMode: getInitialViewerMode(getPersistedViewerMode),
-      invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
-      judgeLinePositionRatio: getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio),
-      isPinned: false,
-      isViewerOpen: false,
+    viewerMode: getInitialViewerMode(getPersistedViewerMode),
+    invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
+    judgeLinePositionRatio: getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio),
+    spacingScaleByMode: getInitialSpacingScaleByMode(getPersistedSpacingScale),
+    isPinned: false,
+    isViewerOpen: false,
     isPlaying: false,
     isGraphHovered: false,
     parsedScore: null,
@@ -473,6 +502,9 @@ export function createBmsInfoPreview({
     },
     onJudgeLinePositionChange: (nextRatio) => {
       setJudgeLinePositionRatio(nextRatio);
+    },
+    onSpacingScaleChange: (mode, nextScale) => {
+      setSpacingScale(mode, nextScale);
     },
   });
 
@@ -516,6 +548,7 @@ export function createBmsInfoPreview({
     setViewerMode,
     setInvisibleNoteVisibility,
     setJudgeLinePositionRatio,
+    setSpacingScale,
     setPinned,
     setPlaybackState,
     prefetch,
@@ -822,6 +855,24 @@ export function createBmsInfoPreview({
     scheduleRender(PREVIEW_RENDER_DIRTY.judgeLinePosition);
   }
 
+  function setSpacingScale(mode, nextScale) {
+    const normalizedMode = normalizeSpacingMode(mode);
+    const normalizedScale = normalizeSpacingScale(nextScale);
+    if (Math.abs((state.spacingScaleByMode[normalizedMode] ?? DEFAULT_SPACING_SCALE) - normalizedScale) < 0.000001) {
+      return;
+    }
+    state.spacingScaleByMode = {
+      ...state.spacingScaleByMode,
+      [normalizedMode]: normalizedScale,
+    };
+    try {
+      setPersistedSpacingScale(normalizedMode, normalizedScale);
+    } catch (error) {
+      console.warn("Failed to persist spacing scale:", error);
+    }
+    scheduleRender(PREVIEW_RENDER_DIRTY.spacing);
+  }
+
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state.isPinned === normalized) {
@@ -973,6 +1024,9 @@ export function createBmsInfoPreview({
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.judgeLinePosition) {
       viewerController.setJudgeLinePositionRatio(state.judgeLinePositionRatio);
     }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.spacing) {
+      viewerController.setSpacingScaleByMode(state.spacingScaleByMode);
+    }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
       viewerController.setPlaybackState(state.isPlaying);
     }
@@ -1111,6 +1165,23 @@ export function getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRa
   }
 }
 
+export function getInitialSpacingScaleByMode(getPersistedSpacingScale) {
+  return {
+    time: getInitialSpacingScale("time", getPersistedSpacingScale),
+    editor: getInitialSpacingScale("editor", getPersistedSpacingScale),
+    game: getInitialSpacingScale("game", getPersistedSpacingScale),
+  };
+}
+
+export function getInitialSpacingScale(mode, getPersistedSpacingScale) {
+  try {
+    return normalizeSpacingScale(Number(getPersistedSpacingScale?.(normalizeSpacingMode(mode))));
+  } catch (error) {
+    console.warn("Failed to read persisted spacing scale:", error);
+    return DEFAULT_SPACING_SCALE;
+  }
+}
+
 function estimateViewerWidthFromNumericMode(mode) {
   switch (Number(mode)) {
     case 5:
@@ -1162,4 +1233,19 @@ function formatCompactNumber(value) {
 
 function clampValue(value, minValue, maxValue) {
   return Math.min(Math.max(value, minValue), maxValue);
+}
+
+export function getSpacingScaleStorageKey(mode) {
+  return SPACING_SCALE_STORAGE_KEYS[normalizeSpacingMode(mode)];
+}
+
+function normalizeSpacingMode(mode) {
+  return mode === "editor" || mode === "game" ? mode : "time";
+}
+
+function normalizeSpacingScale(value) {
+  if (!Number.isFinite(value) || value < 0.5 || value > 8.0) {
+    return DEFAULT_SPACING_SCALE;
+  }
+  return value;
 }

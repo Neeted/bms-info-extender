@@ -8,10 +8,14 @@ import {
   DEFAULT_VIEWER_MODE,
   DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
+  DEFAULT_SPACING_SCALE,
   INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
   JUDGE_LINE_POSITION_RATIO_STORAGE_KEY,
+  SPACING_SCALE_STORAGE_KEYS,
   VIEWER_MODE_STORAGE_KEY,
   expandPreviewRenderMask,
+  getInitialSpacingScale,
+  getInitialSpacingScaleByMode,
   getInitialViewerMode,
   getInitialInvisibleNoteVisibility,
   getInitialJudgeLinePositionRatio,
@@ -43,7 +47,26 @@ test("judge line position ratio defaults to center and restores valid persisted 
   assert.equal(getInitialJudgeLinePositionRatio(() => "invalid"), 0.5);
 });
 
-test("preview preference storage shares persistence wiring for viewer mode, invisible notes, and judge line position", () => {
+test("spacing scale defaults to 1.0 and restores valid persisted values per mode", () => {
+  assert.equal(DEFAULT_SPACING_SCALE, 1.0);
+  assert.equal(SPACING_SCALE_STORAGE_KEYS.time, "bms-info-extender.spacingScale.time");
+  assert.equal(SPACING_SCALE_STORAGE_KEYS.editor, "bms-info-extender.spacingScale.editor");
+  assert.equal(SPACING_SCALE_STORAGE_KEYS.game, "bms-info-extender.spacingScale.game");
+  assert.equal(getInitialSpacingScale("time", () => null), 1.0);
+  assert.equal(getInitialSpacingScale("editor", () => 1.25), 1.25);
+  assert.equal(getInitialSpacingScale("game", () => "1.75"), 1.75);
+  assert.equal(getInitialSpacingScale("time", () => -1), 1.0);
+  assert.equal(getInitialSpacingScale("time", () => "invalid"), 1.0);
+  assert.deepEqual(getInitialSpacingScaleByMode((mode) => (
+    mode === "time" ? 1.1 : mode === "editor" ? 1.2 : 1.3
+  )), {
+    time: 1.1,
+    editor: 1.2,
+    game: 1.3,
+  });
+});
+
+test("preview preference storage shares persistence wiring for viewer mode, invisible notes, judge line position, and per-mode spacing", () => {
   const store = new Map();
   const preferences = createPreviewPreferenceStorage({
     read: (key, fallbackValue) => store.has(key) ? store.get(key) : fallbackValue,
@@ -53,20 +76,34 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedViewerMode(), "time");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "hide");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.5);
+  assert.equal(preferences.getPersistedSpacingScale("time"), 1.0);
+  assert.equal(preferences.getPersistedSpacingScale("editor"), 1.0);
+  assert.equal(preferences.getPersistedSpacingScale("game"), 1.0);
 
   preferences.setPersistedViewerMode("game");
   preferences.setPersistedInvisibleNoteVisibility("show");
   preferences.setPersistedJudgeLinePositionRatio(0.25);
+  preferences.setPersistedSpacingScale("time", 1.1);
+  preferences.setPersistedSpacingScale("editor", 1.25);
+  preferences.setPersistedSpacingScale("game", 1.5);
 
   assert.equal(store.get(VIEWER_MODE_STORAGE_KEY), "game");
   assert.equal(store.get(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY), "show");
   assert.equal(store.get(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY), 0.25);
+  assert.equal(store.get(SPACING_SCALE_STORAGE_KEYS.time), 1.1);
+  assert.equal(store.get(SPACING_SCALE_STORAGE_KEYS.editor), 1.25);
+  assert.equal(store.get(SPACING_SCALE_STORAGE_KEYS.game), 1.5);
   assert.equal(preferences.getPersistedViewerMode(), "game");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "show");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.25);
+  assert.equal(preferences.getPersistedSpacingScale("time"), 1.1);
+  assert.equal(preferences.getPersistedSpacingScale("editor"), 1.25);
+  assert.equal(preferences.getPersistedSpacingScale("game"), 1.5);
 
   store.set(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, "invalid");
+  store.set(SPACING_SCALE_STORAGE_KEYS.editor, "invalid");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.5);
+  assert.equal(preferences.getPersistedSpacingScale("editor"), 1.0);
 });
 
 test("viewer model dirty render also reapplies persisted viewer chrome", () => {
@@ -75,6 +112,7 @@ test("viewer model dirty render also reapplies persisted viewer chrome", () => {
   assert.notEqual(expandedMask & PREVIEW_RENDER_DIRTY.viewerMode, 0);
   assert.notEqual(expandedMask & PREVIEW_RENDER_DIRTY.invisible, 0);
   assert.notEqual(expandedMask & PREVIEW_RENDER_DIRTY.judgeLinePosition, 0);
+  assert.notEqual(expandedMask & PREVIEW_RENDER_DIRTY.spacing, 0);
   assert.equal(
     expandPreviewRenderMask(PREVIEW_RENDER_DIRTY.selection),
     PREVIEW_RENDER_DIRTY.selection,

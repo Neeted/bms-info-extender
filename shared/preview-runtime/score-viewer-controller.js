@@ -32,7 +32,8 @@ import {
 const DEFAULT_WHEEL_LINE_HEIGHT_PX = 16;
 const MIN_SPACING_SCALE = 0.5;
 const MAX_SPACING_SCALE = 8.0;
-const SPACING_STEP = 0.01;
+export const SPACING_STEP = 0.05;
+export const SPACING_WHEEL_STEP = 0.01;
 const DEFAULT_SPACING_SCALE = 1.0;
 const GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO = 0.4;
 const GAME_PLAYBACK_SCROLL_SYNC_MIN_PX = 120;
@@ -45,6 +46,7 @@ export function createScoreViewerController({
   onViewerModeChange = () => {},
   onInvisibleNoteVisibilityChange = () => {},
   onJudgeLinePositionChange = () => {},
+  onSpacingScaleChange = () => {},
 }) {
   const scrollHost = document.createElement("div");
   scrollHost.className = "score-viewer-scroll-host";
@@ -149,7 +151,7 @@ export function createScoreViewerController({
     isPinned: false,
     isOpen: false,
     isPlaying: false,
-    spacingScale: DEFAULT_SPACING_SCALE,
+    spacingScaleByMode: createDefaultSpacingScaleByMode(),
     viewerMode: DEFAULT_VIEWER_MODE,
     invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
     judgeLinePositionRatio: DEFAULT_JUDGE_LINE_POSITION_RATIO,
@@ -244,15 +246,29 @@ export function createScoreViewerController({
   scrollHost.addEventListener("lostpointercapture", handlePointerRelease);
 
   spacingInput.addEventListener("input", () => {
-    const nextScale = clampScale(Number.parseFloat(spacingInput.value));
-    if (Math.abs(nextScale - state.spacingScale) < 0.0005) {
-      spacingValue.textContent = formatSpacingScale(state.spacingScale);
+    updateSpacingScaleForMode(
+      getResolvedViewerMode(),
+      normalizeSliderSpacingScale(Number.parseFloat(spacingInput.value)),
+      { notify: true },
+    );
+  });
+
+  spacingInput.addEventListener("wheel", (event) => {
+    if (!state.isOpen || !state.model) {
       return;
     }
-    state.spacingScale = nextScale;
-    spacingValue.textContent = formatSpacingScale(state.spacingScale);
-    refreshLayout();
-  });
+    const delta = event.deltaY < 0 ? SPACING_WHEEL_STEP : event.deltaY > 0 ? -SPACING_WHEEL_STEP : 0;
+    if (delta === 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    updateSpacingScaleForMode(
+      getResolvedViewerMode(),
+      roundSpacingScaleToHundredths(getSpacingScaleForMode(getResolvedViewerMode()) + delta),
+      { notify: true },
+    );
+  }, { passive: false });
 
   modeSelect.addEventListener("change", () => {
     const nextMode = normalizeViewerMode(modeSelect.value);
@@ -406,6 +422,20 @@ export function createScoreViewerController({
     renderScene();
   }
 
+  function setSpacingScaleByMode(nextSpacingScaleByMode = {}) {
+    const normalizedSpacingScaleByMode = {
+      time: clampScale(nextSpacingScaleByMode.time),
+      editor: clampScale(nextSpacingScaleByMode.editor),
+      game: clampScale(nextSpacingScaleByMode.game),
+    };
+    if (areSpacingScaleMapsEqual(state.spacingScaleByMode, normalizedSpacingScaleByMode)) {
+      return;
+    }
+    state.spacingScaleByMode = normalizedSpacingScaleByMode;
+    editorFrameStateCache = null;
+    refreshLayout();
+  }
+
   function setEmptyState(_title, _message) {}
 
   function syncScrollPosition() {
@@ -539,8 +569,13 @@ export function createScoreViewerController({
       "measureText",
     );
     setTextIfChanged(comboRow, `CB: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
-    setTextIfChanged(spacingValue, formatSpacingScale(state.spacingScale), "spacingText");
-    setValueIfChanged(spacingInput, String(state.spacingScale), "spacingInputValue");
+    const activeSpacingScale = getSpacingScaleForMode(resolvedViewerMode);
+    setTextIfChanged(
+      spacingValue,
+      formatSpacingScaleDisplay(resolvedViewerMode, activeSpacingScale),
+      "spacingText",
+    );
+    setValueIfChanged(spacingInput, activeSpacingScale.toFixed(2), "spacingInputValue");
     setValueIfChanged(modeSelect, resolvedViewerMode, "modeSelectValue");
     setDisabledIfChanged(modeSelect, !state.model, "modeSelectDisabled");
     setValueIfChanged(invisibleNoteVisibilitySelect, state.invisibleNoteVisibility, "invisibleNoteVisibilityValue");
@@ -566,7 +601,7 @@ export function createScoreViewerController({
   }
 
   setPinned(false);
-  spacingValue.textContent = formatSpacingScale(state.spacingScale);
+  spacingValue.textContent = formatSpacingScaleDisplay(DEFAULT_VIEWER_MODE, DEFAULT_SPACING_SCALE);
   modeSelect.value = DEFAULT_VIEWER_MODE;
   invisibleNoteVisibilitySelect.value = DEFAULT_INVISIBLE_NOTE_VISIBILITY;
   refreshLayout();
@@ -580,6 +615,7 @@ export function createScoreViewerController({
     setViewerMode,
     setInvisibleNoteVisibility,
     setJudgeLinePositionRatio,
+    setSpacingScaleByMode,
     setEmptyState,
     refreshLayout,
     destroy,
@@ -654,11 +690,11 @@ export function createScoreViewerController({
   }
 
   function getPixelsPerSecond() {
-    return DEFAULT_VIEWER_PIXELS_PER_SECOND * state.spacingScale;
+    return DEFAULT_VIEWER_PIXELS_PER_SECOND * getSpacingScaleForMode("time");
   }
 
   function getPixelsPerBeat() {
-    return DEFAULT_EDITOR_PIXELS_PER_BEAT * state.spacingScale;
+    return DEFAULT_EDITOR_PIXELS_PER_BEAT * getSpacingScaleForMode(getResolvedViewerMode());
   }
 
   function getCurrentJudgeLineY(viewportHeight = root.clientHeight || 0) {
@@ -810,6 +846,32 @@ export function createScoreViewerController({
       onJudgeLinePositionChange(state.judgeLinePositionRatio);
     }
   }
+
+  function getSpacingScaleForMode(mode) {
+    return state.spacingScaleByMode[normalizeSpacingMode(mode)] ?? DEFAULT_SPACING_SCALE;
+  }
+
+  function updateSpacingScaleForMode(mode, nextScale, { notify = false } = {}) {
+    const normalizedMode = normalizeSpacingMode(mode);
+    const normalizedScale = clampScale(nextScale);
+    if (Math.abs(getSpacingScaleForMode(normalizedMode) - normalizedScale) < 0.0005) {
+      setTextIfChanged(
+        spacingValue,
+        formatSpacingScaleDisplay(getResolvedViewerMode(), getSpacingScaleForMode(getResolvedViewerMode())),
+        "spacingText",
+      );
+      return;
+    }
+    state.spacingScaleByMode = {
+      ...state.spacingScaleByMode,
+      [normalizedMode]: normalizedScale,
+    };
+    editorFrameStateCache = null;
+    refreshLayout();
+    if (notify) {
+      onSpacingScaleChange(normalizedMode, normalizedScale);
+    }
+  }
 }
 
 function createModeOption(value, label, disabled = false) {
@@ -898,6 +960,40 @@ function clampScale(value) {
   return Math.min(Math.max(value, MIN_SPACING_SCALE), MAX_SPACING_SCALE);
 }
 
+function createDefaultSpacingScaleByMode() {
+  return {
+    time: DEFAULT_SPACING_SCALE,
+    editor: DEFAULT_SPACING_SCALE,
+    game: DEFAULT_SPACING_SCALE,
+  };
+}
+
+function normalizeSpacingMode(mode) {
+  return mode === "editor" || mode === "game" ? mode : "time";
+}
+
+export function normalizeSliderSpacingScale(value) {
+  return roundSpacingScaleToStep(clampScale(value), SPACING_STEP);
+}
+
+export function roundSpacingScaleToHundredths(value) {
+  return roundSpacingScaleToStep(clampScale(value), SPACING_WHEEL_STEP);
+}
+
+function roundSpacingScaleToStep(value, step) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_SPACING_SCALE;
+  }
+  const baseValue = Math.round(value / step) * step;
+  return Number(clampScale(baseValue).toFixed(2));
+}
+
+function areSpacingScaleMapsEqual(left, right) {
+  return Math.abs((left?.time ?? DEFAULT_SPACING_SCALE) - (right?.time ?? DEFAULT_SPACING_SCALE)) < 0.0005
+    && Math.abs((left?.editor ?? DEFAULT_SPACING_SCALE) - (right?.editor ?? DEFAULT_SPACING_SCALE)) < 0.0005
+    && Math.abs((left?.game ?? DEFAULT_SPACING_SCALE) - (right?.game ?? DEFAULT_SPACING_SCALE)) < 0.0005;
+}
+
 function isPrimaryPointer(event) {
   return event.button === 0 || event.pointerType === "touch" || event.pointerType === "pen";
 }
@@ -906,8 +1002,16 @@ function clamp(value, minValue, maxValue) {
   return Math.min(Math.max(value, minValue), maxValue);
 }
 
-function formatSpacingScale(value) {
-  return `${clampScale(value).toFixed(2)}x`;
+export function formatSpacingScaleDisplay(mode, value) {
+  const normalizedMode = normalizeSpacingMode(mode);
+  const normalizedScale = clampScale(value);
+  if (normalizedMode === "time") {
+    return `${normalizedScale.toFixed(2)}x(${Math.round(DEFAULT_VIEWER_PIXELS_PER_SECOND * normalizedScale)}px/s)`;
+  }
+  if (normalizedMode === "editor") {
+    return `${normalizedScale.toFixed(2)}x(${Math.round(DEFAULT_EDITOR_PIXELS_PER_BEAT * normalizedScale)}px/beat)`;
+  }
+  return `${normalizedScale.toFixed(2)}x`;
 }
 
 function formatPlaybackTime(timeSec) {

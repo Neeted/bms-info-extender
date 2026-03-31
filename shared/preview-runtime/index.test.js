@@ -40,6 +40,7 @@ test("viewer mode defaults to time and keeps persisted game values", () => {
   assert.equal(VIEWER_MODE_STORAGE_KEY, "bms-info-extender.viewerMode");
   assert.equal(getInitialViewerMode(() => null), "time");
   assert.equal(getInitialViewerMode(() => "game"), "game");
+  assert.equal(getInitialViewerMode(() => "lunatic"), "lunatic");
   assert.equal(getInitialViewerMode(() => "invalid"), "time");
 });
 
@@ -141,7 +142,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameHsFixMode(), "main");
   assert.equal(preferences.getPersistedGraphInteractionMode(), "hover");
 
-  preferences.setPersistedViewerMode("game");
+  preferences.setPersistedViewerMode("lunatic");
   preferences.setPersistedInvisibleNoteVisibility("show");
   preferences.setPersistedJudgeLinePositionRatio(0.25);
   preferences.setPersistedSpacingScale("time", 1.1);
@@ -154,7 +155,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   preferences.setPersistedGameHsFixMode("max");
   preferences.setPersistedGraphInteractionMode("drag");
 
-  assert.equal(store.get(VIEWER_MODE_STORAGE_KEY), "game");
+  assert.equal(store.get(VIEWER_MODE_STORAGE_KEY), "lunatic");
   assert.equal(store.get(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY), "show");
   assert.equal(store.get(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY), 0.25);
   assert.equal(store.get(SPACING_SCALE_STORAGE_KEYS.time), 1.1);
@@ -166,7 +167,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(store.get(GAME_LANE_COVER_VISIBLE_STORAGE_KEY), false);
   assert.equal(store.get(GAME_HS_FIX_MODE_STORAGE_KEY), "max");
   assert.equal(store.get(GRAPH_INTERACTION_MODE_STORAGE_KEY), "drag");
-  assert.equal(preferences.getPersistedViewerMode(), "game");
+  assert.equal(preferences.getPersistedViewerMode(), "lunatic");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "show");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.25);
   assert.equal(preferences.getPersistedSpacingScale("time"), 1.1);
@@ -376,6 +377,36 @@ test("graph settings popup toggles and persists interaction mode", async () => {
     elements.graphSettingsClose.dispatchEvent({ type: "click" });
     await environment.settle();
     assert.equal(elements.graphSettingsPopup.hidden, true);
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("preview playback stops at the Lunatic profile duration instead of the raw parser duration", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createLunaticParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("b".repeat(64)), { parsedScore: createLunaticParsedScore() });
+    preview.setViewerMode("lunatic");
+    preview.setSelectedTimeSec(0);
+    preview.setPlaybackState(true);
+
+    for (let index = 0; index < 8; index += 1) {
+      await environment.settle();
+    }
+
+    const state = preview.getState();
+    assert.equal(state.isPlaying, false);
+    assert.equal(state.resolvedViewerMode, "lunatic");
+    assert.ok(state.selectedTimeSec < state.parsedScore.totalDurationSec);
+    assert.ok(Math.abs(state.selectedTimeSec - state.viewerModel.score.totalDurationSec) < 0.0005);
 
     preview.destroy();
     await environment.settle();
@@ -645,6 +676,32 @@ function createParsedScore() {
   };
 }
 
+function createLunaticParsedScore() {
+  return {
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    notes: [{ lane: 1, beat: 0.2, timeSec: 0.1, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 1, timeSec: 0.5 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [{ beat: 0.1, timeSec: 0.05, rate: 0 }],
+    comboEvents: [{ lane: 1, beat: 0.2, timeSec: 0.1, kind: "normal" }],
+    timingActions: [{
+      type: "stop",
+      beat: 0.1,
+      timeSec: 0.05,
+      stopBeats: 1,
+      durationSec: 0.5,
+      stopResolution: "resolved",
+      stopLunaticBehavior: "warp",
+    }],
+    totalDurationSec: 0.5,
+    lastTimelineTimeSec: 0.5,
+    lastPlayableTimeSec: 0.1,
+  };
+}
+
 function createDeferred() {
   let resolve;
   let reject;
@@ -901,6 +958,8 @@ class MockRenderingContext2D {
   fillRect() {}
   drawImage() {}
   beginPath() {}
+  rect() {}
+  clip() {}
   moveTo() {}
   lineTo() {}
   stroke() {}

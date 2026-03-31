@@ -16,6 +16,7 @@ var DEFAULT_GAME_HS_FIX_MODE = "main";
 var DEFAULT_GAME_HS_FIX_FALLBACK_BPM = 150;
 var GAME_GREEN_NUMBER_RATIO = 0.6;
 var GAME_HS_FIX_MODES = Object.freeze(["start", "max", "main", "min"]);
+var LUNATIC_INVALID_STOP_WARP_BEATS = 1 / 48;
 var TIME_SELECTION_EPSILON_SEC = 5e-4;
 var BEAT_SELECTION_EPSILON = 1e-6;
 var ACTION_PRECEDENCE = {
@@ -24,15 +25,15 @@ var ACTION_PRECEDENCE = {
 };
 var gameTimingDerivedMetricsCacheByModel = /* @__PURE__ */ new WeakMap();
 function normalizeViewerMode(value) {
-  return value === "editor" || value === "game" || value === "time" ? value : DEFAULT_VIEWER_MODE;
+  return value === "editor" || value === "game" || value === "lunatic" || value === "time" ? value : DEFAULT_VIEWER_MODE;
 }
 function resolveViewerModeForModel(model, viewerMode) {
   const normalizedMode = normalizeViewerMode(viewerMode);
   if (normalizedMode === "editor" && model?.supportsEditorMode) {
     return "editor";
   }
-  if (normalizedMode === "game" && model?.supportsGameMode) {
-    return "game";
+  if ((normalizedMode === "game" || normalizedMode === "lunatic") && model?.supportsGameMode) {
+    return normalizedMode;
   }
   return DEFAULT_VIEWER_MODE;
 }
@@ -144,25 +145,27 @@ function getGameLaneCoverPermilleFromPointer(pointerOffsetY, viewportHeight, jud
     clamp((pointerOffsetY - geometry.laneTopY) / geometry.judgeDistancePx, 0, 1) * 1e3
   );
 }
-function createScoreViewerModel(score, { bpmSummary = void 0 } = {}) {
+function createScoreViewerModel(score, { bpmSummary = void 0, gameProfile = "game" } = {}) {
   if (!score) {
     return null;
   }
-  const rawAllNotes = score.notes.map((note) => ({ ...note })).sort(compareNoteLike);
-  const rawBarLines = [...score.barLines].sort(compareTimedBeatLike);
-  const rawBpmChanges = [...score.bpmChanges].sort(compareTimedBeatLike);
-  const rawStops = [...score.stops].sort(compareTimedBeatLike);
-  const rawScrollChanges = [...score.scrollChanges ?? []].sort(compareTimedBeatLike);
-  const comboEvents = (score.comboEvents?.length > 0 ? score.comboEvents : createFallbackComboEvents(score.notes)).map((event) => ({ ...event })).sort(compareComboEvent).map((event, index) => ({
+  const normalizedGameProfile = normalizeGameProfile(gameProfile);
+  const profiledScore = normalizedGameProfile === "lunatic" ? createLunaticProfileScore(score) : score;
+  const rawAllNotes = profiledScore.notes.map((note) => ({ ...note })).sort(compareNoteLike);
+  const rawBarLines = [...profiledScore.barLines].sort(compareTimedBeatLike);
+  const rawBpmChanges = [...profiledScore.bpmChanges].sort(compareTimedBeatLike);
+  const rawStops = [...profiledScore.stops].sort(compareTimedBeatLike);
+  const rawScrollChanges = [...profiledScore.scrollChanges ?? []].sort(compareTimedBeatLike);
+  const comboEvents = (profiledScore.comboEvents?.length > 0 ? profiledScore.comboEvents : createFallbackComboEvents(profiledScore.notes)).map((event) => ({ ...event })).sort(compareComboEvent).map((event, index) => ({
     ...event,
     combo: index + 1
   }));
   const longEndEventKeys = new Set(
     comboEvents.filter((event) => event.kind === "long-end").map(createTimedLaneKey)
   );
-  const beatTimingIndex = createBeatTimingIndex(score);
+  const beatTimingIndex = createBeatTimingIndex(profiledScore);
   const gameScrollIndex = createGameScrollIndex(rawScrollChanges);
-  const gameTimingEvents = createGameTimelineTimingEvents(score);
+  const gameTimingEvents = createGameTimelineTimingEvents(profiledScore);
   const allNotes = annotateNotesWithGameTrackPosition(rawAllNotes, gameScrollIndex);
   const notes = allNotes.filter((note) => note.kind !== "invisible");
   const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
@@ -181,12 +184,13 @@ function createScoreViewerModel(score, { bpmSummary = void 0 } = {}) {
     barLines,
     bpmChanges: gameTimelineBpmChanges,
     stops: gameTimelineStops,
+    warps: gameTimingEvents.warps,
     scrollChanges,
     gameScrollIndex
   });
-  const resolvedBpmSummary = resolveBpmSummary(score, bpmSummary);
+  const resolvedBpmSummary = resolveBpmSummary(profiledScore, bpmSummary);
   const gameTimingStatePoints = createGameTimingStatePoints(gameTimeline, resolvedBpmSummary.startBpm);
-  const totalBeat = getScoreTotalBeat(score);
+  const totalBeat = getScoreTotalBeat(profiledScore);
   const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
   const editorInvisibleNotes = invisibleNotes.filter((note) => Number.isFinite(note.beat));
   const notesByBeat = [...editorNotes].sort(compareBeatNoteLike);
@@ -200,7 +204,9 @@ function createScoreViewerModel(score, { bpmSummary = void 0 } = {}) {
   const gameLongBodiesByEndTrack = [...gameLongBodiesByStartTrack].sort(compareGameLongBodyEndTrack);
   const measureRanges = createEditorMeasureRanges(barLines, totalBeat);
   return {
-    score,
+    score: profiledScore,
+    sourceScore: score,
+    gameProfile: normalizedGameProfile,
     notes,
     invisibleNotes,
     notesByBeat,
@@ -546,6 +552,161 @@ function createFallbackComboEvents(notes) {
     ...note.side ? { side: note.side } : {}
   }));
 }
+function normalizeGameProfile(value) {
+  return value === "lunatic" ? "lunatic" : "game";
+}
+function createLunaticProfileScore(score) {
+  if (!score || typeof score !== "object") {
+    return score;
+  }
+  const baseTimingActions = createTimingActionsFromCanonicalScore(score);
+  const transformedTimingActions = materializeTimingActionsForViewer(
+    score.initialBpm,
+    baseTimingActions.filter((action) => action?.type === "bpm" || action?.type === "stop").map((action) => action.type === "bpm" ? {
+      type: "bpm",
+      beat: action.beat,
+      bpm: action.bpm
+    } : {
+      type: "stop",
+      beat: action.beat,
+      stopBeats: action.stopLunaticBehavior === "warp" ? LUNATIC_INVALID_STOP_WARP_BEATS : action.stopBeats,
+      stopResolution: action.stopResolution,
+      stopLunaticBehavior: action.stopLunaticBehavior
+    })
+  );
+  const timingSeed = {
+    initialBpm: score.initialBpm,
+    timingActions: transformedTimingActions,
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: []
+  };
+  const beatTimingIndex = createBeatTimingIndex(timingSeed);
+  if (!beatTimingIndex) {
+    return {
+      ...score,
+      scrollChanges: [],
+      timingActions: transformedTimingActions
+    };
+  }
+  const notes = (score.notes ?? []).map((note) => transformLunaticNote(note, beatTimingIndex));
+  const comboEvents = (score.comboEvents ?? []).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
+  const barLines = (score.barLines ?? []).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
+  const bpmChanges = buildBpmChangesFromTimingActionsForViewer(score.initialBpm, transformedTimingActions);
+  const stops = buildStopsFromTimingActionsForViewer(transformedTimingActions);
+  const lastPlayableTimeSec = notes.reduce((maxTimeSec, note) => Math.max(
+    maxTimeSec,
+    finiteOrZero(note.endTimeSec),
+    finiteOrZero(note.timeSec)
+  ), 0);
+  const lastTimelineTimeSec = Math.max(
+    lastPlayableTimeSec,
+    ...barLines.map((event) => finiteOrZero(event.timeSec)),
+    ...bpmChanges.map((event) => finiteOrZero(event.timeSec)),
+    ...stops.map((event) => finiteOrZero(event.timeSec))
+  );
+  return {
+    ...score,
+    notes,
+    comboEvents,
+    barLines,
+    bpmChanges,
+    stops,
+    scrollChanges: [],
+    timingActions: transformedTimingActions,
+    totalDurationSec: lastTimelineTimeSec,
+    lastPlayableTimeSec,
+    lastTimelineTimeSec
+  };
+}
+function transformLunaticTimedBeatEvent(event, beatTimingIndex) {
+  if (!Number.isFinite(event?.beat)) {
+    return { ...event };
+  }
+  return {
+    ...event,
+    timeSec: beatTimingIndex.beatToSeconds(event.beat)
+  };
+}
+function transformLunaticNote(note, beatTimingIndex) {
+  const transformedNote = { ...note };
+  if (Number.isFinite(note?.beat)) {
+    transformedNote.timeSec = beatTimingIndex.beatToSeconds(note.beat);
+  }
+  if (Number.isFinite(note?.endBeat)) {
+    transformedNote.endTimeSec = beatTimingIndex.beatToSeconds(note.endBeat);
+  }
+  return transformedNote;
+}
+function materializeTimingActionsForViewer(initialBpm, actions) {
+  const resolvedInitialBpm = Number.isFinite(initialBpm) && initialBpm > 0 ? initialBpm : null;
+  if (!resolvedInitialBpm) {
+    return actions.map((action) => ({ ...action }));
+  }
+  const sortedActions = [...actions ?? []].filter((action) => Number.isFinite(action?.beat)).sort(compareTimingAction);
+  const materializedActions = [];
+  let currentBeat = 0;
+  let currentSeconds = 0;
+  let currentBpm = resolvedInitialBpm;
+  for (const action of sortedActions) {
+    const actionBeat = Math.max(action.beat, currentBeat);
+    currentSeconds += (actionBeat - currentBeat) * 60 / currentBpm;
+    currentBeat = actionBeat;
+    if (action.type === "bpm") {
+      materializedActions.push({
+        type: "bpm",
+        beat: actionBeat,
+        timeSec: currentSeconds,
+        bpm: action.bpm
+      });
+      currentBpm = action.bpm;
+      continue;
+    }
+    const stopBeats = Number.isFinite(action.stopBeats) && action.stopBeats > 0 ? action.stopBeats : 0;
+    const durationSec = action.stopLunaticBehavior === "warp" ? 0 : stopBeats > 0 ? stopBeats * 60 / currentBpm : 0;
+    materializedActions.push({
+      type: "stop",
+      beat: actionBeat,
+      timeSec: currentSeconds,
+      stopBeats,
+      durationSec,
+      stopResolution: action.stopResolution,
+      stopLunaticBehavior: action.stopLunaticBehavior
+    });
+    if (action.stopLunaticBehavior === "warp") {
+      currentBeat += stopBeats;
+      continue;
+    }
+    currentSeconds += durationSec;
+  }
+  return materializedActions;
+}
+function buildBpmChangesFromTimingActionsForViewer(initialBpm, timingActions) {
+  const changes = [];
+  let currentBpm = Number.isFinite(initialBpm) && initialBpm > 0 ? initialBpm : null;
+  for (const action of timingActions ?? []) {
+    if (action?.type !== "bpm" || !Number.isFinite(action?.beat) || !Number.isFinite(action?.timeSec) || !Number.isFinite(action?.bpm) || action.bpm <= 0) {
+      continue;
+    }
+    if (action.bpm !== currentBpm) {
+      changes.push({
+        beat: action.beat,
+        timeSec: action.timeSec,
+        bpm: action.bpm
+      });
+    }
+    currentBpm = action.bpm;
+  }
+  return changes;
+}
+function buildStopsFromTimingActionsForViewer(timingActions) {
+  return (timingActions ?? []).filter((action) => action?.type === "stop" && action?.stopLunaticBehavior !== "warp" && Number.isFinite(action?.beat) && Number.isFinite(action?.timeSec) && Number.isFinite(action?.durationSec) && action.durationSec > 0).map((action) => ({
+    beat: action.beat,
+    timeSec: action.timeSec + action.durationSec,
+    stopBeats: action.stopBeats,
+    durationSec: action.durationSec
+  }));
+}
 function createBeatTimingIndex(score) {
   const initialBpm = Number.isFinite(score.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
   if (!initialBpm) {
@@ -557,6 +718,7 @@ function createBeatTimingIndex(score) {
   const stateSeconds = new Array(actions.length);
   const stateBpms = new Array(actions.length);
   const segments = [];
+  const beatSegments = [];
   let currentBeat = 0;
   let currentSeconds = 0;
   let currentBpm = initialBpm;
@@ -569,13 +731,15 @@ function createBeatTimingIndex(score) {
     }
     if (actionBeat > currentBeat) {
       const nextSeconds = actionTimeSec;
-      segments.push({
+      const segment = {
         type: "linear",
         startSec: currentSeconds,
         endSec: nextSeconds,
         startBeat: currentBeat,
         endBeat: actionBeat
-      });
+      };
+      segments.push(segment);
+      beatSegments.push(segment);
       currentBeat = actionBeat;
       currentSeconds = nextSeconds;
     } else {
@@ -584,15 +748,29 @@ function createBeatTimingIndex(score) {
     if (action.type === "bpm") {
       currentBpm = action.bpm;
     } else {
-      const stopDurationSec = Number.isFinite(action.durationSec) && action.durationSec > 0 ? action.durationSec : (action.stopBeats ?? 0) * 60 / currentBpm;
-      if (stopDurationSec > 0) {
-        segments.push({
-          type: "stop",
+      const warpBeats = action.stopLunaticBehavior === "warp" && Number.isFinite(action.stopBeats) && action.stopBeats > 0 ? action.stopBeats : 0;
+      if (warpBeats > 0) {
+        const segment = {
+          type: "warp",
           startSec: currentSeconds,
-          endSec: currentSeconds + stopDurationSec,
-          beat: currentBeat
-        });
-        currentSeconds += stopDurationSec;
+          endSec: currentSeconds,
+          startBeat: currentBeat,
+          endBeat: currentBeat + warpBeats
+        };
+        segments.push(segment);
+        beatSegments.push(segment);
+        currentBeat += warpBeats;
+      } else {
+        const stopDurationSec = Number.isFinite(action.durationSec) && action.durationSec > 0 ? action.durationSec : (action.stopBeats ?? 0) * 60 / currentBpm;
+        if (stopDurationSec > 0) {
+          segments.push({
+            type: "stop",
+            startSec: currentSeconds,
+            endSec: currentSeconds + stopDurationSec,
+            beat: currentBeat
+          });
+          currentSeconds += stopDurationSec;
+        }
       }
     }
     stateBeats[index] = currentBeat;
@@ -611,11 +789,21 @@ function createBeatTimingIndex(score) {
     tailBpm: currentBpm,
     beatToSeconds(beat) {
       const normalizedBeat = Number.isFinite(beat) ? Math.max(beat, 0) : 0;
-      const actionIndex = upperBoundActionsByBeat(actions, normalizedBeat) - 1;
-      if (actionIndex < 0) {
-        return normalizedBeat * 60 / initialBpm;
+      const segmentIndex = lowerBoundBeatSegmentsByEndBeat(beatSegments, normalizedBeat);
+      if (segmentIndex < beatSegments.length) {
+        const segment = beatSegments[segmentIndex];
+        if (normalizedBeat >= segment.startBeat && normalizedBeat <= segment.endBeat) {
+          if (segment.type === "warp") {
+            return segment.startSec;
+          }
+          const beatSpan = segment.endBeat - segment.startBeat;
+          if (beatSpan <= 0) {
+            return segment.endSec;
+          }
+          return segment.startSec + (normalizedBeat - segment.startBeat) * (segment.endSec - segment.startSec) / beatSpan;
+        }
       }
-      return stateSeconds[actionIndex] + (normalizedBeat - stateBeats[actionIndex]) * 60 / stateBpms[actionIndex];
+      return currentSeconds + (normalizedBeat - currentBeat) * 60 / currentBpm;
     },
     secondsToBeat(seconds) {
       const normalizedSeconds = Number.isFinite(seconds) ? Math.max(seconds, 0) : 0;
@@ -625,6 +813,9 @@ function createBeatTimingIndex(score) {
         if (normalizedSeconds <= segment.endSec) {
           if (segment.type === "stop") {
             return segment.beat;
+          }
+          if (segment.type === "warp") {
+            return segment.endBeat;
           }
           const secSpan = segment.endSec - segment.startSec;
           if (secSpan <= 0) {
@@ -648,6 +839,7 @@ function createGameTimelineTimingEvents(score) {
   const actions = createTimingActions(score).slice().sort(compareTimingAction);
   const bpmChanges = [];
   const stops = [];
+  const warps = [];
   let currentBpm = Number.isFinite(score?.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
   for (const action of actions) {
     if (action?.type === "bpm") {
@@ -669,6 +861,15 @@ function createGameTimelineTimingEvents(score) {
     if (!Number.isFinite(action.beat) || !Number.isFinite(action.timeSec)) {
       continue;
     }
+    if (action.stopLunaticBehavior === "warp") {
+      const warpBeats = Number.isFinite(action.stopBeats) && action.stopBeats > 0 ? action.stopBeats : LUNATIC_INVALID_STOP_WARP_BEATS;
+      warps.push({
+        beat: action.beat + warpBeats,
+        timeSec: action.timeSec,
+        warpBeats
+      });
+      continue;
+    }
     const durationSec = Number.isFinite(action.durationSec) && action.durationSec > 0 ? action.durationSec : Number.isFinite(action.stopBeats) && action.stopBeats > 0 && Number.isFinite(currentBpm) && currentBpm > 0 ? action.stopBeats * 60 / currentBpm : null;
     if (!(durationSec > 0)) {
       continue;
@@ -680,7 +881,7 @@ function createGameTimelineTimingEvents(score) {
       durationSec
     });
   }
-  return { bpmChanges, stops };
+  return { bpmChanges, stops, warps };
 }
 function resolveBpmSummary(score, bpmSummary = void 0) {
   const positiveBpms = collectPositiveBpms(score);
@@ -756,7 +957,7 @@ function createGameTimingStatePoints(gameTimeline, initialBpm) {
   return statePoints;
 }
 function createTimingActionsFromCanonicalScore(score) {
-  return [...score?.timingActions ?? []].filter((action) => Number.isFinite(action?.beat) && action.type === "bpm" && Number.isFinite(action?.bpm) && action.bpm > 0 || Number.isFinite(action?.beat) && action.type === "stop" && Number.isFinite(action?.stopBeats) && action.stopBeats > 0).map((action) => {
+  return [...score?.timingActions ?? []].filter((action) => Number.isFinite(action?.beat) && action.type === "bpm" && Number.isFinite(action?.bpm) && action.bpm > 0 || Number.isFinite(action?.beat) && action.type === "stop" && action?.stopResolution === "invalid" || Number.isFinite(action?.beat) && action.type === "stop" && Number.isFinite(action?.stopBeats) && action.stopBeats > 0).map((action) => {
     if (action.type === "bpm") {
       return {
         type: "bpm",
@@ -770,7 +971,9 @@ function createTimingActionsFromCanonicalScore(score) {
       beat: action.beat,
       timeSec: action.timeSec,
       stopBeats: action.stopBeats,
-      durationSec: action.durationSec
+      durationSec: action.durationSec,
+      stopResolution: action.stopResolution,
+      stopLunaticBehavior: action.stopLunaticBehavior
     };
   });
 }
@@ -851,7 +1054,7 @@ function createGameScrollIndex(scrollChanges) {
     }
   };
 }
-function createGameTimeline({ notes, barLines, bpmChanges, stops, scrollChanges, gameScrollIndex }) {
+function createGameTimeline({ notes, barLines, bpmChanges, stops, warps, scrollChanges, gameScrollIndex }) {
   const pointMap = /* @__PURE__ */ new Map();
   ensureGameTimelinePoint(pointMap, 0, 0, gameScrollIndex);
   for (const barLine of barLines ?? []) {
@@ -876,6 +1079,12 @@ function createGameTimeline({ notes, barLines, bpmChanges, stops, scrollChanges,
     const point = ensureGameTimelinePoint(pointMap, scrollChange?.beat, scrollChange?.timeSec, gameScrollIndex);
     if (point) {
       point.scrollChanges.push(scrollChange);
+    }
+  }
+  for (const warp of warps ?? []) {
+    const point = ensureGameTimelinePoint(pointMap, warp?.beat, warp?.timeSec, gameScrollIndex);
+    if (point) {
+      point.warps.push(warp);
     }
   }
   for (const note of notes ?? []) {
@@ -940,6 +1149,7 @@ function ensureGameTimelinePoint(pointMap, beat, timeSec, gameScrollIndex) {
     scrollChanges: [],
     notes: [],
     longEndNotes: [],
+    warps: [],
     stopDurationSec: 0,
     outgoingScrollRate: 1,
     index: -1
@@ -1010,6 +1220,19 @@ function upperBoundSegmentsByStartSec(segments, seconds) {
   while (low < high) {
     const mid = Math.floor((low + high) / 2);
     if (segments[mid].startSec <= seconds) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+function lowerBoundBeatSegmentsByEndBeat(segments, beat) {
+  let low = 0;
+  let high = segments.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if ((segments[mid]?.endBeat ?? 0) < beat) {
       low = mid + 1;
     } else {
       high = mid;
@@ -1342,7 +1565,7 @@ function createScoreViewerRenderer(canvas) {
     if (resolvedMode === "time") {
       return renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes, judgeLineY);
     }
-    if (resolvedMode === "game") {
+    if (resolvedMode === "game" || resolvedMode === "lunatic") {
       return renderGameMode(model, laneLayout, selectedTimeSec, showInvisibleNotes, judgeLineY, gameTimingConfig);
     }
     return renderEditorMode(
@@ -1736,7 +1959,7 @@ function getGameProjectionDeltaY(previousPoint, point, selectedTimeSec, pixelsPe
   }
   const traversableDurationSec = finiteOrZero2(point?.timeSec) - finiteOrZero2(previousPoint?.timeSec) - finiteOrZero2(previousPoint?.stopDurationSec);
   if (!(traversableDurationSec > 0)) {
-    return 0;
+    return selectedTimeSec < finiteOrZero2(point?.timeSec) ? deltaSection * scrollRate * pixelsPerSection : 0;
   }
   const remainingRatio = clamp2(
     (finiteOrZero2(point?.timeSec) - selectedTimeSec) / traversableDurationSec,
@@ -2814,7 +3037,8 @@ function createScoreViewerController({
   modeSelect.append(
     createModeOption("time", "Time"),
     createModeOption("editor", "Editor"),
-    createModeOption("game", "Game")
+    createModeOption("game", "Game"),
+    createModeOption("lunatic", "Lunatic")
   );
   const invisibleNoteVisibilitySelect = document.createElement("select");
   invisibleNoteVisibilitySelect.className = "score-viewer-mode-select score-viewer-invisible-note-select";
@@ -2986,7 +3210,7 @@ function createScoreViewerController({
   scrollHost.addEventListener("lostpointercapture", handlePointerRelease);
   spacingInput.addEventListener("input", () => {
     const resolvedViewerMode = getResolvedViewerMode2();
-    if (resolvedViewerMode === "game") {
+    if (isGameViewerMode(resolvedViewerMode)) {
       updateGameTimingConfig({
         durationMs: normalizeGameDurationMs(Number.parseFloat(spacingInput.value))
       }, { notify: true });
@@ -3003,13 +3227,13 @@ function createScoreViewerController({
       return;
     }
     const resolvedViewerMode = getResolvedViewerMode2();
-    const delta = event.deltaY < 0 ? resolvedViewerMode === "game" ? GAME_DURATION_WHEEL_STEP : SPACING_WHEEL_STEP : event.deltaY > 0 ? resolvedViewerMode === "game" ? -GAME_DURATION_WHEEL_STEP : -SPACING_WHEEL_STEP : 0;
+    const delta = event.deltaY < 0 ? isGameViewerMode(resolvedViewerMode) ? GAME_DURATION_WHEEL_STEP : SPACING_WHEEL_STEP : event.deltaY > 0 ? isGameViewerMode(resolvedViewerMode) ? -GAME_DURATION_WHEEL_STEP : -SPACING_WHEEL_STEP : 0;
     if (delta === 0) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    if (resolvedViewerMode === "game") {
+    if (isGameViewerMode(resolvedViewerMode)) {
       updateGameTimingConfig({
         durationMs: normalizeGameDurationMs(state2.gameTimingConfig.durationMs + delta)
       }, { notify: true });
@@ -3027,7 +3251,7 @@ function createScoreViewerController({
     }, { notify: true });
   });
   laneHeightInput.addEventListener("wheel", (event) => {
-    if (!state2.isOpen || !state2.model || getResolvedViewerMode2() !== "game") {
+    if (!state2.isOpen || !state2.model || !isGameViewerMode(getResolvedViewerMode2())) {
       return;
     }
     const delta = event.deltaY < 0 ? GAME_LANE_HEIGHT_WHEEL_STEP : event.deltaY > 0 ? -GAME_LANE_HEIGHT_WHEEL_STEP : 0;
@@ -3046,7 +3270,7 @@ function createScoreViewerController({
     }, { notify: true });
   });
   laneCoverInput.addEventListener("wheel", (event) => {
-    if (!state2.isOpen || !state2.model || getResolvedViewerMode2() !== "game") {
+    if (!state2.isOpen || !state2.model || !isGameViewerMode(getResolvedViewerMode2())) {
       return;
     }
     const delta = event.deltaY < 0 ? GAME_LANE_COVER_WHEEL_STEP : event.deltaY > 0 ? -GAME_LANE_COVER_WHEEL_STEP : 0;
@@ -3071,7 +3295,7 @@ function createScoreViewerController({
   });
   modeSelect.addEventListener("change", () => {
     const nextMode = normalizeViewerMode(modeSelect.value);
-    if (nextMode === "game" && !state2.model?.supportsGameMode) {
+    if ((nextMode === "game" || nextMode === "lunatic") && !state2.model?.supportsGameMode) {
       modeSelect.value = getResolvedViewerMode2();
       return;
     }
@@ -3366,7 +3590,7 @@ function createScoreViewerController({
     viewportHeight,
     currentJudgeLineY
   }) {
-    const isGameMode = resolvedViewerMode === "game";
+    const isGameMode = isGameViewerMode(resolvedViewerMode);
     const currentGameLaneGeometry = isGameMode ? getCurrentGameLaneGeometry(viewportHeight) : null;
     const spacingDisplay = formatSpacingDisplay({
       mode: resolvedViewerMode,
@@ -3618,7 +3842,7 @@ function createScoreViewerController({
   }
   function canDragGameTimingHandle(event) {
     return Boolean(
-      state2.model && state2.isOpen && getResolvedViewerMode2() === "game" && isPrimaryPointer(event)
+      state2.model && state2.isOpen && isGameViewerMode(getResolvedViewerMode2()) && isPrimaryPointer(event)
     );
   }
   function isScrollInteractive() {
@@ -3652,7 +3876,7 @@ function createScoreViewerController({
     return DEFAULT_EDITOR_PIXELS_PER_BEAT * getSpacingScaleForMode("editor");
   }
   function getCurrentJudgeLineY(viewportHeight = root.clientHeight || 0) {
-    if (getResolvedViewerMode2() === "game") {
+    if (isGameViewerMode(getResolvedViewerMode2())) {
       return getGameJudgeLineY(
         viewportHeight,
         state2.judgeLinePositionRatio,
@@ -3831,7 +4055,7 @@ function createScoreViewerController({
     });
   }
   function isPointerNearLaneHeightHandle(event) {
-    if (getResolvedViewerMode2() !== "game") {
+    if (!isGameViewerMode(getResolvedViewerMode2())) {
       return false;
     }
     const rootRect = root.getBoundingClientRect();
@@ -3842,7 +4066,7 @@ function createScoreViewerController({
     });
   }
   function isPointerNearLaneCoverHandle(event) {
-    if (getResolvedViewerMode2() !== "game" || !state2.gameTimingConfig.laneCoverVisible) {
+    if (!isGameViewerMode(getResolvedViewerMode2()) || !state2.gameTimingConfig.laneCoverVisible) {
       return false;
     }
     const rootRect = root.getBoundingClientRect();
@@ -3877,7 +4101,7 @@ function createScoreViewerController({
   function updateJudgeLinePositionFromPointer(event, { notify = false } = {}) {
     const rootRect = root.getBoundingClientRect();
     const pointerOffsetY = event.clientY - rootRect.top;
-    const nextRatio = getResolvedViewerMode2() === "game" ? getGameJudgeLinePositionRatioFromPointer(
+    const nextRatio = isGameViewerMode(getResolvedViewerMode2()) ? getGameJudgeLinePositionRatioFromPointer(
       pointerOffsetY,
       rootRect.height,
       state2.gameTimingConfig.laneHeightPercent
@@ -4000,7 +4224,7 @@ function shouldSyncPlaybackScrollPosition({
   desiredScrollTop,
   viewportHeight
 }) {
-  if (viewerMode !== "game" || !isPlaying) {
+  if (!isGameViewerMode(viewerMode) || !isPlaying) {
     return true;
   }
   const threshold = Math.max(
@@ -4071,8 +4295,11 @@ function createDefaultSpacingScaleByMode() {
     game: DEFAULT_SPACING_SCALE
   };
 }
+function isGameViewerMode(mode) {
+  return mode === "game" || mode === "lunatic";
+}
 function normalizeSpacingMode(mode) {
-  return mode === "editor" || mode === "game" ? mode : "time";
+  return mode === "editor" ? "editor" : isGameViewerMode(mode) ? "game" : "time";
 }
 function normalizeSliderSpacingScale(value) {
   return roundSpacingScaleToStep(clampScale(value), SPACING_STEP);
@@ -5586,9 +5813,7 @@ function createBmsInfoPreview({
     }
     const nextSha256 = normalizedRecord.sha256 ? normalizedRecord.sha256.toLowerCase() : null;
     if (parsedScore && nextSha256) {
-      const viewerModel = createScoreViewerModel(parsedScore, {
-        bpmSummary: createViewerModelBpmSummary(normalizedRecord)
-      });
+      const viewerModel = buildViewerModel(parsedScore, normalizedRecord, state2.viewerMode);
       parsedScoreCache.set(nextSha256, { score: parsedScore, viewerModel });
       compressedAvailabilityBySha256.set(nextSha256, { status: "ready" });
       state2.parsedScore = parsedScore;
@@ -5676,9 +5901,7 @@ function createBmsInfoPreview({
           if (!parsedScore) {
             throw new Error("Parsed score was not returned.");
           }
-          const viewerModel = createScoreViewerModel(parsedScore, {
-            bpmSummary: createViewerModelBpmSummary(normalizedRecord)
-          });
+          const viewerModel = buildViewerModel(parsedScore, normalizedRecord, state2.viewerMode);
           const cached2 = { score: parsedScore, viewerModel };
           parsedScoreCache.set(sha256, cached2);
           loadPromiseCache.delete(sha256);
@@ -5791,13 +6014,17 @@ function createBmsInfoPreview({
       return;
     }
     state2.viewerMode = normalizedMode;
+    if (state2.parsedScore) {
+      state2.viewerModel = buildViewerModel(state2.parsedScore, state2.record, state2.viewerMode);
+      state2.selectedTimeSec = clampSelectedTimeSec(state2, state2.selectedTimeSec);
+    }
     state2.selectedBeat = getBeatAtTimeSec(state2.viewerModel, state2.selectedTimeSec);
     try {
       setPersistedViewerMode(normalizedMode);
     } catch (error) {
       console.warn("Failed to persist viewer mode:", error);
     }
-    scheduleRender(PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.selection);
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection);
   }
   function setInvisibleNoteVisibility(nextVisibility) {
     const normalizedVisibility = normalizeInvisibleNoteVisibility(nextVisibility);
@@ -5917,7 +6144,7 @@ function createBmsInfoPreview({
     if (!state2.viewerModel || !state2.parsedScore) {
       return;
     }
-    const maxTimeSec = getScoreTotalDurationSec(state2.parsedScore);
+    const maxTimeSec = getScoreTotalDurationSec(state2.viewerModel.score);
     if (maxTimeSec <= 0) {
       return;
     }
@@ -5961,7 +6188,7 @@ function createBmsInfoPreview({
     }
     const deltaSec = (timestamp - state2.lastPlaybackTimestamp) / 1e3;
     state2.lastPlaybackTimestamp = timestamp;
-    const maxTimeSec = getScoreTotalDurationSec(state2.parsedScore);
+    const maxTimeSec = getScoreTotalDurationSec(state2.viewerModel.score);
     const nextTimeSec = Math.min(state2.selectedTimeSec + deltaSec, maxTimeSec);
     const resolvedViewerMode = getResolvedViewerMode(state2);
     const nextBeat = resolveSelectedBeat(state2, nextTimeSec, void 0, resolvedViewerMode);
@@ -6269,6 +6496,15 @@ function createViewerModelBpmSummary(normalizedRecord) {
     mainBpm: normalizedRecord.mainbpm
   };
 }
+function getViewerModelGameProfile(viewerMode) {
+  return normalizeViewerMode(viewerMode) === "lunatic" ? "lunatic" : "game";
+}
+function buildViewerModel(parsedScore, normalizedRecord, viewerMode) {
+  return createScoreViewerModel(parsedScore, {
+    bpmSummary: createViewerModelBpmSummary(normalizedRecord),
+    gameProfile: getViewerModelGameProfile(viewerMode)
+  });
+}
 function areGameTimingConfigsEqual2(left, right) {
   return Math.abs((left?.durationMs ?? DEFAULT_GAME_DURATION_MS) - (right?.durationMs ?? DEFAULT_GAME_DURATION_MS)) < 1e-6 && Math.abs((left?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT) - (right?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT)) < 1e-6 && Math.abs((left?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE) - (right?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE)) < 1e-6 && (left?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE) === (right?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE) && (left?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE) === (right?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE);
 }
@@ -6276,7 +6512,7 @@ function getSpacingScaleStorageKey(mode) {
   return SPACING_SCALE_STORAGE_KEYS[normalizeSpacingMode2(mode)];
 }
 function normalizeSpacingMode2(mode) {
-  return mode === "editor" || mode === "game" ? mode : "time";
+  return mode === "editor" ? "editor" : mode === "game" || mode === "lunatic" ? "game" : "time";
 }
 function normalizeSpacingScale(value) {
   if (!Number.isFinite(value) || value < 0.5 || value > 8) {
@@ -6296,6 +6532,7 @@ var LOAD_STATES = /* @__PURE__ */ new Set(["idle", "loading", "ready", "error"])
 var SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 var NEARBY_EVENT_WINDOW_SEC = 2;
 var MAX_NEARBY_EVENTS = 50;
+var EMPTY_WARNINGS = Object.freeze([]);
 var elements = {
   form: document.getElementById("control-form"),
   sha256Input: document.getElementById("sha256-input"),
@@ -6365,6 +6602,9 @@ var state = {
 };
 var busyOperation = null;
 var activeRequestId = 0;
+var diagnosticsUiState = {
+  warningsSource: null
+};
 function formatSeconds(value) {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return "-";
@@ -6695,31 +6935,69 @@ function renderDiagnostics() {
   elements.comboTotalDiagnostic.textContent = cursor ? formatInteger(cursor.totalCombo) : "-";
   elements.currentComboDiagnostic.textContent = cursor ? formatInteger(cursor.comboCount) : "-";
   elements.eventCounts.textContent = getEventCountsLabel(state.parsedScore);
-  const warnings = state.parsedScore?.warnings ?? [];
-  elements.warningsCount.textContent = formatInteger(warnings.length);
-  elements.warningsList.className = warnings.length > 0 ? "message-list" : "message-list empty-list";
-  elements.warningsList.replaceChildren();
-  if (warnings.length === 0) {
-    const item = document.createElement("li");
-    item.textContent = "No warnings.";
-    elements.warningsList.appendChild(item);
-  } else {
-    for (const warning of warnings) {
-      const item = document.createElement("li");
-      item.className = "warning-item";
-      const type = document.createElement("span");
-      type.className = "warning-type";
-      type.textContent = warning.type;
-      const message = document.createElement("div");
-      message.className = "warning-message";
-      message.textContent = warning.message;
-      item.append(type, message);
-      elements.warningsList.appendChild(item);
-    }
-  }
+  renderWarningsList(state.parsedScore?.warnings ?? EMPTY_WARNINGS);
   elements.errorType.textContent = state.lastError?.type ?? "-";
   elements.errorMessage.textContent = state.lastError?.message ?? "-";
   elements.errorCause.textContent = summarizeErrorCause(state.lastError?.cause);
+}
+function renderWarningsList(warnings) {
+  elements.warningsCount.textContent = formatInteger(warnings.length);
+  if (diagnosticsUiState.warningsSource === warnings) {
+    return;
+  }
+  diagnosticsUiState.warningsSource = warnings;
+  elements.warningsList.className = warnings.length > 0 ? "message-list warning-list" : "message-list warning-list empty-list";
+  const fragment = document.createDocumentFragment();
+  if (warnings.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "No warnings.";
+    fragment.appendChild(item);
+    elements.warningsList.replaceChildren(fragment);
+    return;
+  }
+  for (const warningGroup of groupWarningsByMessage(warnings)) {
+    const item = document.createElement("li");
+    item.className = "warning-item";
+    const header = document.createElement("div");
+    header.className = "warning-header";
+    const type = document.createElement("span");
+    type.className = "warning-type";
+    type.textContent = warningGroup.type;
+    header.appendChild(type);
+    if (warningGroup.count > 1) {
+      const count = document.createElement("span");
+      count.className = "warning-repeat-count";
+      count.textContent = `${formatInteger(warningGroup.count)}x`;
+      header.appendChild(count);
+    }
+    const message = document.createElement("div");
+    message.className = "warning-message";
+    message.textContent = warningGroup.message;
+    item.append(header, message);
+    fragment.appendChild(item);
+  }
+  elements.warningsList.replaceChildren(fragment);
+}
+function groupWarningsByMessage(warnings) {
+  const groupedWarnings = [];
+  const warningGroupIndexByKey = /* @__PURE__ */ new Map();
+  for (const warning of warnings) {
+    const warningType = warning?.type ?? "parse_warning";
+    const warningMessage = warning?.message ?? "";
+    const groupKey = `${warningType}\0${warningMessage}`;
+    const existingGroupIndex = warningGroupIndexByKey.get(groupKey);
+    if (existingGroupIndex !== void 0) {
+      groupedWarnings[existingGroupIndex].count += 1;
+      continue;
+    }
+    warningGroupIndexByKey.set(groupKey, groupedWarnings.length);
+    groupedWarnings.push({
+      type: warningType,
+      message: warningMessage,
+      count: 1
+    });
+  }
+  return groupedWarnings;
 }
 function ensurePreviewRuntime() {
   if (state.previewRuntime && state.previewContainer) {

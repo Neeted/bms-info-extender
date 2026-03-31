@@ -535,6 +535,55 @@ test("viewer model keeps game displacement fixed while playback is inside a STOP
   assert.equal(getGameTrackPositionAtTimeSec(model, 3.5), 4);
 });
 
+test("viewer model builds a Lunatic profile that keeps beats and shortens time through warp STOPs", () => {
+  const score = {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 2, normal: 2, long: 0, invisible: 0, mine: 0, all: 2 },
+    notes: [
+      { lane: 1, beat: 4 + 1 / 96, timeSec: 2 + (0.5 / 96), kind: "normal" },
+      { lane: 1, beat: 8, timeSec: 4, kind: "normal" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 4 + 1 / 96, timeSec: 2 + (0.5 / 96), kind: "normal" },
+      { lane: 1, beat: 8, timeSec: 4, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [{ beat: 4, timeSec: 2, rate: 0 }],
+    timingActions: [
+      {
+        type: "stop",
+        beat: 4,
+        timeSec: 2,
+        stopBeats: 1,
+        durationSec: 0.5,
+        stopResolution: "resolved",
+        stopLunaticBehavior: "warp",
+      },
+    ],
+    warnings: [],
+  };
+
+  const gameModel = createScoreViewerModel(score);
+  const lunaticModel = createScoreViewerModel(score, { gameProfile: "lunatic" });
+
+  assert.equal(resolveViewerModeForModel(lunaticModel, "lunatic"), "lunatic");
+  assert.deepEqual(lunaticModel.score.scrollChanges, []);
+  assert.equal(lunaticModel.gameScrollIndex.actions.length, 0);
+  assert.ok(lunaticModel.score.totalDurationSec < gameModel.score.totalDurationSec);
+  assert.ok(Math.abs(lunaticModel.notes[0].beat - (4 + 1 / 96)) < 0.000001);
+  assert.ok(Math.abs(lunaticModel.notes[0].timeSec - 2) < 0.000001);
+  assert.ok(Math.abs(lunaticModel.notes[1].beat - 8) < 0.000001);
+  assert.ok(Math.abs(lunaticModel.notes[1].timeSec - (4 - (0.5 / 48))) < 0.000001);
+});
+
 test("viewer model applies the last same-beat scroll change to subsequent game displacement", () => {
   const model = createScoreViewerModel({
     format: "bms",

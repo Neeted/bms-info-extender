@@ -217,6 +217,7 @@ export function createScoreViewerController({
     createModeOption("time", "Time"),
     createModeOption("editor", "Editor"),
     createModeOption("game", "Game"),
+    createModeOption("lunatic", "Lunatic"),
   );
 
   const invisibleNoteVisibilitySelect = document.createElement("select");
@@ -401,7 +402,7 @@ export function createScoreViewerController({
 
   spacingInput.addEventListener("input", () => {
     const resolvedViewerMode = getResolvedViewerMode();
-    if (resolvedViewerMode === "game") {
+    if (isGameViewerMode(resolvedViewerMode)) {
       updateGameTimingConfig({
         durationMs: normalizeGameDurationMs(Number.parseFloat(spacingInput.value)),
       }, { notify: true });
@@ -420,16 +421,16 @@ export function createScoreViewerController({
     }
     const resolvedViewerMode = getResolvedViewerMode();
     const delta = event.deltaY < 0
-      ? (resolvedViewerMode === "game" ? GAME_DURATION_WHEEL_STEP : SPACING_WHEEL_STEP)
+      ? (isGameViewerMode(resolvedViewerMode) ? GAME_DURATION_WHEEL_STEP : SPACING_WHEEL_STEP)
       : event.deltaY > 0
-        ? (resolvedViewerMode === "game" ? -GAME_DURATION_WHEEL_STEP : -SPACING_WHEEL_STEP)
+        ? (isGameViewerMode(resolvedViewerMode) ? -GAME_DURATION_WHEEL_STEP : -SPACING_WHEEL_STEP)
         : 0;
     if (delta === 0) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    if (resolvedViewerMode === "game") {
+    if (isGameViewerMode(resolvedViewerMode)) {
       updateGameTimingConfig({
         durationMs: normalizeGameDurationMs(state.gameTimingConfig.durationMs + delta),
       }, { notify: true });
@@ -449,7 +450,7 @@ export function createScoreViewerController({
   });
 
   laneHeightInput.addEventListener("wheel", (event) => {
-    if (!state.isOpen || !state.model || getResolvedViewerMode() !== "game") {
+    if (!state.isOpen || !state.model || !isGameViewerMode(getResolvedViewerMode())) {
       return;
     }
     const delta = event.deltaY < 0
@@ -474,7 +475,7 @@ export function createScoreViewerController({
   });
 
   laneCoverInput.addEventListener("wheel", (event) => {
-    if (!state.isOpen || !state.model || getResolvedViewerMode() !== "game") {
+    if (!state.isOpen || !state.model || !isGameViewerMode(getResolvedViewerMode())) {
       return;
     }
     const delta = event.deltaY < 0
@@ -506,7 +507,7 @@ export function createScoreViewerController({
 
   modeSelect.addEventListener("change", () => {
     const nextMode = normalizeViewerMode(modeSelect.value);
-    if (nextMode === "game" && !state.model?.supportsGameMode) {
+    if ((nextMode === "game" || nextMode === "lunatic") && !state.model?.supportsGameMode) {
       modeSelect.value = getResolvedViewerMode();
       return;
     }
@@ -829,7 +830,7 @@ export function createScoreViewerController({
     viewportHeight,
     currentJudgeLineY,
   }) {
-    const isGameMode = resolvedViewerMode === "game";
+    const isGameMode = isGameViewerMode(resolvedViewerMode);
     const currentGameLaneGeometry = isGameMode
       ? getCurrentGameLaneGeometry(viewportHeight)
       : null;
@@ -1102,7 +1103,7 @@ export function createScoreViewerController({
     return Boolean(
       state.model
         && state.isOpen
-        && getResolvedViewerMode() === "game"
+        && isGameViewerMode(getResolvedViewerMode())
         && isPrimaryPointer(event),
     );
   }
@@ -1144,7 +1145,7 @@ export function createScoreViewerController({
   }
 
   function getCurrentJudgeLineY(viewportHeight = root.clientHeight || 0) {
-    if (getResolvedViewerMode() === "game") {
+    if (isGameViewerMode(getResolvedViewerMode())) {
       return getGameJudgeLineY(
         viewportHeight,
         state.judgeLinePositionRatio,
@@ -1352,7 +1353,7 @@ export function createScoreViewerController({
   }
 
   function isPointerNearLaneHeightHandle(event) {
-    if (getResolvedViewerMode() !== "game") {
+    if (!isGameViewerMode(getResolvedViewerMode())) {
       return false;
     }
     const rootRect = root.getBoundingClientRect();
@@ -1364,7 +1365,7 @@ export function createScoreViewerController({
   }
 
   function isPointerNearLaneCoverHandle(event) {
-    if (getResolvedViewerMode() !== "game" || !state.gameTimingConfig.laneCoverVisible) {
+    if (!isGameViewerMode(getResolvedViewerMode()) || !state.gameTimingConfig.laneCoverVisible) {
       return false;
     }
     const rootRect = root.getBoundingClientRect();
@@ -1401,7 +1402,7 @@ export function createScoreViewerController({
   function updateJudgeLinePositionFromPointer(event, { notify = false } = {}) {
     const rootRect = root.getBoundingClientRect();
     const pointerOffsetY = event.clientY - rootRect.top;
-    const nextRatio = getResolvedViewerMode() === "game"
+    const nextRatio = isGameViewerMode(getResolvedViewerMode())
       ? getGameJudgeLinePositionRatioFromPointer(
         pointerOffsetY,
         rootRect.height,
@@ -1536,7 +1537,7 @@ export function shouldSyncPlaybackScrollPosition({
   desiredScrollTop,
   viewportHeight,
 }) {
-  if (viewerMode !== "game" || !isPlaying) {
+  if (!isGameViewerMode(viewerMode) || !isPlaying) {
     return true;
   }
   const threshold = Math.max(
@@ -1618,8 +1619,12 @@ function createDefaultSpacingScaleByMode() {
   };
 }
 
+function isGameViewerMode(mode) {
+  return mode === "game" || mode === "lunatic";
+}
+
 function normalizeSpacingMode(mode) {
-  return mode === "editor" || mode === "game" ? mode : "time";
+  return mode === "editor" ? "editor" : isGameViewerMode(mode) ? "game" : "time";
 }
 
 export function normalizeSliderSpacingScale(value) {

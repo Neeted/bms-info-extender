@@ -25,6 +25,7 @@ const PANEL_STATES = new Set(["idle", "loading", "ready", "error"]);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 const NEARBY_EVENT_WINDOW_SEC = 2.0;
 const MAX_NEARBY_EVENTS = 50;
+const EMPTY_WARNINGS = Object.freeze([]);
 
 const elements = {
   form: document.getElementById("control-form"),
@@ -98,6 +99,9 @@ const state = {
 
 let busyOperation = null;
 let activeRequestId = 0;
+const diagnosticsUiState = {
+  warningsSource: null,
+};
 
 function formatSeconds(value) {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -487,35 +491,85 @@ function renderDiagnostics() {
   elements.currentComboDiagnostic.textContent = cursor ? formatInteger(cursor.comboCount) : "-";
   elements.eventCounts.textContent = getEventCountsLabel(state.parsedScore);
 
-  const warnings = state.parsedScore?.warnings ?? [];
-  elements.warningsCount.textContent = formatInteger(warnings.length);
-  elements.warningsList.className = warnings.length > 0 ? "message-list" : "message-list empty-list";
-  elements.warningsList.replaceChildren();
-  if (warnings.length === 0) {
-    const item = document.createElement("li");
-    item.textContent = "No warnings.";
-    elements.warningsList.appendChild(item);
-  } else {
-    for (const warning of warnings) {
-      const item = document.createElement("li");
-      item.className = "warning-item";
-
-      const type = document.createElement("span");
-      type.className = "warning-type";
-      type.textContent = warning.type;
-
-      const message = document.createElement("div");
-      message.className = "warning-message";
-      message.textContent = warning.message;
-
-      item.append(type, message);
-      elements.warningsList.appendChild(item);
-    }
-  }
+  renderWarningsList(state.parsedScore?.warnings ?? EMPTY_WARNINGS);
 
   elements.errorType.textContent = state.lastError?.type ?? "-";
   elements.errorMessage.textContent = state.lastError?.message ?? "-";
   elements.errorCause.textContent = summarizeErrorCause(state.lastError?.cause);
+}
+
+function renderWarningsList(warnings) {
+  elements.warningsCount.textContent = formatInteger(warnings.length);
+  if (diagnosticsUiState.warningsSource === warnings) {
+    return;
+  }
+
+  diagnosticsUiState.warningsSource = warnings;
+  elements.warningsList.className = warnings.length > 0
+    ? "message-list warning-list"
+    : "message-list warning-list empty-list";
+
+  const fragment = document.createDocumentFragment();
+  if (warnings.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "No warnings.";
+    fragment.appendChild(item);
+    elements.warningsList.replaceChildren(fragment);
+    return;
+  }
+
+  for (const warningGroup of groupWarningsByMessage(warnings)) {
+    const item = document.createElement("li");
+    item.className = "warning-item";
+
+    const header = document.createElement("div");
+    header.className = "warning-header";
+
+    const type = document.createElement("span");
+    type.className = "warning-type";
+    type.textContent = warningGroup.type;
+    header.appendChild(type);
+
+    if (warningGroup.count > 1) {
+      const count = document.createElement("span");
+      count.className = "warning-repeat-count";
+      count.textContent = `${formatInteger(warningGroup.count)}x`;
+      header.appendChild(count);
+    }
+
+    const message = document.createElement("div");
+    message.className = "warning-message";
+    message.textContent = warningGroup.message;
+
+    item.append(header, message);
+    fragment.appendChild(item);
+  }
+
+  elements.warningsList.replaceChildren(fragment);
+}
+
+function groupWarningsByMessage(warnings) {
+  const groupedWarnings = [];
+  const warningGroupIndexByKey = new Map();
+
+  for (const warning of warnings) {
+    const warningType = warning?.type ?? "parse_warning";
+    const warningMessage = warning?.message ?? "";
+    const groupKey = `${warningType}\u0000${warningMessage}`;
+    const existingGroupIndex = warningGroupIndexByKey.get(groupKey);
+    if (existingGroupIndex !== undefined) {
+      groupedWarnings[existingGroupIndex].count += 1;
+      continue;
+    }
+    warningGroupIndexByKey.set(groupKey, groupedWarnings.length);
+    groupedWarnings.push({
+      type: warningType,
+      message: warningMessage,
+      count: 1,
+    });
+  }
+
+  return groupedWarnings;
 }
 
 function ensurePreviewRuntime() {

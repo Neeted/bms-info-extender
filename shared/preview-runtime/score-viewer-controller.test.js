@@ -341,6 +341,38 @@ test("controller hides the game settings section outside game mode", () => {
 
     assert.equal(gameSettingsSection.hidden, false);
 
+    controller.setViewerMode("lunatic");
+
+    assert.equal(gameSettingsSection.hidden, false);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller exposes Lunatic as a game-style viewer mode option", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const controller = createScoreViewerController({ root });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+    controller.setViewerMode("lunatic");
+
+    const modeSelect = findElementByPredicate(root, (element) => (
+      String(element.className ?? "").includes("score-viewer-mode-select")
+      && element.children.some((option) => option.value === "lunatic")
+    ));
+    const spacingPrimary = findElementByClass(root, "score-viewer-spacing-value-primary");
+
+    assert.equal(modeSelect.children.some((option) => option.value === "lunatic"), true);
+    assert.equal(modeSelect.value, "lunatic");
+    assert.equal(spacingPrimary.textContent, "500ms");
+
     controller.destroy();
   } finally {
     environment.restore();
@@ -735,6 +767,22 @@ function findElementByClass(root, className) {
   return null;
 }
 
+function findElementByPredicate(root, predicate) {
+  if (!root) {
+    return null;
+  }
+  if (predicate(root)) {
+    return root;
+  }
+  for (const child of root.children ?? []) {
+    const match = findElementByPredicate(child, predicate);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+}
+
 function dispatchPointerEvent(element, type, overrides = {}) {
   dispatchEvent(element, type, {
     button: 0,
@@ -892,6 +940,8 @@ class ControllerMockCanvasElement extends ControllerMockElement {
       save() {},
       restore() {},
       beginPath() {},
+      rect() {},
+      clip() {},
       moveTo() {},
       lineTo() {},
       stroke() {},

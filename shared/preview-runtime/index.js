@@ -815,9 +815,7 @@ export function createBmsInfoPreview({
 
     const nextSha256 = normalizedRecord.sha256 ? normalizedRecord.sha256.toLowerCase() : null;
     if (parsedScore && nextSha256) {
-      const viewerModel = createScoreViewerModel(parsedScore, {
-        bpmSummary: createViewerModelBpmSummary(normalizedRecord),
-      });
+      const viewerModel = buildViewerModel(parsedScore, normalizedRecord, state.viewerMode);
       parsedScoreCache.set(nextSha256, { score: parsedScore, viewerModel });
       compressedAvailabilityBySha256.set(nextSha256, { status: "ready" });
       state.parsedScore = parsedScore;
@@ -919,9 +917,7 @@ export function createBmsInfoPreview({
             if (!parsedScore) {
               throw new Error("Parsed score was not returned.");
             }
-            const viewerModel = createScoreViewerModel(parsedScore, {
-              bpmSummary: createViewerModelBpmSummary(normalizedRecord),
-            });
+            const viewerModel = buildViewerModel(parsedScore, normalizedRecord, state.viewerMode);
             const cached = { score: parsedScore, viewerModel };
             parsedScoreCache.set(sha256, cached);
             loadPromiseCache.delete(sha256);
@@ -1048,13 +1044,17 @@ export function createBmsInfoPreview({
       return;
     }
     state.viewerMode = normalizedMode;
+    if (state.parsedScore) {
+      state.viewerModel = buildViewerModel(state.parsedScore, state.record, state.viewerMode);
+      state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
+    }
     state.selectedBeat = getBeatAtTimeSec(state.viewerModel, state.selectedTimeSec);
     try {
       setPersistedViewerMode(normalizedMode);
     } catch (error) {
       console.warn("Failed to persist viewer mode:", error);
     }
-    scheduleRender(PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.selection);
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection);
   }
 
   function setInvisibleNoteVisibility(nextVisibility) {
@@ -1183,7 +1183,7 @@ export function createBmsInfoPreview({
     if (!state.viewerModel || !state.parsedScore) {
       return;
     }
-    const maxTimeSec = getScoreTotalDurationSec(state.parsedScore);
+    const maxTimeSec = getScoreTotalDurationSec(state.viewerModel.score);
     if (maxTimeSec <= 0) {
       return;
     }
@@ -1229,7 +1229,7 @@ export function createBmsInfoPreview({
     }
     const deltaSec = (timestamp - state.lastPlaybackTimestamp) / 1000;
     state.lastPlaybackTimestamp = timestamp;
-    const maxTimeSec = getScoreTotalDurationSec(state.parsedScore);
+    const maxTimeSec = getScoreTotalDurationSec(state.viewerModel.score);
     const nextTimeSec = Math.min(state.selectedTimeSec + deltaSec, maxTimeSec);
     const resolvedViewerMode = getResolvedViewerMode(state);
     const nextBeat = resolveSelectedBeat(state, nextTimeSec, undefined, resolvedViewerMode);
@@ -1563,6 +1563,17 @@ function createViewerModelBpmSummary(normalizedRecord) {
   };
 }
 
+function getViewerModelGameProfile(viewerMode) {
+  return normalizeViewerMode(viewerMode) === "lunatic" ? "lunatic" : "game";
+}
+
+function buildViewerModel(parsedScore, normalizedRecord, viewerMode) {
+  return createScoreViewerModel(parsedScore, {
+    bpmSummary: createViewerModelBpmSummary(normalizedRecord),
+    gameProfile: getViewerModelGameProfile(viewerMode),
+  });
+}
+
 function areGameTimingConfigsEqual(left, right) {
   return Math.abs((left?.durationMs ?? DEFAULT_GAME_DURATION_MS) - (right?.durationMs ?? DEFAULT_GAME_DURATION_MS)) < 0.000001
     && Math.abs((left?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT) - (right?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT)) < 0.000001
@@ -1576,7 +1587,7 @@ export function getSpacingScaleStorageKey(mode) {
 }
 
 function normalizeSpacingMode(mode) {
-  return mode === "editor" || mode === "game" ? mode : "time";
+  return mode === "editor" ? "editor" : mode === "game" || mode === "lunatic" ? "game" : "time";
 }
 
 function normalizeSpacingScale(value) {

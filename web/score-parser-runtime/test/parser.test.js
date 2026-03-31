@@ -94,9 +94,89 @@ test("BMS applies STOP timing", () => {
   assert.equal(result.score.stops.length, 1);
   assert.deepEqual(result.score.stops[0], { beat: 4, timeSec: 2.5, stopBeats: 1, durationSec: 0.5 });
   assert.deepEqual(result.score.timingActions, [
-    { type: "stop", beat: 4, timeSec: 2, stopBeats: 1, durationSec: 0.5 },
+    {
+      type: "stop",
+      beat: 4,
+      timeSec: 2,
+      stopBeats: 1,
+      durationSec: 0.5,
+      stopResolution: "resolved",
+      stopLunaticBehavior: "normal",
+    },
   ]);
   assert.equal(result.score.notes[0].timeSec, 4.5);
+});
+
+test("BMS normalizes negative STOP definitions while keeping a warning", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#STOP01 -48",
+    "#00109:01",
+    "#00211:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "21".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.timingActions, [
+    {
+      type: "stop",
+      beat: 4,
+      timeSec: 2,
+      stopBeats: 1,
+      durationSec: 0.5,
+      stopResolution: "resolved",
+      stopLunaticBehavior: "warp",
+    },
+  ]);
+  assert.deepEqual(result.score.stops, [
+    { beat: 4, timeSec: 2.5, stopBeats: 1, durationSec: 0.5 },
+  ]);
+  assert.match(result.score.warnings[0]?.message ?? "", /Negative STOP value STOP01/);
+});
+
+test("BMS keeps invalid STOP references in timingActions for downstream Lunatic handling", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#STOP01 0",
+    "#00109:01",
+    "#00209:02",
+    "#00311:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "22".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.stops, []);
+  assert.deepEqual(result.score.timingActions, [
+    {
+      type: "stop",
+      beat: 4,
+      timeSec: 2,
+      stopBeats: 0,
+      durationSec: 0,
+      stopResolution: "invalid",
+      stopLunaticBehavior: "warp",
+    },
+    {
+      type: "stop",
+      beat: 8,
+      timeSec: 4,
+      stopBeats: 0,
+      durationSec: 0,
+      stopResolution: "invalid",
+      stopLunaticBehavior: "warp",
+    },
+  ]);
+  assert.equal(result.score.notes[0].timeSec, 6);
+  assert.match(result.score.warnings[0]?.message ?? "", /STOP01/);
+  assert.match(result.score.warnings[1]?.message ?? "", /STOP02/);
 });
 
 test("BMS resolves SCROLL changes via SC channel references", () => {

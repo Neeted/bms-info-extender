@@ -13,6 +13,7 @@ export const DEFAULT_GAME_HS_FIX_MODE = "main";
 export const DEFAULT_GAME_HS_FIX_FALLBACK_BPM = 150;
 export const GAME_GREEN_NUMBER_RATIO = 0.6;
 export const GAME_HS_FIX_MODES = Object.freeze(["start", "max", "main", "min"]);
+const LUNATIC_INVALID_STOP_WARP_BEATS = 1 / 48;
 export const TIME_SELECTION_EPSILON_SEC = 0.0005;
 export const BEAT_SELECTION_EPSILON = 0.000001;
 
@@ -23,7 +24,7 @@ const ACTION_PRECEDENCE = {
 const gameTimingDerivedMetricsCacheByModel = new WeakMap();
 
 export function normalizeViewerMode(value) {
-  return value === "editor" || value === "game" || value === "time"
+  return value === "editor" || value === "game" || value === "lunatic" || value === "time"
     ? value
     : DEFAULT_VIEWER_MODE;
 }
@@ -33,8 +34,8 @@ export function resolveViewerModeForModel(model, viewerMode) {
   if (normalizedMode === "editor" && model?.supportsEditorMode) {
     return "editor";
   }
-  if (normalizedMode === "game" && model?.supportsGameMode) {
-    return "game";
+  if ((normalizedMode === "game" || normalizedMode === "lunatic") && model?.supportsGameMode) {
+    return normalizedMode;
   }
   return DEFAULT_VIEWER_MODE;
 }
@@ -199,20 +200,24 @@ export function getGameLaneCoverPermilleFromPointer(
   );
 }
 
-export function createScoreViewerModel(score, { bpmSummary = undefined } = {}) {
+export function createScoreViewerModel(score, { bpmSummary = undefined, gameProfile = "game" } = {}) {
   if (!score) {
     return null;
   }
+  const normalizedGameProfile = normalizeGameProfile(gameProfile);
+  const profiledScore = normalizedGameProfile === "lunatic"
+    ? createLunaticProfileScore(score)
+    : score;
 
-  const rawAllNotes = score.notes
+  const rawAllNotes = profiledScore.notes
     .map((note) => ({ ...note }))
     .sort(compareNoteLike);
-  const rawBarLines = [...score.barLines].sort(compareTimedBeatLike);
-  const rawBpmChanges = [...score.bpmChanges].sort(compareTimedBeatLike);
-  const rawStops = [...score.stops].sort(compareTimedBeatLike);
-  const rawScrollChanges = [...(score.scrollChanges ?? [])].sort(compareTimedBeatLike);
+  const rawBarLines = [...profiledScore.barLines].sort(compareTimedBeatLike);
+  const rawBpmChanges = [...profiledScore.bpmChanges].sort(compareTimedBeatLike);
+  const rawStops = [...profiledScore.stops].sort(compareTimedBeatLike);
+  const rawScrollChanges = [...(profiledScore.scrollChanges ?? [])].sort(compareTimedBeatLike);
 
-  const comboEvents = (score.comboEvents?.length > 0 ? score.comboEvents : createFallbackComboEvents(score.notes))
+  const comboEvents = (profiledScore.comboEvents?.length > 0 ? profiledScore.comboEvents : createFallbackComboEvents(profiledScore.notes))
     .map((event) => ({ ...event }))
     .sort(compareComboEvent)
     .map((event, index) => ({
@@ -226,9 +231,9 @@ export function createScoreViewerModel(score, { bpmSummary = undefined } = {}) {
       .map(createTimedLaneKey),
   );
 
-  const beatTimingIndex = createBeatTimingIndex(score);
+  const beatTimingIndex = createBeatTimingIndex(profiledScore);
   const gameScrollIndex = createGameScrollIndex(rawScrollChanges);
-  const gameTimingEvents = createGameTimelineTimingEvents(score);
+  const gameTimingEvents = createGameTimelineTimingEvents(profiledScore);
   const allNotes = annotateNotesWithGameTrackPosition(rawAllNotes, gameScrollIndex);
   const notes = allNotes.filter((note) => note.kind !== "invisible");
   const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
@@ -247,12 +252,13 @@ export function createScoreViewerModel(score, { bpmSummary = undefined } = {}) {
     barLines,
     bpmChanges: gameTimelineBpmChanges,
     stops: gameTimelineStops,
+    warps: gameTimingEvents.warps,
     scrollChanges,
     gameScrollIndex,
   });
-  const resolvedBpmSummary = resolveBpmSummary(score, bpmSummary);
+  const resolvedBpmSummary = resolveBpmSummary(profiledScore, bpmSummary);
   const gameTimingStatePoints = createGameTimingStatePoints(gameTimeline, resolvedBpmSummary.startBpm);
-  const totalBeat = getScoreTotalBeat(score);
+  const totalBeat = getScoreTotalBeat(profiledScore);
   const editorNotes = notes.filter((note) => Number.isFinite(note.beat));
   const editorInvisibleNotes = invisibleNotes.filter((note) => Number.isFinite(note.beat));
   const notesByBeat = [...editorNotes].sort(compareBeatNoteLike);
@@ -267,7 +273,9 @@ export function createScoreViewerModel(score, { bpmSummary = undefined } = {}) {
   const measureRanges = createEditorMeasureRanges(barLines, totalBeat);
 
   return {
-    score,
+    score: profiledScore,
+    sourceScore: score,
+    gameProfile: normalizedGameProfile,
     notes,
     invisibleNotes,
     notesByBeat,
@@ -785,6 +793,191 @@ function createFallbackComboEvents(notes) {
     }));
 }
 
+function normalizeGameProfile(value) {
+  return value === "lunatic" ? "lunatic" : "game";
+}
+
+function createLunaticProfileScore(score) {
+  if (!score || typeof score !== "object") {
+    return score;
+  }
+  const baseTimingActions = createTimingActionsFromCanonicalScore(score);
+  const transformedTimingActions = materializeTimingActionsForViewer(
+    score.initialBpm,
+    baseTimingActions
+      .filter((action) => action?.type === "bpm" || action?.type === "stop")
+      .map((action) => (
+        action.type === "bpm"
+          ? {
+            type: "bpm",
+            beat: action.beat,
+            bpm: action.bpm,
+          }
+          : {
+            type: "stop",
+            beat: action.beat,
+            stopBeats: action.stopLunaticBehavior === "warp"
+              ? LUNATIC_INVALID_STOP_WARP_BEATS
+              : action.stopBeats,
+            stopResolution: action.stopResolution,
+            stopLunaticBehavior: action.stopLunaticBehavior,
+          }
+      )),
+  );
+  const timingSeed = {
+    initialBpm: score.initialBpm,
+    timingActions: transformedTimingActions,
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+  };
+  const beatTimingIndex = createBeatTimingIndex(timingSeed);
+  if (!beatTimingIndex) {
+    return {
+      ...score,
+      scrollChanges: [],
+      timingActions: transformedTimingActions,
+    };
+  }
+
+  const notes = (score.notes ?? []).map((note) => transformLunaticNote(note, beatTimingIndex));
+  const comboEvents = (score.comboEvents ?? []).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
+  const barLines = (score.barLines ?? []).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
+  const bpmChanges = buildBpmChangesFromTimingActionsForViewer(score.initialBpm, transformedTimingActions);
+  const stops = buildStopsFromTimingActionsForViewer(transformedTimingActions);
+  const lastPlayableTimeSec = notes.reduce((maxTimeSec, note) => Math.max(
+    maxTimeSec,
+    finiteOrZero(note.endTimeSec),
+    finiteOrZero(note.timeSec),
+  ), 0);
+  const lastTimelineTimeSec = Math.max(
+    lastPlayableTimeSec,
+    ...barLines.map((event) => finiteOrZero(event.timeSec)),
+    ...bpmChanges.map((event) => finiteOrZero(event.timeSec)),
+    ...stops.map((event) => finiteOrZero(event.timeSec)),
+  );
+
+  return {
+    ...score,
+    notes,
+    comboEvents,
+    barLines,
+    bpmChanges,
+    stops,
+    scrollChanges: [],
+    timingActions: transformedTimingActions,
+    totalDurationSec: lastTimelineTimeSec,
+    lastPlayableTimeSec,
+    lastTimelineTimeSec,
+  };
+}
+
+function transformLunaticTimedBeatEvent(event, beatTimingIndex) {
+  if (!Number.isFinite(event?.beat)) {
+    return { ...event };
+  }
+  return {
+    ...event,
+    timeSec: beatTimingIndex.beatToSeconds(event.beat),
+  };
+}
+
+function transformLunaticNote(note, beatTimingIndex) {
+  const transformedNote = { ...note };
+  if (Number.isFinite(note?.beat)) {
+    transformedNote.timeSec = beatTimingIndex.beatToSeconds(note.beat);
+  }
+  if (Number.isFinite(note?.endBeat)) {
+    transformedNote.endTimeSec = beatTimingIndex.beatToSeconds(note.endBeat);
+  }
+  return transformedNote;
+}
+
+function materializeTimingActionsForViewer(initialBpm, actions) {
+  const resolvedInitialBpm = Number.isFinite(initialBpm) && initialBpm > 0 ? initialBpm : null;
+  if (!resolvedInitialBpm) {
+    return actions.map((action) => ({ ...action }));
+  }
+  const sortedActions = [...(actions ?? [])]
+    .filter((action) => Number.isFinite(action?.beat))
+    .sort(compareTimingAction);
+  const materializedActions = [];
+  let currentBeat = 0;
+  let currentSeconds = 0;
+  let currentBpm = resolvedInitialBpm;
+
+  for (const action of sortedActions) {
+    const actionBeat = Math.max(action.beat, currentBeat);
+    currentSeconds += ((actionBeat - currentBeat) * 60) / currentBpm;
+    currentBeat = actionBeat;
+    if (action.type === "bpm") {
+      materializedActions.push({
+        type: "bpm",
+        beat: actionBeat,
+        timeSec: currentSeconds,
+        bpm: action.bpm,
+      });
+      currentBpm = action.bpm;
+      continue;
+    }
+    const stopBeats = Number.isFinite(action.stopBeats) && action.stopBeats > 0 ? action.stopBeats : 0;
+    const durationSec = action.stopLunaticBehavior === "warp"
+      ? 0
+      : (stopBeats > 0 ? (stopBeats * 60) / currentBpm : 0);
+    materializedActions.push({
+      type: "stop",
+      beat: actionBeat,
+      timeSec: currentSeconds,
+      stopBeats,
+      durationSec,
+      stopResolution: action.stopResolution,
+      stopLunaticBehavior: action.stopLunaticBehavior,
+    });
+    if (action.stopLunaticBehavior === "warp") {
+      currentBeat += stopBeats;
+      continue;
+    }
+    currentSeconds += durationSec;
+  }
+
+  return materializedActions;
+}
+
+function buildBpmChangesFromTimingActionsForViewer(initialBpm, timingActions) {
+  const changes = [];
+  let currentBpm = Number.isFinite(initialBpm) && initialBpm > 0 ? initialBpm : null;
+  for (const action of timingActions ?? []) {
+    if (action?.type !== "bpm" || !Number.isFinite(action?.beat) || !Number.isFinite(action?.timeSec) || !Number.isFinite(action?.bpm) || action.bpm <= 0) {
+      continue;
+    }
+    if (action.bpm !== currentBpm) {
+      changes.push({
+        beat: action.beat,
+        timeSec: action.timeSec,
+        bpm: action.bpm,
+      });
+    }
+    currentBpm = action.bpm;
+  }
+  return changes;
+}
+
+function buildStopsFromTimingActionsForViewer(timingActions) {
+  return (timingActions ?? [])
+    .filter((action) => action?.type === "stop"
+      && action?.stopLunaticBehavior !== "warp"
+      && Number.isFinite(action?.beat)
+      && Number.isFinite(action?.timeSec)
+      && Number.isFinite(action?.durationSec)
+      && action.durationSec > 0)
+    .map((action) => ({
+      beat: action.beat,
+      timeSec: action.timeSec + action.durationSec,
+      stopBeats: action.stopBeats,
+      durationSec: action.durationSec,
+    }));
+}
+
 function createBeatTimingIndex(score) {
   const initialBpm = Number.isFinite(score.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
   if (!initialBpm) {
@@ -798,6 +991,7 @@ function createBeatTimingIndex(score) {
   const stateSeconds = new Array(actions.length);
   const stateBpms = new Array(actions.length);
   const segments = [];
+  const beatSegments = [];
 
   let currentBeat = 0;
   let currentSeconds = 0;
@@ -816,13 +1010,15 @@ function createBeatTimingIndex(score) {
 
     if (actionBeat > currentBeat) {
       const nextSeconds = actionTimeSec;
-      segments.push({
+      const segment = {
         type: "linear",
         startSec: currentSeconds,
         endSec: nextSeconds,
         startBeat: currentBeat,
         endBeat: actionBeat,
-      });
+      };
+      segments.push(segment);
+      beatSegments.push(segment);
       currentBeat = actionBeat;
       currentSeconds = nextSeconds;
     } else {
@@ -832,17 +1028,35 @@ function createBeatTimingIndex(score) {
     if (action.type === "bpm") {
       currentBpm = action.bpm;
     } else {
-      const stopDurationSec = Number.isFinite(action.durationSec) && action.durationSec > 0
-        ? action.durationSec
-        : ((action.stopBeats ?? 0) * 60) / currentBpm;
-      if (stopDurationSec > 0) {
-        segments.push({
-          type: "stop",
+      const warpBeats = action.stopLunaticBehavior === "warp"
+        && Number.isFinite(action.stopBeats)
+        && action.stopBeats > 0
+        ? action.stopBeats
+        : 0;
+      if (warpBeats > 0) {
+        const segment = {
+          type: "warp",
           startSec: currentSeconds,
-          endSec: currentSeconds + stopDurationSec,
-          beat: currentBeat,
-        });
-        currentSeconds += stopDurationSec;
+          endSec: currentSeconds,
+          startBeat: currentBeat,
+          endBeat: currentBeat + warpBeats,
+        };
+        segments.push(segment);
+        beatSegments.push(segment);
+        currentBeat += warpBeats;
+      } else {
+        const stopDurationSec = Number.isFinite(action.durationSec) && action.durationSec > 0
+          ? action.durationSec
+          : ((action.stopBeats ?? 0) * 60) / currentBpm;
+        if (stopDurationSec > 0) {
+          segments.push({
+            type: "stop",
+            startSec: currentSeconds,
+            endSec: currentSeconds + stopDurationSec,
+            beat: currentBeat,
+          });
+          currentSeconds += stopDurationSec;
+        }
       }
     }
 
@@ -863,11 +1077,21 @@ function createBeatTimingIndex(score) {
     tailBpm: currentBpm,
     beatToSeconds(beat) {
       const normalizedBeat = Number.isFinite(beat) ? Math.max(beat, 0) : 0;
-      const actionIndex = upperBoundActionsByBeat(actions, normalizedBeat) - 1;
-      if (actionIndex < 0) {
-        return (normalizedBeat * 60) / initialBpm;
+      const segmentIndex = lowerBoundBeatSegmentsByEndBeat(beatSegments, normalizedBeat);
+      if (segmentIndex < beatSegments.length) {
+        const segment = beatSegments[segmentIndex];
+        if (normalizedBeat >= segment.startBeat && normalizedBeat <= segment.endBeat) {
+          if (segment.type === "warp") {
+            return segment.startSec;
+          }
+          const beatSpan = segment.endBeat - segment.startBeat;
+          if (beatSpan <= 0) {
+            return segment.endSec;
+          }
+          return segment.startSec + ((normalizedBeat - segment.startBeat) * (segment.endSec - segment.startSec)) / beatSpan;
+        }
       }
-      return stateSeconds[actionIndex] + ((normalizedBeat - stateBeats[actionIndex]) * 60) / stateBpms[actionIndex];
+      return currentSeconds + ((normalizedBeat - currentBeat) * 60) / currentBpm;
     },
     secondsToBeat(seconds) {
       const normalizedSeconds = Number.isFinite(seconds) ? Math.max(seconds, 0) : 0;
@@ -877,6 +1101,9 @@ function createBeatTimingIndex(score) {
         if (normalizedSeconds <= segment.endSec) {
           if (segment.type === "stop") {
             return segment.beat;
+          }
+          if (segment.type === "warp") {
+            return segment.endBeat;
           }
           const secSpan = segment.endSec - segment.startSec;
           if (secSpan <= 0) {
@@ -902,6 +1129,7 @@ function createGameTimelineTimingEvents(score) {
   const actions = createTimingActions(score).slice().sort(compareTimingAction);
   const bpmChanges = [];
   const stops = [];
+  const warps = [];
   let currentBpm = Number.isFinite(score?.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
 
   for (const action of actions) {
@@ -924,6 +1152,17 @@ function createGameTimelineTimingEvents(score) {
     if (!Number.isFinite(action.beat) || !Number.isFinite(action.timeSec)) {
       continue;
     }
+    if (action.stopLunaticBehavior === "warp") {
+      const warpBeats = Number.isFinite(action.stopBeats) && action.stopBeats > 0
+        ? action.stopBeats
+        : LUNATIC_INVALID_STOP_WARP_BEATS;
+      warps.push({
+        beat: action.beat + warpBeats,
+        timeSec: action.timeSec,
+        warpBeats,
+      });
+      continue;
+    }
     const durationSec = Number.isFinite(action.durationSec) && action.durationSec > 0
       ? action.durationSec
       : (Number.isFinite(action.stopBeats) && action.stopBeats > 0 && Number.isFinite(currentBpm) && currentBpm > 0
@@ -940,7 +1179,7 @@ function createGameTimelineTimingEvents(score) {
     });
   }
 
-  return { bpmChanges, stops };
+  return { bpmChanges, stops, warps };
 }
 
 function resolveBpmSummary(score, bpmSummary = undefined) {
@@ -1033,6 +1272,7 @@ function createGameTimingStatePoints(gameTimeline, initialBpm) {
 function createTimingActionsFromCanonicalScore(score) {
   return [...(score?.timingActions ?? [])]
     .filter((action) => Number.isFinite(action?.beat) && action.type === "bpm" && Number.isFinite(action?.bpm) && action.bpm > 0
+      || Number.isFinite(action?.beat) && action.type === "stop" && action?.stopResolution === "invalid"
       || Number.isFinite(action?.beat) && action.type === "stop" && Number.isFinite(action?.stopBeats) && action.stopBeats > 0)
     .map((action) => {
       if (action.type === "bpm") {
@@ -1049,6 +1289,8 @@ function createTimingActionsFromCanonicalScore(score) {
         timeSec: action.timeSec,
         stopBeats: action.stopBeats,
         durationSec: action.durationSec,
+        stopResolution: action.stopResolution,
+        stopLunaticBehavior: action.stopLunaticBehavior,
       };
     });
 }
@@ -1141,7 +1383,7 @@ function createGameScrollIndex(scrollChanges) {
   };
 }
 
-function createGameTimeline({ notes, barLines, bpmChanges, stops, scrollChanges, gameScrollIndex }) {
+function createGameTimeline({ notes, barLines, bpmChanges, stops, warps, scrollChanges, gameScrollIndex }) {
   const pointMap = new Map();
   ensureGameTimelinePoint(pointMap, 0, 0, gameScrollIndex);
 
@@ -1167,6 +1409,12 @@ function createGameTimeline({ notes, barLines, bpmChanges, stops, scrollChanges,
     const point = ensureGameTimelinePoint(pointMap, scrollChange?.beat, scrollChange?.timeSec, gameScrollIndex);
     if (point) {
       point.scrollChanges.push(scrollChange);
+    }
+  }
+  for (const warp of warps ?? []) {
+    const point = ensureGameTimelinePoint(pointMap, warp?.beat, warp?.timeSec, gameScrollIndex);
+    if (point) {
+      point.warps.push(warp);
     }
   }
   for (const note of notes ?? []) {
@@ -1236,6 +1484,7 @@ function ensureGameTimelinePoint(pointMap, beat, timeSec, gameScrollIndex) {
     scrollChanges: [],
     notes: [],
     longEndNotes: [],
+    warps: [],
     stopDurationSec: 0,
     outgoingScrollRate: 1,
     index: -1,
@@ -1351,6 +1600,20 @@ function upperBoundSegmentsByStartSec(segments, seconds) {
   while (low < high) {
     const mid = Math.floor((low + high) / 2);
     if (segments[mid].startSec <= seconds) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+function lowerBoundBeatSegmentsByEndBeat(segments, beat) {
+  let low = 0;
+  let high = segments.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if ((segments[mid]?.endBeat ?? 0) < beat) {
       low = mid + 1;
     } else {
       high = mid;

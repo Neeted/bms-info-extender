@@ -642,6 +642,21 @@ test("renderer game projection stops drawing notes after they become past object
   );
 });
 
+test("renderer Lunatic projection keeps skipped-region notes visible before warp and drops them after the instant jump", () => {
+  const model = createScoreViewerModel(createLunaticWarpProjectionScore(), { gameProfile: "lunatic" });
+  const beforeWarp = collectGameProjection(model, 1.999, 320, 64);
+  const afterWarp = collectGameProjection(model, 2.001, 320, 64);
+
+  assert.deepEqual(
+    beforeWarp.points.flatMap((projected) => projected.point.notes.map((note) => note.beat)),
+    [4 + 1 / 96, 4.25],
+  );
+  assert.deepEqual(
+    afterWarp.points.flatMap((projected) => projected.point.notes.map((note) => note.beat)),
+    [4.25],
+  );
+});
+
 function createInvisibleNoteScore() {
   return {
     format: "bms",
@@ -661,6 +676,41 @@ function createInvisibleNoteScore() {
     bpmChanges: [],
     stops: [],
     scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createLunaticWarpProjectionScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 3,
+    lastPlayableTimeSec: 3,
+    lastTimelineTimeSec: 3,
+    noteCounts: { visible: 2, normal: 2, long: 0, invisible: 0, mine: 0, all: 2 },
+    notes: [
+      { lane: 1, beat: 4 + 1 / 96, timeSec: 2 + (0.5 / 96), kind: "normal" },
+      { lane: 1, beat: 4.25, timeSec: 2.125, kind: "normal" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 4 + 1 / 96, timeSec: 2 + (0.5 / 96), kind: "normal" },
+      { lane: 1, beat: 4.25, timeSec: 2.125, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    timingActions: [{
+      type: "stop",
+      beat: 4,
+      timeSec: 2,
+      stopBeats: 1,
+      durationSec: 0.5,
+      stopResolution: "resolved",
+      stopLunaticBehavior: "warp",
+    }],
     warnings: [],
   };
 }

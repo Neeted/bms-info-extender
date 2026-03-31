@@ -33,7 +33,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
   const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-  const SCORE_PARSER_VERSION = "0.6.3";
+  const SCORE_PARSER_VERSION = "0.6.5";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   const SCRIPT_VERSION_FALLBACK = "2.1.0";
   const SKIP_VERSION_NOTIFICATION = false;

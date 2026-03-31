@@ -140,6 +140,8 @@ export function materializeTimingActions(timing) {
       timeSec: timing.stateSeconds[index] - durationSec,
       stopBeats: action.stopBeats,
       durationSec,
+      ...(action.stopResolution ? { stopResolution: action.stopResolution } : {}),
+      ...(action.stopLunaticBehavior ? { stopLunaticBehavior: action.stopLunaticBehavior } : {}),
     };
   });
 }

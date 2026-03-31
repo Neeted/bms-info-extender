@@ -77,7 +77,7 @@ function buildTiming(chart, warnings) {
 
   const actions = [];
   const extendedBpmCache = new Map();
-  const stopBeatsCache = new Map();
+  const stopResolutionCache = new Map();
   for (const object of chart.objects) {
     const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
     if (object.channel === "03") {
@@ -99,12 +99,23 @@ function buildTiming(chart, warnings) {
       continue;
     }
     if (object.channel === "09") {
-      const stopBeats = resolveStopBeats(chart.headers, object.value, stopBeatsCache);
-      if (stopBeats !== null) {
-        actions.push({ type: "stop", beat, stopBeats });
-      } else {
+      const stopResolution = resolveStopResolution(chart.headers, object.value, stopResolutionCache);
+      if (stopResolution) {
+        actions.push({
+          type: "stop",
+          beat,
+          stopBeats: stopResolution.stopBeats,
+          stopResolution: stopResolution.kind,
+          stopLunaticBehavior: stopResolution.lunaticBehavior,
+        });
+      }
+      if (stopResolution?.warningMessage) {
+        warnings.push(createWarning("parse_warning", stopResolution.warningMessage));
+      }
+      if (!stopResolution) {
         warnings.push(createWarning("parse_warning", `Ignored missing or invalid STOP reference STOP${object.value}.`));
       }
+      continue;
     }
   }
 
@@ -145,15 +156,49 @@ function resolveExtendedBpm(headers, value, cache) {
   return bpm;
 }
 
-function resolveStopBeats(headers, value, cache) {
+function resolveStopResolution(headers, value, cache) {
   if (cache.has(value)) {
     return cache.get(value);
   }
 
-  const parsedValue = Number.parseFloat(headers.get(`STOP${value}`) ?? "");
-  const stopBeats = Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue / 48 : null;
-  cache.set(value, stopBeats);
-  return stopBeats;
+  const rawValue = headers.get(`STOP${value}`) ?? "";
+  const parsedValue = Number.parseFloat(rawValue);
+  let resolved = null;
+
+  if (Number.isFinite(parsedValue)) {
+    if (parsedValue < 0) {
+      resolved = {
+        kind: "resolved",
+        stopBeats: Math.abs(parsedValue) / 48,
+        warningMessage: `Negative STOP value STOP${value} was normalized to its absolute value.`,
+        lunaticBehavior: "warp",
+      };
+    } else if (parsedValue > 0) {
+      resolved = {
+        kind: "resolved",
+        stopBeats: parsedValue / 48,
+        warningMessage: null,
+        lunaticBehavior: Number.isInteger(parsedValue) ? "normal" : "warp",
+      };
+    } else {
+      resolved = {
+        kind: "invalid",
+        stopBeats: 0,
+        warningMessage: `Ignored missing or invalid STOP reference STOP${value}.`,
+        lunaticBehavior: "warp",
+      };
+    }
+  } else {
+    resolved = {
+      kind: "invalid",
+      stopBeats: 0,
+      warningMessage: `Ignored missing or invalid STOP reference STOP${value}.`,
+      lunaticBehavior: "warp",
+    };
+  }
+
+  cache.set(value, resolved);
+  return resolved;
 }
 
 function resolveScrollRate(headers, value, cache) {

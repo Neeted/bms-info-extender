@@ -76,6 +76,8 @@ export type ParsedTimingAction = {
     bpm?: number;
     stopBeats?: number;
     durationSec?: number;
+    stopResolution?: "resolved" | "invalid";
+    stopLunaticBehavior?: "normal" | "warp";
 };
 
 export type ParsedWarning = {

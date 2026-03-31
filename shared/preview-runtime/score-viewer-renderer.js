@@ -143,7 +143,7 @@ export function createScoreViewerRenderer(canvas) {
     if (resolvedMode === "time") {
       return renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes, judgeLineY);
     }
-    if (resolvedMode === "game") {
+    if (resolvedMode === "game" || resolvedMode === "lunatic") {
       return renderGameMode(model, laneLayout, selectedTimeSec, showInvisibleNotes, judgeLineY, gameTimingConfig);
     }
 
@@ -596,7 +596,9 @@ function getGameProjectionDeltaY(previousPoint, point, selectedTimeSec, pixelsPe
     - finiteOrZero(previousPoint?.timeSec)
     - finiteOrZero(previousPoint?.stopDurationSec);
   if (!(traversableDurationSec > 0)) {
-    return 0;
+    return selectedTimeSec < finiteOrZero(point?.timeSec)
+      ? deltaSection * scrollRate * pixelsPerSection
+      : 0;
   }
   const remainingRatio = clamp(
     (finiteOrZero(point?.timeSec) - selectedTimeSec) / traversableDurationSec,

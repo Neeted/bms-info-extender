@@ -490,6 +490,15 @@ button:hover:not(:disabled) {
   gap: 10px;
 }
 
+.warning-list {
+  max-height: min(24rem, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  align-content: start;
+}
+
 .empty-list li {
   padding: 14px;
   border-radius: 16px;
@@ -508,7 +517,6 @@ button:hover:not(:disabled) {
 
 .warning-type {
   display: inline-flex;
-  margin-bottom: 8px;
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 0.76rem;
@@ -516,10 +524,28 @@ button:hover:not(:disabled) {
   color: var(--accent-strong);
 }
 
+.warning-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.warning-repeat-count {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 0.74rem;
+  background: rgba(58, 49, 33, 0.08);
+  color: var(--text-muted);
+}
+
 .warning-message,
 .event-detail {
   line-height: 1.55;
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 .error-grid {

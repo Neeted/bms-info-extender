@@ -1,5 +1,5 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
-
+// 2.2.0 操作や設定値の変更、Gameモードをよりbeatoraja寄りに、LR2風(負数STOPワープ、SCROLL無視)のLunaticモード追加
 // 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更
 // 2.0.1 STELLAVERSE SPA遷移時、前回URLの拡張情報DOMが残っている場合にスキップするガードを追加
 // 2.0.0 Gameモードを beatoraja 寄りの前方スイープ描画へ切り替え
@@ -35,7 +35,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
   const SCORE_PARSER_VERSION = "0.6.5";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.1.0";
+  const SCRIPT_VERSION_FALLBACK = "2.2.0";
   const SKIP_VERSION_NOTIFICATION = false;
   const VERSION_NOTIFICATION_STORAGE_KEYS = {
     lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",
@@ -160,7 +160,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
     }
   `;
   const VERSION_NOTIFICATION_CONTENT = {
-    "2.1.0": {
+    "2.2.0": {
       ja: {
         title: "譜面ビューアに変更を加えました",
         sections: [
@@ -172,6 +172,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
               "グラフ左上に設定を追加し、再生ラインを Hover Follow または Click・再生ラインのドラッグ・右クリックの掴みっぱなしで動かす設定を選べるようにしました",
               "下部情報ウィンドウの設定情報は自動的に隠すようにしました",
               "Game モードの挙動を beatoraja に近づけました",
+              "LR2風の Lunatic モードを追加しました(負数STOPワープ、SCROLL無視)",
               {
                 text: "緑数字、レーン高さ、レーンカバー、HS-FIX が設定可能です",
                 subitems: [
@@ -208,6 +209,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
               "A new graph setting lets you choose whether the playback line follows hover or uses clicks, playback-line dragging, and right-click sticky dragging",
               "The settings in the bottom info panel are now hidden automatically",
               "Game mode now behaves more like beatoraja",
+              "Added an LR2-style Lunatic mode with negative-STOP warps and no SCROLL support",
               {
                 text: "Green number, lane height, lane cover, and HS-FIX are now configurable",
                 subitems: [

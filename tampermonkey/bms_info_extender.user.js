@@ -1728,7 +1728,7 @@
       return;
     }
     const leftX = leftLane.x;
-    const rightX = rightLane.x + rightLane.width;
+    const rightX = rightLane.x + rightLane.width + 1;
     context.save();
     context.strokeStyle = BAR_LINE;
     context.lineWidth = 1;
@@ -1875,7 +1875,7 @@
       const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
       const bodyHeight = Math.max(bottomY - topY, 2);
       context.fillStyle = dimColor(lane.note, 0.42);
-      context.fillRect(lane.x, topY, lane.width, bodyHeight);
+      context.fillRect(lane.x + 1, topY, Math.max(lane.width - 1, 1), bodyHeight);
     }
     context.restore();
   }
@@ -2033,7 +2033,7 @@
       return;
     }
     const leftX = leftLane.x;
-    const rightX = rightLane.x + rightLane.width;
+    const rightX = rightLane.x + rightLane.width + 1;
     context.save();
     context.strokeStyle = BAR_LINE;
     context.lineWidth = 1;
@@ -2102,7 +2102,7 @@
         continue;
       }
       context.fillStyle = dimColor(lane.note, 0.42);
-      context.fillRect(lane.x, topY, lane.width, Math.max(bottomY - topY, 2));
+      context.fillRect(lane.x + 1, topY, Math.max(lane.width - 1, 1), Math.max(bottomY - topY, 2));
     }
     context.restore();
   }
@@ -2303,7 +2303,7 @@
       return;
     }
     const leftX = leftLane.x;
-    const rightX = rightLane.x + rightLane.width;
+    const rightX = rightLane.x + rightLane.width + 1;
     const visibleGridLines = collectVisibleEditorGridLines(
       measureRanges,
       editorFrameState.startBeat,
@@ -2338,7 +2338,7 @@
       return;
     }
     const leftX = leftLane.x;
-    const rightX = rightLane.x + rightLane.width;
+    const rightX = rightLane.x + rightLane.width + 1;
     const visibleWindow = getBeatWindowIndices(barLines, editorFrameState.startBeat, editorFrameState.endBeat);
     context.save();
     context.strokeStyle = BAR_LINE;
@@ -2516,7 +2516,7 @@
       const bottomY = Math.min(Math.max(startY, endY), editorFrameState.viewportHeight + NOTE_HEAD_HEIGHT + 24);
       const bodyHeight = Math.max(bottomY - topY, 2);
       context.fillStyle = dimColor(lane.note, 0.42);
-      context.fillRect(lane.x, topY, lane.width, bodyHeight);
+      context.fillRect(lane.x + 1, topY, Math.max(lane.width - 1, 1), bodyHeight);
     }
     context.restore();
   }
@@ -2562,7 +2562,7 @@
   }
   function drawRectNote(context, lane, y, color) {
     context.fillStyle = color;
-    context.fillRect(lane.x, Math.round(y - NOTE_HEAD_HEIGHT), lane.width, NOTE_HEAD_HEIGHT);
+    context.fillRect(lane.x + 1, Math.round(y - NOTE_HEAD_HEIGHT), Math.max(lane.width - 1, 1), NOTE_HEAD_HEIGHT);
   }
   function drawOutlinedRectNote(context, lane, y, color) {
     const topY = Math.round(y - NOTE_HEAD_HEIGHT);

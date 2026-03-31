@@ -94,10 +94,10 @@ test("renderer moves the time-mode note head with a custom judge line Y", () => 
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
+      .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
-      { x: 72, y: 92, fillStyle: "#bebebe" },
+      { x: 73, y: 92, fillStyle: "#bebebe" },
     ],
   );
 });
@@ -112,10 +112,10 @@ test("renderer moves editor-mode note heads and bar lines with a custom judge li
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
+      .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
-      { x: 72, y: 92, fillStyle: "#bebebe" },
+      { x: 73, y: 92, fillStyle: "#bebebe" },
     ],
   );
   assert.equal(
@@ -132,14 +132,14 @@ test("renderer extends time-mode future culling when the judge line is lowered",
   renderer.resize(240, 320);
   renderer.render(model, 1, { viewerMode: "time", judgeLineY: 96 });
   assert.equal(
-    context.fillRectCalls.some((call) => call.width === 16 && call.height === 4 && call.fillStyle === "#bebebe"),
+    context.fillRectCalls.some((call) => call.width === 15 && call.height === 4 && call.fillStyle === "#bebebe"),
     false,
   );
 
   context.reset();
   renderer.render(model, 1, { viewerMode: "time", judgeLineY: 224 });
   assert.equal(
-    context.fillRectCalls.some((call) => call.width === 16 && call.height === 4 && call.fillStyle === "#bebebe"),
+    context.fillRectCalls.some((call) => call.width === 15 && call.height === 4 && call.fillStyle === "#bebebe"),
     true,
   );
 });
@@ -152,14 +152,14 @@ test("renderer extends editor-mode future culling when the judge line is lowered
   renderer.resize(240, 320);
   renderer.render(model, 1, { viewerMode: "editor", judgeLineY: 96 });
   assert.equal(
-    context.fillRectCalls.some((call) => call.width === 16 && call.height === 4 && call.fillStyle === "#bebebe"),
+    context.fillRectCalls.some((call) => call.width === 15 && call.height === 4 && call.fillStyle === "#bebebe"),
     false,
   );
 
   context.reset();
   renderer.render(model, 1, { viewerMode: "editor", judgeLineY: 224 });
   assert.equal(
-    context.fillRectCalls.some((call) => call.width === 16 && call.height === 4 && call.fillStyle === "#bebebe"),
+    context.fillRectCalls.some((call) => call.width === 15 && call.height === 4 && call.fillStyle === "#bebebe"),
     true,
   );
 });
@@ -352,10 +352,10 @@ test("renderer game projection stops before drawing reentry notes that come back
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
+      .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
-      { x: 72, y: 156, fillStyle: "#bebebe" },
+      { x: 73, y: 156, fillStyle: "#bebebe" },
     ],
   );
 });
@@ -377,11 +377,11 @@ test("renderer game projection keeps scanning after notes fall below the viewpor
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000")
+      .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
-      { x: 72, y: 156, fillStyle: "#bebebe" },
-      { x: 88, y: 156, fillStyle: "#5074fe" },
+      { x: 73, y: 156, fillStyle: "#bebebe" },
+      { x: 89, y: 156, fillStyle: "#5074fe" },
     ],
   );
 });
@@ -395,11 +395,11 @@ test("renderer skips game-mode long bodies when scroll reversal makes net displa
   renderer.render(model, 2, { viewerMode: "game", pixelsPerBeat: 64 });
 
   assert.equal(
-    context.fillRectCalls.some((call) => call.width === 16 && call.height > 4 && String(call.fillStyle).startsWith("rgb(")),
+    context.fillRectCalls.some((call) => call.width === 15 && call.height > 4 && String(call.fillStyle).startsWith("rgb(")),
     false,
   );
   assert.equal(
-    context.fillRectCalls.filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000").length >= 1,
+    context.fillRectCalls.filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000").length >= 1,
     true,
   );
 });
@@ -590,7 +590,7 @@ test("renderer hides game-mode note heads once they are above the active lane to
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000"),
+      .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000"),
     [],
   );
 });
@@ -615,10 +615,10 @@ test("renderer clamps visible game-mode long bodies to the active lane top", () 
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.width === 16 && call.height > 4 && String(call.fillStyle).startsWith("rgb("))
+      .filter((call) => call.width === 15 && call.height > 4 && String(call.fillStyle).startsWith("rgb("))
       .map(({ x, y, width, height }) => ({ x, y, width, height })),
     [
-      { x: 72, y: 160, width: 16, height: 40 },
+      { x: 73, y: 160, width: 15, height: 40 },
     ],
   );
 });

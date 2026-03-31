@@ -177,6 +177,7 @@ export function createScoreViewerRenderer(canvas) {
       context,
       model.bpmChanges,
       model.stops,
+      model.warps ?? [],
       model.scrollChanges,
       lanes,
       selectedTimeSec,
@@ -331,6 +332,7 @@ function drawTempoMarkersTimeMode(
   context,
   bpmChanges,
   stops,
+  warps,
   scrollChanges,
   lanes,
   selectedTimeSec,
@@ -385,6 +387,27 @@ function drawTempoMarkersTimeMode(
         timeSec: stop.timeSec,
         y,
         label: formatStopMarkerLabel(stop.durationSec),
+        side: "left",
+        color: STOP_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP,
+      });
+      lastStopLabelY = y;
+    }
+  }
+
+  for (const warp of warps) {
+    if (warp.timeSec < startTimeSec || warp.timeSec > endTimeSec) {
+      continue;
+    }
+    const y = timeToViewportY(warp.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
+    const markerRect = getTempoMarkerRect(leftLane, "left");
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
+      drawTempoMarkerLabel(context, {
+        type: "warp",
+        timeSec: warp.timeSec,
+        y,
+        label: formatWarpMarkerLabel(),
         side: "left",
         color: STOP_MARKER,
         x: leftLane.x - TEMPO_LABEL_GAP,
@@ -788,6 +811,20 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
       });
     }
 
+    for (const warp of projectedPoint.point.warps) {
+      const markerRect = getTempoMarkerRect(leftLane, "left");
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      stopCandidates.push({
+        type: "warp",
+        timeSec: warp.timeSec,
+        y: projectedPoint.y,
+        label: formatWarpMarkerLabel(),
+        side: "left",
+        color: STOP_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP,
+      });
+    }
+
     context.fillStyle = SCROLL_MARKER;
     for (const scrollChange of projectedPoint.point.scrollChanges) {
       const markerRect = getTempoMarkerRect(leftLane, "left");
@@ -979,6 +1016,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
   let lastScrollLabelY = Number.POSITIVE_INFINITY;
   const bpmWindow = getBeatWindowIndices(model.bpmChanges, editorFrameState.startBeat, editorFrameState.endBeat);
   const stopWindow = getBeatWindowIndices(model.stops, editorFrameState.startBeat, editorFrameState.endBeat);
+  const warpWindow = getBeatWindowIndices(model.warps ?? [], editorFrameState.startBeat, editorFrameState.endBeat);
   const scrollWindow = getBeatWindowIndices(model.scrollChanges, editorFrameState.startBeat, editorFrameState.endBeat);
 
   context.save();
@@ -1024,6 +1062,30 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
         timeSec: stop.timeSec,
         y,
         label: formatStopMarkerLabel(stop.durationSec),
+        side: "left",
+        color: STOP_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP,
+      });
+      lastStopLabelY = y;
+    }
+  }
+
+  for (let index = warpWindow.startIndex; index < warpWindow.endIndex; index += 1) {
+    const warp = model.warps[index];
+    const y = beatToViewportY(warp.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
+    const markerRect = getTempoMarkerRect(leftLane, "left");
+    context.fillRect(
+      markerRect.x,
+      Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+      markerRect.width,
+      TEMPO_MARKER_HEIGHT,
+    );
+    if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
+      drawTempoMarkerLabel(context, {
+        type: "warp",
+        timeSec: warp.timeSec,
+        y,
+        label: formatWarpMarkerLabel(),
         side: "left",
         color: STOP_MARKER,
         x: leftLane.x - TEMPO_LABEL_GAP,
@@ -1454,6 +1516,10 @@ function formatBpmMarkerLabel(bpm) {
 
 function formatStopMarkerLabel(durationSec) {
   return `${trimDecimal(Number(durationSec).toFixed(3))}s`;
+}
+
+function formatWarpMarkerLabel() {
+  return "WARP";
 }
 
 function formatScrollMarkerLabel(rate) {

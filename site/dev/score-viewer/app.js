@@ -165,13 +165,14 @@ function createScoreViewerModel(score, { bpmSummary = void 0, gameProfile = "gam
   );
   const beatTimingIndex = createBeatTimingIndex(profiledScore);
   const gameScrollIndex = createGameScrollIndex(rawScrollChanges);
-  const gameTimingEvents = createGameTimelineTimingEvents(profiledScore);
+  const gameTimingEvents = createGameTimelineTimingEvents(profiledScore, normalizedGameProfile);
   const allNotes = annotateNotesWithGameTrackPosition(rawAllNotes, gameScrollIndex);
   const notes = allNotes.filter((note) => note.kind !== "invisible");
   const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
   const barLines = annotateEventsWithGameTrackPosition(rawBarLines, gameScrollIndex);
   const bpmChanges = annotateEventsWithGameTrackPosition(rawBpmChanges, gameScrollIndex);
   const stops = annotateEventsWithGameTrackPosition(rawStops, gameScrollIndex);
+  const warps = annotateEventsWithGameTrackPosition(gameTimingEvents.warps, gameScrollIndex);
   const scrollChanges = annotateEventsWithGameTrackPosition(rawScrollChanges, gameScrollIndex);
   const gameTimelineBpmChanges = annotateEventsWithGameTrackPosition(gameTimingEvents.bpmChanges, gameScrollIndex);
   const gameTimelineStops = annotateEventsWithGameTrackPosition(gameTimingEvents.stops, gameScrollIndex);
@@ -224,6 +225,7 @@ function createScoreViewerModel(score, { bpmSummary = void 0, gameProfile = "gam
     barLines,
     bpmChanges,
     stops,
+    warps,
     scrollChanges,
     gameBarLinesByTrack,
     gameBpmChangesByTrack,
@@ -835,11 +837,12 @@ function createTimingActions(score) {
   }
   return createFallbackTimingActions(score);
 }
-function createGameTimelineTimingEvents(score) {
+function createGameTimelineTimingEvents(score, gameProfile = "game") {
   const actions = createTimingActions(score).slice().sort(compareTimingAction);
   const bpmChanges = [];
   const stops = [];
   const warps = [];
+  const useWarpStops = gameProfile === "lunatic";
   let currentBpm = Number.isFinite(score?.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
   for (const action of actions) {
     if (action?.type === "bpm") {
@@ -861,7 +864,7 @@ function createGameTimelineTimingEvents(score) {
     if (!Number.isFinite(action.beat) || !Number.isFinite(action.timeSec)) {
       continue;
     }
-    if (action.stopLunaticBehavior === "warp") {
+    if (useWarpStops && action.stopLunaticBehavior === "warp") {
       const warpBeats = Number.isFinite(action.stopBeats) && action.stopBeats > 0 ? action.stopBeats : LUNATIC_INVALID_STOP_WARP_BEATS;
       warps.push({
         beat: action.beat + warpBeats,
@@ -1595,6 +1598,7 @@ function createScoreViewerRenderer(canvas) {
       context,
       model.bpmChanges,
       model.stops,
+      model.warps ?? [],
       model.scrollChanges,
       lanes,
       selectedTimeSec,
@@ -1729,7 +1733,7 @@ function drawMeasureLabelsTimeMode(context, barLines, lanes, selectedTimeSec, st
   }
   drawMeasureLabels(context, candidates);
 }
-function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
+function drawTempoMarkersTimeMode(context, bpmChanges, stops, warps, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
     return;
@@ -1773,6 +1777,26 @@ function drawTempoMarkersTimeMode(context, bpmChanges, stops, scrollChanges, lan
         timeSec: stop.timeSec,
         y,
         label: formatStopMarkerLabel(stop.durationSec),
+        side: "left",
+        color: STOP_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP
+      });
+      lastStopLabelY = y;
+    }
+  }
+  for (const warp of warps) {
+    if (warp.timeSec < startTimeSec || warp.timeSec > endTimeSec) {
+      continue;
+    }
+    const y = timeToViewportY(warp.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
+    const markerRect = getTempoMarkerRect(leftLane, "left");
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
+      drawTempoMarkerLabel(context, {
+        type: "warp",
+        timeSec: warp.timeSec,
+        y,
+        label: formatWarpMarkerLabel(),
         side: "left",
         color: STOP_MARKER,
         x: leftLane.x - TEMPO_LABEL_GAP
@@ -2138,6 +2162,19 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
         x: leftLane.x - TEMPO_LABEL_GAP
       });
     }
+    for (const warp of projectedPoint.point.warps) {
+      const markerRect = getTempoMarkerRect(leftLane, "left");
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      stopCandidates.push({
+        type: "warp",
+        timeSec: warp.timeSec,
+        y: projectedPoint.y,
+        label: formatWarpMarkerLabel(),
+        side: "left",
+        color: STOP_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP
+      });
+    }
     context.fillStyle = SCROLL_MARKER;
     for (const scrollChange of projectedPoint.point.scrollChanges) {
       const markerRect = getTempoMarkerRect(leftLane, "left");
@@ -2314,6 +2351,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
   let lastScrollLabelY = Number.POSITIVE_INFINITY;
   const bpmWindow = getBeatWindowIndices(model.bpmChanges, editorFrameState.startBeat, editorFrameState.endBeat);
   const stopWindow = getBeatWindowIndices(model.stops, editorFrameState.startBeat, editorFrameState.endBeat);
+  const warpWindow = getBeatWindowIndices(model.warps ?? [], editorFrameState.startBeat, editorFrameState.endBeat);
   const scrollWindow = getBeatWindowIndices(model.scrollChanges, editorFrameState.startBeat, editorFrameState.endBeat);
   context.save();
   context.fillStyle = BPM_MARKER;
@@ -2357,6 +2395,29 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
         timeSec: stop.timeSec,
         y,
         label: formatStopMarkerLabel(stop.durationSec),
+        side: "left",
+        color: STOP_MARKER,
+        x: leftLane.x - TEMPO_LABEL_GAP
+      });
+      lastStopLabelY = y;
+    }
+  }
+  for (let index = warpWindow.startIndex; index < warpWindow.endIndex; index += 1) {
+    const warp = model.warps[index];
+    const y = beatToViewportY(warp.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
+    const markerRect = getTempoMarkerRect(leftLane, "left");
+    context.fillRect(
+      markerRect.x,
+      Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+      markerRect.width,
+      TEMPO_MARKER_HEIGHT
+    );
+    if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
+      drawTempoMarkerLabel(context, {
+        type: "warp",
+        timeSec: warp.timeSec,
+        y,
+        label: formatWarpMarkerLabel(),
         side: "left",
         color: STOP_MARKER,
         x: leftLane.x - TEMPO_LABEL_GAP
@@ -2736,6 +2797,9 @@ function formatBpmMarkerLabel(bpm) {
 }
 function formatStopMarkerLabel(durationSec) {
   return `${trimDecimal(Number(durationSec).toFixed(3))}s`;
+}
+function formatWarpMarkerLabel() {
+  return "WARP";
 }
 function formatScrollMarkerLabel(rate) {
   return trimDecimal(Number(rate).toFixed(3));
@@ -4625,6 +4689,7 @@ function createBmsInfoGraph({
     record: null,
     selectedTimeSec: 0,
     isPinned: false,
+    isPlaying: false,
     interactionMode: normalizeGraphInteractionMode(interactionMode),
     dragPointerId: null,
     stickyDragActive: false
@@ -4648,7 +4713,7 @@ function createBmsInfoGraph({
     }
     renderTooltip(tooltip, event, state2.record, timeSec);
     onHoverTime(timeSec);
-    if (state2.interactionMode === "hover") {
+    if (shouldFollowHoverSelection(state2)) {
       onSelectTime(getClampedHoverTimeSec(event, canvas, state2.record));
     }
     updateCanvasCursor(event);
@@ -4679,7 +4744,7 @@ function createBmsInfoGraph({
     if (!state2.record) {
       return;
     }
-    if (state2.interactionMode !== "drag") {
+    if (!allowsDirectSelectionInput(state2)) {
       return;
     }
     const timeSec = getHoverTimeSec(event, canvas);
@@ -4689,7 +4754,7 @@ function createBmsInfoGraph({
     onSelectTime(timeSec);
   });
   canvas.addEventListener("pointerdown", (event) => {
-    if (!state2.record || state2.interactionMode !== "drag" || !isPrimaryPointer2(event) || !isPointerNearSelectedLine(event, canvas, state2.selectedTimeSec)) {
+    if (!state2.record || !allowsDirectSelectionInput(state2) || !isPrimaryPointer2(event) || !isPointerNearSelectedLine(event, canvas, state2.selectedTimeSec)) {
       return;
     }
     state2.dragPointerId = event.pointerId ?? 0;
@@ -4732,6 +4797,9 @@ function createBmsInfoGraph({
     state2.isPinned = Boolean(nextPinned);
     pinInput.checked = state2.isPinned;
     pinInput.disabled = !state2.record;
+  }
+  function setPlaybackState(nextPlaying) {
+    state2.isPlaying = Boolean(nextPlaying);
   }
   function setInteractionMode(nextInteractionMode) {
     state2.interactionMode = normalizeGraphInteractionMode(nextInteractionMode);
@@ -4829,6 +4897,7 @@ function createBmsInfoGraph({
     setRecord,
     setSelectedTimeSec: setSelectedTimeSec2,
     setPinned,
+    setPlaybackState,
     setInteractionMode,
     render() {
       renderStaticScene();
@@ -4840,6 +4909,12 @@ function createBmsInfoGraph({
 }
 function normalizeGraphInteractionMode(value) {
   return value === "drag" ? "drag" : DEFAULT_GRAPH_INTERACTION_MODE;
+}
+function shouldFollowHoverSelection(state2) {
+  return state2.interactionMode === "hover" && !state2.isPlaying;
+}
+function allowsDirectSelectionInput(state2) {
+  return state2.interactionMode === "drag" || state2.isPlaying;
 }
 function createLayerCanvas(referenceCanvas) {
   if (typeof referenceCanvas?.ownerDocument?.createElement === "function") {
@@ -6246,6 +6321,9 @@ function createBmsInfoPreview({
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.graphInteractionMode) {
       graphController.setInteractionMode(state2.graphInteractionMode);
       graphInteractionSelect.value = state2.graphInteractionMode;
+    }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
+      graphController.setPlaybackState(state2.isPlaying);
     }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.graphSettings) {
       graphSettingsPopup.hidden = !state2.isGraphSettingsOpen;

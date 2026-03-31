@@ -1290,6 +1290,9 @@ export function createBmsInfoPreview({
       graphController.setInteractionMode(state.graphInteractionMode);
       graphInteractionSelect.value = state.graphInteractionMode;
     }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
+      graphController.setPlaybackState(state.isPlaying);
+    }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.graphSettings) {
       graphSettingsPopup.hidden = !state.isGraphSettingsOpen;
     }

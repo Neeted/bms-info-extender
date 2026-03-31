@@ -288,6 +288,34 @@ test("renderer draws left-side tempo marker labels after measure labels so marke
   );
 });
 
+test("renderer draws Lunatic warp markers with a WARP label in time mode", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createLunaticWarpProjectionScore(), { gameProfile: "lunatic" });
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "time" });
+
+  assert.equal(
+    context.fillTextCalls.some((call) => call.text === "WARP" && call.fillStyle === "#ff00ff"),
+    true,
+  );
+});
+
+test("renderer draws Lunatic warp markers with a WARP label in game mode", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createLunaticWarpProjectionScore(), { gameProfile: "lunatic" });
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, { viewerMode: "lunatic" });
+
+  assert.equal(
+    context.fillTextCalls.some((call) => call.text === "WARP" && call.fillStyle === "#ff00ff"),
+    true,
+  );
+});
+
 test("renderer keeps near-simultaneous scroll spikes and nearby section lines visible in game mode", () => {
   const model = createScoreViewerModel(createGameProjectionSpikeScore());
   const projection = collectGameProjection(model, 1.9, 320, 64);

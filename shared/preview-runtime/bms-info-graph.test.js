@@ -92,6 +92,54 @@ test("graph hover mode updates the tooltip and selected time", () => {
   assert.deepEqual(selectedTimes, [4]);
 });
 
+test("graph hover mode keeps hover updates but does not change selected time during playback", () => {
+  const { canvas } = createGraphCanvas();
+  const hoverTimes = [];
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    onHoverTime: (timeSec) => {
+      hoverTimes.push(timeSec);
+    },
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  graph.setSelectedTimeSec(2);
+  graph.setPlaybackState(true);
+
+  canvas.dispatchEvent({ type: "mousemove", clientX: 20, clientY: 10 });
+
+  assert.deepEqual(hoverTimes, [4]);
+  assert.deepEqual(selectedTimes, []);
+});
+
+test("graph hover mode allows click selection changes during playback", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    interactionMode: "hover",
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  graph.setPlaybackState(true);
+  canvas.dispatchEvent({ type: "click", clientX: 35, clientY: 10 });
+
+  assert.deepEqual(selectedTimes, [7]);
+});
+
 test("graph drag mode keeps hover updates separate from selected time", () => {
   const { canvas } = createGraphCanvas();
   const hoverTimes = [];
@@ -331,6 +379,32 @@ test("graph hover mode ignores selected line drag gestures", () => {
   canvas.dispatchEvent({ type: "pointerup", pointerId: 1, clientX: 26, clientY: 10 });
 
   assert.deepEqual(selectedTimes, []);
+});
+
+test("graph hover mode allows selected line drag gestures during playback", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    interactionMode: "hover",
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  graph.setSelectedTimeSec(2);
+  graph.setPlaybackState(true);
+  canvas.dispatchEvent({ type: "pointerdown", pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointermove", pointerId: 1, clientX: 26, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointerup", pointerId: 1, clientX: 26, clientY: 10 });
+
+  assert.equal(selectedTimes.length, 2);
+  assert.ok(Math.abs(selectedTimes[0] - 2) < 0.000001);
+  assert.ok(Math.abs(selectedTimes[1] - 5.2) < 0.000001);
 });
 
 test("graph clears drag state on pointercancel", () => {

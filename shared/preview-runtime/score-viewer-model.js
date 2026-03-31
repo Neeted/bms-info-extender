@@ -233,13 +233,14 @@ export function createScoreViewerModel(score, { bpmSummary = undefined, gameProf
 
   const beatTimingIndex = createBeatTimingIndex(profiledScore);
   const gameScrollIndex = createGameScrollIndex(rawScrollChanges);
-  const gameTimingEvents = createGameTimelineTimingEvents(profiledScore);
+  const gameTimingEvents = createGameTimelineTimingEvents(profiledScore, normalizedGameProfile);
   const allNotes = annotateNotesWithGameTrackPosition(rawAllNotes, gameScrollIndex);
   const notes = allNotes.filter((note) => note.kind !== "invisible");
   const invisibleNotes = allNotes.filter((note) => note.kind === "invisible");
   const barLines = annotateEventsWithGameTrackPosition(rawBarLines, gameScrollIndex);
   const bpmChanges = annotateEventsWithGameTrackPosition(rawBpmChanges, gameScrollIndex);
   const stops = annotateEventsWithGameTrackPosition(rawStops, gameScrollIndex);
+  const warps = annotateEventsWithGameTrackPosition(gameTimingEvents.warps, gameScrollIndex);
   const scrollChanges = annotateEventsWithGameTrackPosition(rawScrollChanges, gameScrollIndex);
   const gameTimelineBpmChanges = annotateEventsWithGameTrackPosition(gameTimingEvents.bpmChanges, gameScrollIndex);
   const gameTimelineStops = annotateEventsWithGameTrackPosition(gameTimingEvents.stops, gameScrollIndex);
@@ -293,6 +294,7 @@ export function createScoreViewerModel(score, { bpmSummary = undefined, gameProf
     barLines,
     bpmChanges,
     stops,
+    warps,
     scrollChanges,
     gameBarLinesByTrack,
     gameBpmChangesByTrack,
@@ -1125,11 +1127,12 @@ function createTimingActions(score) {
   return createFallbackTimingActions(score);
 }
 
-function createGameTimelineTimingEvents(score) {
+function createGameTimelineTimingEvents(score, gameProfile = "game") {
   const actions = createTimingActions(score).slice().sort(compareTimingAction);
   const bpmChanges = [];
   const stops = [];
   const warps = [];
+  const useWarpStops = gameProfile === "lunatic";
   let currentBpm = Number.isFinite(score?.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
 
   for (const action of actions) {
@@ -1152,7 +1155,7 @@ function createGameTimelineTimingEvents(score) {
     if (!Number.isFinite(action.beat) || !Number.isFinite(action.timeSec)) {
       continue;
     }
-    if (action.stopLunaticBehavior === "warp") {
+    if (useWarpStops && action.stopLunaticBehavior === "warp") {
       const warpBeats = Number.isFinite(action.stopBeats) && action.stopBeats > 0
         ? action.stopBeats
         : LUNATIC_INVALID_STOP_WARP_BEATS;

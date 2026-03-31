@@ -34,6 +34,7 @@ export function createBmsInfoGraph({
     record: null,
     selectedTimeSec: 0,
     isPinned: false,
+    isPlaying: false,
     interactionMode: normalizeGraphInteractionMode(interactionMode),
     dragPointerId: null,
     stickyDragActive: false,
@@ -61,7 +62,7 @@ export function createBmsInfoGraph({
 
     renderTooltip(tooltip, event, state.record, timeSec);
     onHoverTime(timeSec);
-    if (state.interactionMode === "hover") {
+    if (shouldFollowHoverSelection(state)) {
       onSelectTime(getClampedHoverTimeSec(event, canvas, state.record));
     }
     updateCanvasCursor(event);
@@ -95,7 +96,7 @@ export function createBmsInfoGraph({
     if (!state.record) {
       return;
     }
-    if (state.interactionMode !== "drag") {
+    if (!allowsDirectSelectionInput(state)) {
       return;
     }
     const timeSec = getHoverTimeSec(event, canvas);
@@ -108,7 +109,7 @@ export function createBmsInfoGraph({
   canvas.addEventListener("pointerdown", (event) => {
     if (
       !state.record
-      || state.interactionMode !== "drag"
+      || !allowsDirectSelectionInput(state)
       || !isPrimaryPointer(event)
       || !isPointerNearSelectedLine(event, canvas, state.selectedTimeSec)
     ) {
@@ -161,6 +162,10 @@ export function createBmsInfoGraph({
     state.isPinned = Boolean(nextPinned);
     pinInput.checked = state.isPinned;
     pinInput.disabled = !state.record;
+  }
+
+  function setPlaybackState(nextPlaying) {
+    state.isPlaying = Boolean(nextPlaying);
   }
 
   function setInteractionMode(nextInteractionMode) {
@@ -271,6 +276,7 @@ export function createBmsInfoGraph({
     setRecord,
     setSelectedTimeSec,
     setPinned,
+    setPlaybackState,
     setInteractionMode,
     render() {
       renderStaticScene();
@@ -282,6 +288,14 @@ export function createBmsInfoGraph({
 
 export function normalizeGraphInteractionMode(value) {
   return value === "drag" ? "drag" : DEFAULT_GRAPH_INTERACTION_MODE;
+}
+
+function shouldFollowHoverSelection(state) {
+  return state.interactionMode === "hover" && !state.isPlaying;
+}
+
+function allowsDirectSelectionInput(state) {
+  return state.interactionMode === "drag" || state.isPlaying;
 }
 
 function createLayerCanvas(referenceCanvas) {

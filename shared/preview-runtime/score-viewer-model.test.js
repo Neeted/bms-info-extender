@@ -578,6 +578,10 @@ test("viewer model builds a Lunatic profile that keeps beats and shortens time t
   assert.deepEqual(lunaticModel.score.scrollChanges, []);
   assert.equal(lunaticModel.gameScrollIndex.actions.length, 0);
   assert.ok(lunaticModel.score.totalDurationSec < gameModel.score.totalDurationSec);
+  assert.equal(gameModel.warps.length, 0);
+  assert.equal(gameModel.gameTimeline.some((point) => point.stops.length === 1), true);
+  assert.equal(lunaticModel.warps.length, 1);
+  assert.equal(lunaticModel.stops.length, 0);
   assert.ok(Math.abs(lunaticModel.notes[0].beat - (4 + 1 / 96)) < 0.000001);
   assert.ok(Math.abs(lunaticModel.notes[0].timeSec - 2) < 0.000001);
   assert.ok(Math.abs(lunaticModel.notes[1].beat - 8) < 0.000001);

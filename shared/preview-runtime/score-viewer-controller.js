@@ -392,6 +392,9 @@ export function createScoreViewerController({
     }
     setHoveredDragHandle(null);
   });
+  statusPanel.addEventListener("mouseleave", () => {
+    blurFocusedStatusPanelControl();
+  });
   scrollHost.addEventListener("pointerup", handlePointerRelease);
   scrollHost.addEventListener("pointercancel", handlePointerRelease);
   scrollHost.addEventListener("lostpointercapture", handlePointerRelease);
@@ -1482,6 +1485,17 @@ export function createScoreViewerController({
       onGameTimingConfigChange(state.gameTimingConfig);
     }
   }
+
+  function blurFocusedStatusPanelControl() {
+    const activeElement = root.ownerDocument?.activeElement;
+    if (!activeElement || typeof activeElement.blur !== "function") {
+      return;
+    }
+    if (!isDescendantOf(activeElement, statusPanel)) {
+      return;
+    }
+    activeElement.blur();
+  }
 }
 
 function createModeOption(value, label, disabled = false) {
@@ -1717,4 +1731,15 @@ function formatMeasureCounter(currentMeasureIndex, totalMeasureIndex) {
   );
   const digits = Math.max(3, String(safeTotalMeasureIndex).length);
   return `${String(safeCurrentMeasureIndex).padStart(digits, "0")}/${String(safeTotalMeasureIndex).padStart(digits, "0")}`;
+}
+
+function isDescendantOf(element, ancestor) {
+  let currentNode = element;
+  while (currentNode) {
+    if (currentNode === ancestor) {
+      return true;
+    }
+    currentNode = currentNode.parentNode ?? null;
+  }
+  return false;
 }

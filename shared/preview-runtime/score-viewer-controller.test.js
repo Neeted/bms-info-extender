@@ -203,6 +203,30 @@ test("embedded CSS hides settings panel until hover or focus-within", () => {
   assert.match(BMSDATA_CSS, /\.score-viewer-status-panel:hover \.score-viewer-settings-panel, \.score-viewer-status-panel:focus-within \.score-viewer-settings-panel \{[^}]*max-height: 320px;[^}]*opacity: 1;[^}]*pointer-events: auto;/);
 });
 
+test("controller blurs focused settings controls on status panel mouseleave", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const controller = createScoreViewerController({ root });
+    const statusPanel = findElementByClass(root, "score-viewer-status-panel");
+    const spacingInput = findElementByClass(root, "score-viewer-spacing-input");
+
+    spacingInput.focus();
+    assert.equal(environment.document.activeElement, spacingInput);
+
+    dispatchEvent(statusPanel, "mouseleave");
+
+    assert.equal(environment.document.activeElement, null);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
 test("controller exposes game-mode controls with the requested steps and without HS-FIX OFF", () => {
   const environment = installControllerTestEnvironment();
   try {
@@ -753,6 +777,10 @@ function createControllerTestModel() {
 }
 
 class ControllerMockDocument {
+  constructor() {
+    this.activeElement = null;
+  }
+
   createElement(tagName) {
     if (tagName === "canvas") {
       return new ControllerMockCanvasElement(this);
@@ -830,6 +858,22 @@ class ControllerMockElement {
 
   hasPointerCapture(pointerId) {
     return this._pointerCaptures.has(pointerId);
+  }
+
+  focus() {
+    if (this.ownerDocument.activeElement === this) {
+      return;
+    }
+    if (this.ownerDocument.activeElement && typeof this.ownerDocument.activeElement.blur === "function") {
+      this.ownerDocument.activeElement.blur();
+    }
+    this.ownerDocument.activeElement = this;
+  }
+
+  blur() {
+    if (this.ownerDocument.activeElement === this) {
+      this.ownerDocument.activeElement = null;
+    }
   }
 }
 

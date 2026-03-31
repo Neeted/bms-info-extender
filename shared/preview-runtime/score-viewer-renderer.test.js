@@ -487,6 +487,9 @@ test("renderer clips game-mode lanes by lane height and draws lane cover labels"
     context.fillTextCalls.some((call) => call.fillStyle === "#FFFFFF" && String(call.text).includes("～")),
     true,
   );
+  assert.deepEqual(context.clipCalls, [
+    { x: 0, y: 160, width: 240, height: 160 },
+  ]);
 });
 
 test("renderer skips lane cover drawing and label calculations when cover is hidden", () => {
@@ -535,6 +538,91 @@ test("renderer skips lane cover drawing and label calculations when cover is hid
   );
   assert.equal(
     context.fillTextCalls.some((call) => String(call.text).includes("～")),
+    false,
+  );
+});
+
+test("renderer hides game-mode note heads once they are above the active lane top", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameTopClippedNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, {
+    viewerMode: "game",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPercent: 50,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.width === 16 && call.height === 4 && call.fillStyle !== "#000000"),
+    [],
+  );
+});
+
+test("renderer clamps visible game-mode long bodies to the active lane top", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameTopClippedLongNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, {
+    viewerMode: "game",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPercent: 50,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.width === 16 && call.height > 4 && String(call.fillStyle).startsWith("rgb("))
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [
+      { x: 72, y: 160, width: 16, height: 40 },
+    ],
+  );
+});
+
+test("renderer suppresses out-of-lane game-mode BPM markers and measure labels", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameTopClippedMarkerScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, {
+    viewerMode: "game",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPercent: 50,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#00ff00"),
+    false,
+  );
+  assert.equal(
+    context.fillTextCalls.some((call) => call.text === "#001"),
+    false,
+  );
+  assert.equal(
+    context.fillTextCalls.some((call) => call.text === "180"),
     false,
   );
 });
@@ -865,6 +953,73 @@ function createGameZeroScrollFreezeScore() {
   };
 }
 
+function createGameTopClippedNoteScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 5, timeSec: 2.5, kind: "normal" },
+    ],
+    comboEvents: [{ lane: 1, beat: 5, timeSec: 2.5, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createGameTopClippedLongNoteScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 1, normal: 0, long: 1, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 4.5, endBeat: 5.5, timeSec: 2.25, endTimeSec: 2.75, kind: "long" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 4.5, timeSec: 2.25, kind: "long-start" },
+      { lane: 1, beat: 5.5, timeSec: 2.75, kind: "long-end" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createGameTopClippedMarkerScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 0, mine: 0, all: 0 },
+    notes: [],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 5.25, timeSec: 2.625 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [{ beat: 5.25, timeSec: 2.625, bpm: 180 }],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
 function createMockCanvas() {
   const context = new MockRenderingContext2D();
   return {
@@ -893,7 +1048,11 @@ class MockRenderingContext2D {
     this.fillTextCalls = [];
     this.moveToCalls = [];
     this.lineToCalls = [];
+    this.rectCalls = [];
+    this.clipCalls = [];
     this._stateStack = [];
+    this._currentPathRect = null;
+    this._clipRect = null;
   }
 
   reset() {
@@ -902,7 +1061,11 @@ class MockRenderingContext2D {
     this.fillTextCalls = [];
     this.moveToCalls = [];
     this.lineToCalls = [];
+    this.rectCalls = [];
+    this.clipCalls = [];
     this._stateStack = [];
+    this._currentPathRect = null;
+    this._clipRect = null;
     this.fillStyle = "#000000";
     this.strokeStyle = "#000000";
     this.lineWidth = 1;
@@ -914,14 +1077,25 @@ class MockRenderingContext2D {
   clearRect() {}
 
   fillRect(x, y, width, height) {
-    this.fillRectCalls.push({ x, y, width, height, fillStyle: this.fillStyle });
+    const clippedRect = intersectRectWithClip({ x, y, width, height }, this._clipRect);
+    if (!clippedRect) {
+      return;
+    }
+    this.fillRectCalls.push({ ...clippedRect, fillStyle: this.fillStyle });
   }
 
   strokeRect(x, y, width, height) {
-    this.strokeRectCalls.push({ x, y, width, height, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
+    const clippedRect = intersectRectWithClip({ x, y, width, height }, this._clipRect);
+    if (!clippedRect) {
+      return;
+    }
+    this.strokeRectCalls.push({ ...clippedRect, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
   }
 
   fillText(text, x, y) {
+    if (!isPointInsideClip(x, y, this._clipRect)) {
+      return;
+    }
     this.fillTextCalls.push({
       text,
       x,
@@ -935,7 +1109,9 @@ class MockRenderingContext2D {
 
   setTransform() {}
 
-  beginPath() {}
+  beginPath() {
+    this._currentPathRect = null;
+  }
 
   moveTo(x, y) {
     this.moveToCalls.push({ x, y });
@@ -947,6 +1123,20 @@ class MockRenderingContext2D {
 
   stroke() {}
 
+  rect(x, y, width, height) {
+    const rect = normalizeRect({ x, y, width, height });
+    this._currentPathRect = rect;
+    this.rectCalls.push(rect);
+  }
+
+  clip() {
+    if (!this._currentPathRect) {
+      return;
+    }
+    this._clipRect = intersectRectangles(this._clipRect, this._currentPathRect);
+    this.clipCalls.push({ ...this._clipRect });
+  }
+
   save() {
     this._stateStack.push({
       fillStyle: this.fillStyle,
@@ -955,6 +1145,8 @@ class MockRenderingContext2D {
       font: this.font,
       textBaseline: this.textBaseline,
       textAlign: this.textAlign,
+      currentPathRect: this._currentPathRect ? { ...this._currentPathRect } : null,
+      clipRect: this._clipRect ? { ...this._clipRect } : null,
     });
   }
 
@@ -969,5 +1161,59 @@ class MockRenderingContext2D {
     this.font = snapshot.font;
     this.textBaseline = snapshot.textBaseline;
     this.textAlign = snapshot.textAlign;
+    this._currentPathRect = snapshot.currentPathRect;
+    this._clipRect = snapshot.clipRect;
   }
+}
+
+function intersectRectWithClip(rect, clipRect) {
+  const normalizedRect = normalizeRect(rect);
+  if (!clipRect) {
+    return normalizedRect.width > 0 && normalizedRect.height > 0 ? normalizedRect : null;
+  }
+  const intersection = intersectRectangles(normalizedRect, clipRect);
+  if (!intersection || !(intersection.width > 0) || !(intersection.height > 0)) {
+    return null;
+  }
+  return intersection;
+}
+
+function intersectRectangles(left, right) {
+  if (!left) {
+    return right ? { ...right } : null;
+  }
+  if (!right) {
+    return { ...left };
+  }
+  const x = Math.max(left.x, right.x);
+  const y = Math.max(left.y, right.y);
+  const rightEdge = Math.min(left.x + left.width, right.x + right.width);
+  const bottomEdge = Math.min(left.y + left.height, right.y + right.height);
+  return {
+    x,
+    y,
+    width: Math.max(rightEdge - x, 0),
+    height: Math.max(bottomEdge - y, 0),
+  };
+}
+
+function normalizeRect({ x, y, width, height }) {
+  const normalizedX = width >= 0 ? x : x + width;
+  const normalizedY = height >= 0 ? y : y + height;
+  return {
+    x: normalizedX,
+    y: normalizedY,
+    width: Math.abs(width),
+    height: Math.abs(height),
+  };
+}
+
+function isPointInsideClip(x, y, clipRect) {
+  if (!clipRect) {
+    return true;
+  }
+  return x >= clipRect.x
+    && x <= clipRect.x + clipRect.width
+    && y >= clipRect.y
+    && y <= clipRect.y + clipRect.height;
 }

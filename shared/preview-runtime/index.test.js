@@ -14,16 +14,19 @@ import {
   DEFAULT_GAME_LANE_HEIGHT_PERCENT,
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
   DEFAULT_SPACING_SCALE,
+  DEFAULT_GRAPH_INTERACTION_MODE,
   GAME_DURATION_MS_STORAGE_KEY,
   GAME_HS_FIX_MODE_STORAGE_KEY,
   GAME_LANE_COVER_PERMILLE_STORAGE_KEY,
   GAME_LANE_COVER_VISIBLE_STORAGE_KEY,
   GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY,
+  GRAPH_INTERACTION_MODE_STORAGE_KEY,
   INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
   JUDGE_LINE_POSITION_RATIO_STORAGE_KEY,
   SPACING_SCALE_STORAGE_KEYS,
   VIEWER_MODE_STORAGE_KEY,
   expandPreviewRenderMask,
+  getInitialGraphInteractionMode,
   getInitialSpacingScale,
   getInitialSpacingScaleByMode,
   getInitialViewerMode,
@@ -110,6 +113,14 @@ test("game timing config defaults and restores valid persisted values", () => {
   });
 });
 
+test("graph interaction mode defaults to hover and restores valid persisted values", () => {
+  assert.equal(DEFAULT_GRAPH_INTERACTION_MODE, "hover");
+  assert.equal(GRAPH_INTERACTION_MODE_STORAGE_KEY, "bms-info-extender.graphInteractionMode");
+  assert.equal(getInitialGraphInteractionMode(() => null), "hover");
+  assert.equal(getInitialGraphInteractionMode(() => "drag"), "drag");
+  assert.equal(getInitialGraphInteractionMode(() => "invalid"), "hover");
+});
+
 test("preview preference storage shares persistence wiring for viewer mode, invisible notes, judge line position, and per-mode spacing", () => {
   const store = new Map();
   const preferences = createPreviewPreferenceStorage({
@@ -128,6 +139,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameLaneCoverPermille(), 0);
   assert.equal(preferences.getPersistedGameLaneCoverVisible(), true);
   assert.equal(preferences.getPersistedGameHsFixMode(), "main");
+  assert.equal(preferences.getPersistedGraphInteractionMode(), "hover");
 
   preferences.setPersistedViewerMode("game");
   preferences.setPersistedInvisibleNoteVisibility("show");
@@ -140,6 +152,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   preferences.setPersistedGameLaneCoverPermille(350);
   preferences.setPersistedGameLaneCoverVisible(false);
   preferences.setPersistedGameHsFixMode("max");
+  preferences.setPersistedGraphInteractionMode("drag");
 
   assert.equal(store.get(VIEWER_MODE_STORAGE_KEY), "game");
   assert.equal(store.get(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY), "show");
@@ -152,6 +165,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(store.get(GAME_LANE_COVER_PERMILLE_STORAGE_KEY), 350);
   assert.equal(store.get(GAME_LANE_COVER_VISIBLE_STORAGE_KEY), false);
   assert.equal(store.get(GAME_HS_FIX_MODE_STORAGE_KEY), "max");
+  assert.equal(store.get(GRAPH_INTERACTION_MODE_STORAGE_KEY), "drag");
   assert.equal(preferences.getPersistedViewerMode(), "game");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "show");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.25);
@@ -163,6 +177,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameLaneCoverPermille(), 350);
   assert.equal(preferences.getPersistedGameLaneCoverVisible(), false);
   assert.equal(preferences.getPersistedGameHsFixMode(), "max");
+  assert.equal(preferences.getPersistedGraphInteractionMode(), "drag");
 
   store.set(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, "invalid");
   store.set(SPACING_SCALE_STORAGE_KEYS.editor, "invalid");
@@ -171,6 +186,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   store.set(GAME_LANE_COVER_PERMILLE_STORAGE_KEY, "invalid");
   store.set(GAME_LANE_COVER_VISIBLE_STORAGE_KEY, "invalid");
   store.set(GAME_HS_FIX_MODE_STORAGE_KEY, "invalid");
+  store.set(GRAPH_INTERACTION_MODE_STORAGE_KEY, "invalid");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.5);
   assert.equal(preferences.getPersistedSpacingScale("editor"), 1.0);
   assert.equal(preferences.getPersistedGameDurationMs(), 500);
@@ -178,6 +194,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameLaneCoverPermille(), 0);
   assert.equal(preferences.getPersistedGameLaneCoverVisible(), true);
   assert.equal(preferences.getPersistedGameHsFixMode(), "main");
+  assert.equal(preferences.getPersistedGraphInteractionMode(), "hover");
 });
 
 test("viewer model dirty render also reapplies persisted viewer chrome", () => {
@@ -193,7 +210,7 @@ test("viewer model dirty render also reapplies persisted viewer chrome", () => {
   );
 });
 
-test("graph hover opens the viewer without changing the selected time", async () => {
+test("graph hover mode opens the viewer and updates the selected time", async () => {
   const environment = installPreviewTestEnvironment();
   try {
     const { preview, elements } = createPreviewHarness(environment.document, {
@@ -209,7 +226,7 @@ test("graph hover opens the viewer without changing the selected time", async ()
 
     const state = preview.getState();
     assert.equal(state.isViewerOpen, true);
-    assert.equal(state.selectedTimeSec, 0);
+    assert.equal(state.selectedTimeSec, 5);
 
     preview.destroy();
     await environment.settle();
@@ -224,6 +241,9 @@ test("graph click syncs the selected time with the viewer", async () => {
     const { preview, elements } = createPreviewHarness(environment.document, {
       prefetchParsedScore: async () => {},
       loadParsedScore: async () => createParsedScore(),
+      preferences: {
+        getPersistedGraphInteractionMode: () => "drag",
+      },
     });
 
     preview.setRecord(createNormalizedRecord("2".repeat(64)));
@@ -256,6 +276,9 @@ test("graph playback line drag updates the viewer selected time", async () => {
     const { preview, elements } = createPreviewHarness(environment.document, {
       prefetchParsedScore: async () => {},
       loadParsedScore: async () => createParsedScore(),
+      preferences: {
+        getPersistedGraphInteractionMode: () => "drag",
+      },
     });
 
     preview.setRecord(createNormalizedRecord("3".repeat(64)));
@@ -291,6 +314,9 @@ test("graph right-click sticky drag updates the viewer and closes on mouseleave"
     const { preview, elements } = createPreviewHarness(environment.document, {
       prefetchParsedScore: async () => {},
       loadParsedScore: async () => createParsedScore(),
+      preferences: {
+        getPersistedGraphInteractionMode: () => "drag",
+      },
     });
 
     preview.setRecord(createNormalizedRecord("4".repeat(64)));
@@ -310,6 +336,46 @@ test("graph right-click sticky drag updates the viewer and closes on mouseleave"
 
     state = preview.getState();
     assert.equal(state.isViewerOpen, false);
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("graph settings popup toggles and persists interaction mode", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const store = new Map([[GRAPH_INTERACTION_MODE_STORAGE_KEY, "drag"]]);
+    const { preview, elements } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createParsedScore(),
+      preferences: {
+        getPersistedGraphInteractionMode: () => store.get(GRAPH_INTERACTION_MODE_STORAGE_KEY) ?? "hover",
+        setPersistedGraphInteractionMode: (value) => store.set(GRAPH_INTERACTION_MODE_STORAGE_KEY, value),
+      },
+    });
+    await environment.settle();
+
+    assert.equal(preview.getState().graphInteractionMode, "drag");
+    assert.equal(elements.graphSettingsPopup.hidden, true);
+    assert.equal(elements.graphInteractionSelect.value, "drag");
+
+    elements.graphSettingsToggle.dispatchEvent({ type: "click" });
+    await environment.settle();
+    assert.equal(elements.graphSettingsPopup.hidden, false);
+
+    elements.graphInteractionSelect.value = "hover";
+    elements.graphInteractionSelect.dispatchEvent({ type: "change" });
+    await environment.settle();
+
+    assert.equal(preview.getState().graphInteractionMode, "hover");
+    assert.equal(store.get(GRAPH_INTERACTION_MODE_STORAGE_KEY), "hover");
+
+    elements.graphSettingsClose.dispatchEvent({ type: "click" });
+    await environment.settle();
+    assert.equal(elements.graphSettingsPopup.hidden, true);
 
     preview.destroy();
     await environment.settle();
@@ -446,6 +512,7 @@ test("a new sha256 or a new preview runtime gets a fresh availability attempt", 
 function createPreviewHarness(documentRef, {
   prefetchParsedScore = async () => {},
   loadParsedScore = async () => createParsedScore(),
+  preferences = {},
 } = {}) {
   const elements = createPreviewContainerElements(documentRef);
   const preview = createBmsInfoPreview({
@@ -453,7 +520,11 @@ function createPreviewHarness(documentRef, {
     documentRef,
     prefetchParsedScore,
     loadParsedScore,
+    ...preferences,
   });
+  elements.graphSettingsPopup = findElementById(documentRef.body, "bd-graph-settings-popup");
+  elements.graphSettingsClose = findElementById(documentRef.body, "bd-graph-settings-close");
+  elements.graphInteractionSelect = findElementById(documentRef.body, "bd-graph-interaction-select");
   return { preview, elements };
 }
 
@@ -485,6 +556,7 @@ function createPreviewContainerElements(documentRef) {
     "bd-lanenotes-div",
     "bd-tables-ul",
     "bd-graph",
+    "bd-graph-settings-toggle",
     "bd-scoreviewer-pin-input",
     "bd-graph-tooltip",
     "bd-graph-canvas",
@@ -508,8 +580,25 @@ function createPreviewContainerElements(documentRef) {
   return {
     container,
     graphCanvas: container.querySelector("#bd-graph-canvas"),
+    graphSettingsToggle: container.querySelector("#bd-graph-settings-toggle"),
     pinInput: container.querySelector("#bd-scoreviewer-pin-input"),
   };
+}
+
+function findElementById(root, id) {
+  if (!root) {
+    return null;
+  }
+  if (root.id === id) {
+    return root;
+  }
+  for (const child of root.children ?? []) {
+    const match = findElementById(child, id);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
 }
 
 function createNormalizedRecord(sha256) {

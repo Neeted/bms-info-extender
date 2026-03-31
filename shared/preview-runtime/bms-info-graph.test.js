@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBmsInfoGraph, getGraphFollowScrollLeft } from "./bms-info-graph.js";
+import {
+  createBmsInfoGraph,
+  DEFAULT_GRAPH_INTERACTION_MODE,
+  getGraphFollowScrollLeft,
+  normalizeGraphInteractionMode,
+} from "./bms-info-graph.js";
 
 test("graph follow scroll keeps the current position while the cursor stays inside the safe band", () => {
   assert.equal(getGraphFollowScrollLeft({
@@ -54,7 +59,14 @@ test("graph reuses the static layer when only the selected cursor changes", () =
   assert.equal(context.drawImageCalls.length, drawImageCountAfterRecord + 1);
 });
 
-test("graph hover updates the tooltip without changing the selected time", () => {
+test("graph interaction mode defaults to hover and normalizes invalid values", () => {
+  assert.equal(DEFAULT_GRAPH_INTERACTION_MODE, "hover");
+  assert.equal(normalizeGraphInteractionMode("hover"), "hover");
+  assert.equal(normalizeGraphInteractionMode("drag"), "drag");
+  assert.equal(normalizeGraphInteractionMode("invalid"), "hover");
+});
+
+test("graph hover mode updates the tooltip and selected time", () => {
   const { canvas } = createGraphCanvas();
   const hoverTimes = [];
   const selectedTimes = [];
@@ -77,6 +89,32 @@ test("graph hover updates the tooltip without changing the selected time", () =>
   canvas.dispatchEvent({ type: "mousemove", clientX: 20, clientY: 10 });
 
   assert.deepEqual(hoverTimes, [4]);
+  assert.deepEqual(selectedTimes, [4]);
+});
+
+test("graph drag mode keeps hover updates separate from selected time", () => {
+  const { canvas } = createGraphCanvas();
+  const hoverTimes = [];
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    interactionMode: "drag",
+    onHoverTime: (timeSec) => {
+      hoverTimes.push(timeSec);
+    },
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  graph.setSelectedTimeSec(2);
+  canvas.dispatchEvent({ type: "mousemove", clientX: 20, clientY: 10 });
+
+  assert.deepEqual(hoverTimes, [4]);
   assert.deepEqual(selectedTimes, []);
 });
 
@@ -88,6 +126,7 @@ test("graph click updates the selected time", () => {
     canvas,
     tooltip: { style: {}, innerHTML: "" },
     pinInput: createEventTarget(),
+    interactionMode: "drag",
     onSelectTime: (timeSec) => {
       selectedTimes.push(timeSec);
     },
@@ -99,6 +138,26 @@ test("graph click updates the selected time", () => {
   assert.deepEqual(selectedTimes, [7]);
 });
 
+test("graph hover mode ignores click selection changes", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    interactionMode: "hover",
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  canvas.dispatchEvent({ type: "click", clientX: 35, clientY: 10 });
+
+  assert.deepEqual(selectedTimes, []);
+});
+
 test("graph right-click starts sticky drag at the clicked position", () => {
   const { canvas } = createGraphCanvas();
   const selectedTimes = [];
@@ -107,6 +166,7 @@ test("graph right-click starts sticky drag at the clicked position", () => {
     canvas,
     tooltip: { style: {}, innerHTML: "" },
     pinInput: createEventTarget(),
+    interactionMode: "drag",
     onSelectTime: (timeSec) => {
       selectedTimes.push(timeSec);
     },
@@ -129,6 +189,7 @@ test("graph right-click toggles sticky drag off", () => {
     canvas,
     tooltip: { style: {}, innerHTML: "" },
     pinInput: createEventTarget(),
+    interactionMode: "drag",
     onSelectTime: (timeSec) => {
       selectedTimes.push(timeSec);
     },
@@ -153,6 +214,7 @@ test("graph clears sticky drag state on mouseleave", () => {
     canvas,
     tooltip: { style: {}, innerHTML: "" },
     pinInput: createEventTarget(),
+    interactionMode: "drag",
     onSelectTime: (timeSec) => {
       selectedTimes.push(timeSec);
     },
@@ -180,6 +242,7 @@ test("graph suppresses the context menu for right-click sticky drag", () => {
     canvas,
     tooltip: { style: {}, innerHTML: "" },
     pinInput: createEventTarget(),
+    interactionMode: "drag",
   });
 
   graph.setRecord(createRecord());
@@ -204,6 +267,7 @@ test("graph drags the selected line when the pointer starts near it", () => {
     canvas,
     tooltip: { style: {}, innerHTML: "" },
     pinInput: createEventTarget(),
+    interactionMode: "drag",
     onSelectTime: (timeSec) => {
       selectedTimes.push(timeSec);
     },
@@ -230,6 +294,7 @@ test("graph ignores pointer drags that do not start near the selected line", () 
     canvas,
     tooltip: { style: {}, innerHTML: "" },
     pinInput: createEventTarget(),
+    interactionMode: "drag",
     onSelectTime: (timeSec) => {
       selectedTimes.push(timeSec);
     },
@@ -245,6 +310,29 @@ test("graph ignores pointer drags that do not start near the selected line", () 
   assert.deepEqual(selectedTimes, []);
 });
 
+test("graph hover mode ignores selected line drag gestures", () => {
+  const { canvas } = createGraphCanvas();
+  const selectedTimes = [];
+  const graph = createBmsInfoGraph({
+    scrollHost: { scrollLeft: 0, clientWidth: 320, scrollWidth: 900 },
+    canvas,
+    tooltip: { style: {}, innerHTML: "" },
+    pinInput: createEventTarget(),
+    interactionMode: "hover",
+    onSelectTime: (timeSec) => {
+      selectedTimes.push(timeSec);
+    },
+  });
+
+  graph.setRecord(createRecord());
+  graph.setSelectedTimeSec(2);
+  canvas.dispatchEvent({ type: "pointerdown", pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointermove", pointerId: 1, clientX: 26, clientY: 10 });
+  canvas.dispatchEvent({ type: "pointerup", pointerId: 1, clientX: 26, clientY: 10 });
+
+  assert.deepEqual(selectedTimes, []);
+});
+
 test("graph clears drag state on pointercancel", () => {
   const { canvas } = createGraphCanvas();
   const selectedTimes = [];
@@ -253,6 +341,7 @@ test("graph clears drag state on pointercancel", () => {
     canvas,
     tooltip: { style: {}, innerHTML: "" },
     pinInput: createEventTarget(),
+    interactionMode: "drag",
     onSelectTime: (timeSec) => {
       selectedTimes.push(timeSec);
     },

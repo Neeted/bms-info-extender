@@ -169,7 +169,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
             items: [
               "判定ラインをドラッグ可能にしました",
               "譜面ビューアをダブルクリックで再生・停止できるようにしました",
-              "グラフ hover では譜面ビューアが即移動しないようにし、クリック・再生ラインのドラッグ・右クリックの掴みっぱなしで動かせるようにしました",
+              "グラフ左上に設定を追加し、再生ラインを Hover Follow または Click・再生ラインのドラッグ・右クリックの掴みっぱなしで動かす設定を選べるようにしました",
               "下部情報ウィンドウの設定情報は自動的に隠すようにしました",
               "Game モードの挙動を beatoraja に近づけました",
               {
@@ -205,7 +205,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
             items: [
               "The judge line is now draggable",
               "You can now play or stop the score viewer by double-clicking it",
-              "Hovering the graph no longer moves the score viewer immediately; use clicks, drag the playback line, or right-click sticky dragging instead",
+              "A new graph setting lets you choose whether the playback line follows hover or uses clicks, playback-line dragging, and right-click sticky dragging",
               "The settings in the bottom info panel are now hidden automatically",
               "Game mode now behaves more like beatoraja",
               {

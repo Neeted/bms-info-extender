@@ -14,12 +14,14 @@ const GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX = 48;
 const GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX = 160;
 const GRAPH_SELECTED_LINE_DRAG_HIT_PX = 10;
 const GRAPH_SELECTED_LINE_DRAG_CURSOR = "ew-resize";
+export const DEFAULT_GRAPH_INTERACTION_MODE = "hover";
 
 export function createBmsInfoGraph({
   scrollHost,
   canvas,
   tooltip,
   pinInput,
+  interactionMode = DEFAULT_GRAPH_INTERACTION_MODE,
   onHoverTime = () => {},
   onHoverLeave = () => {},
   onSelectTime = () => {},
@@ -32,6 +34,7 @@ export function createBmsInfoGraph({
     record: null,
     selectedTimeSec: 0,
     isPinned: false,
+    interactionMode: normalizeGraphInteractionMode(interactionMode),
     dragPointerId: null,
     stickyDragActive: false,
   };
@@ -58,6 +61,9 @@ export function createBmsInfoGraph({
 
     renderTooltip(tooltip, event, state.record, timeSec);
     onHoverTime(timeSec);
+    if (state.interactionMode === "hover") {
+      onSelectTime(getClampedHoverTimeSec(event, canvas, state.record));
+    }
     updateCanvasCursor(event);
   });
 
@@ -89,6 +95,9 @@ export function createBmsInfoGraph({
     if (!state.record) {
       return;
     }
+    if (state.interactionMode !== "drag") {
+      return;
+    }
     const timeSec = getHoverTimeSec(event, canvas);
     if (timeSec < 0) {
       return;
@@ -97,7 +106,12 @@ export function createBmsInfoGraph({
   });
 
   canvas.addEventListener("pointerdown", (event) => {
-    if (!state.record || !isPrimaryPointer(event) || !isPointerNearSelectedLine(event, canvas, state.selectedTimeSec)) {
+    if (
+      !state.record
+      || state.interactionMode !== "drag"
+      || !isPrimaryPointer(event)
+      || !isPointerNearSelectedLine(event, canvas, state.selectedTimeSec)
+    ) {
       return;
     }
     state.dragPointerId = event.pointerId ?? 0;
@@ -147,6 +161,10 @@ export function createBmsInfoGraph({
     state.isPinned = Boolean(nextPinned);
     pinInput.checked = state.isPinned;
     pinInput.disabled = !state.record;
+  }
+
+  function setInteractionMode(nextInteractionMode) {
+    state.interactionMode = normalizeGraphInteractionMode(nextInteractionMode);
   }
 
   function updateSelectionFromPointer(event) {
@@ -253,12 +271,17 @@ export function createBmsInfoGraph({
     setRecord,
     setSelectedTimeSec,
     setPinned,
+    setInteractionMode,
     render() {
       renderStaticScene();
       renderDynamicScene();
     },
     destroy() {},
   };
+}
+
+export function normalizeGraphInteractionMode(value) {
+  return value === "drag" ? "drag" : DEFAULT_GRAPH_INTERACTION_MODE;
 }
 
 function createLayerCanvas(referenceCanvas) {

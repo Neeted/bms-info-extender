@@ -4352,11 +4352,13 @@ var GRAPH_SCROLL_FOLLOW_MIN_MARGIN_PX = 48;
 var GRAPH_SCROLL_FOLLOW_MAX_MARGIN_PX = 160;
 var GRAPH_SELECTED_LINE_DRAG_HIT_PX = 10;
 var GRAPH_SELECTED_LINE_DRAG_CURSOR = "ew-resize";
+var DEFAULT_GRAPH_INTERACTION_MODE = "hover";
 function createBmsInfoGraph({
   scrollHost,
   canvas,
   tooltip,
   pinInput,
+  interactionMode = DEFAULT_GRAPH_INTERACTION_MODE,
   onHoverTime = () => {
   },
   onHoverLeave = () => {
@@ -4373,6 +4375,7 @@ function createBmsInfoGraph({
     record: null,
     selectedTimeSec: 0,
     isPinned: false,
+    interactionMode: normalizeGraphInteractionMode(interactionMode),
     dragPointerId: null,
     stickyDragActive: false
   };
@@ -4395,6 +4398,9 @@ function createBmsInfoGraph({
     }
     renderTooltip(tooltip, event, state2.record, timeSec);
     onHoverTime(timeSec);
+    if (state2.interactionMode === "hover") {
+      onSelectTime(getClampedHoverTimeSec(event, canvas, state2.record));
+    }
     updateCanvasCursor(event);
   });
   canvas.addEventListener("mouseleave", () => {
@@ -4423,6 +4429,9 @@ function createBmsInfoGraph({
     if (!state2.record) {
       return;
     }
+    if (state2.interactionMode !== "drag") {
+      return;
+    }
     const timeSec = getHoverTimeSec(event, canvas);
     if (timeSec < 0) {
       return;
@@ -4430,7 +4439,7 @@ function createBmsInfoGraph({
     onSelectTime(timeSec);
   });
   canvas.addEventListener("pointerdown", (event) => {
-    if (!state2.record || !isPrimaryPointer2(event) || !isPointerNearSelectedLine(event, canvas, state2.selectedTimeSec)) {
+    if (!state2.record || state2.interactionMode !== "drag" || !isPrimaryPointer2(event) || !isPointerNearSelectedLine(event, canvas, state2.selectedTimeSec)) {
       return;
     }
     state2.dragPointerId = event.pointerId ?? 0;
@@ -4473,6 +4482,9 @@ function createBmsInfoGraph({
     state2.isPinned = Boolean(nextPinned);
     pinInput.checked = state2.isPinned;
     pinInput.disabled = !state2.record;
+  }
+  function setInteractionMode(nextInteractionMode) {
+    state2.interactionMode = normalizeGraphInteractionMode(nextInteractionMode);
   }
   function updateSelectionFromPointer(event) {
     const timeSec = getClampedHoverTimeSec(event, canvas, state2.record);
@@ -4567,6 +4579,7 @@ function createBmsInfoGraph({
     setRecord,
     setSelectedTimeSec: setSelectedTimeSec2,
     setPinned,
+    setInteractionMode,
     render() {
       renderStaticScene();
       renderDynamicScene();
@@ -4574,6 +4587,9 @@ function createBmsInfoGraph({
     destroy() {
     }
   };
+}
+function normalizeGraphInteractionMode(value) {
+  return value === "drag" ? "drag" : DEFAULT_GRAPH_INTERACTION_MODE;
 }
 function createLayerCanvas(referenceCanvas) {
   if (typeof referenceCanvas?.ownerDocument?.createElement === "function") {
@@ -4828,6 +4844,7 @@ var GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY = "bms-info-extender.game.laneHeightPer
 var GAME_LANE_COVER_PERMILLE_STORAGE_KEY = "bms-info-extender.game.laneCoverPermille";
 var GAME_LANE_COVER_VISIBLE_STORAGE_KEY = "bms-info-extender.game.laneCoverVisible";
 var GAME_HS_FIX_MODE_STORAGE_KEY = "bms-info-extender.game.hsFixMode";
+var GRAPH_INTERACTION_MODE_STORAGE_KEY = "bms-info-extender.graphInteractionMode";
 var DEFAULT_SPACING_SCALE2 = 1;
 var PREVIEW_RENDER_DIRTY = {
   record: 1 << 0,
@@ -4840,7 +4857,9 @@ var PREVIEW_RENDER_DIRTY = {
   judgeLinePosition: 1 << 7,
   spacing: 1 << 8,
   gameTimingConfig: 1 << 9,
-  viewerOpen: 1 << 10
+  viewerOpen: 1 << 10,
+  graphInteractionMode: 1 << 11,
+  graphSettings: 1 << 12
 };
 var PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 var bmsSearchPatternAvailabilityCache = /* @__PURE__ */ new Map();
@@ -4978,6 +4997,24 @@ function createPreviewPreferenceStorage({ read = () => null, write = () => {
         write(GAME_HS_FIX_MODE_STORAGE_KEY, normalizeGameHsFixMode(value));
       } catch (_error) {
       }
+    },
+    getPersistedGraphInteractionMode() {
+      try {
+        return normalizeGraphInteractionMode(
+          read(GRAPH_INTERACTION_MODE_STORAGE_KEY, DEFAULT_GRAPH_INTERACTION_MODE)
+        );
+      } catch (_error) {
+        return DEFAULT_GRAPH_INTERACTION_MODE;
+      }
+    },
+    setPersistedGraphInteractionMode(value) {
+      try {
+        write(
+          GRAPH_INTERACTION_MODE_STORAGE_KEY,
+          normalizeGraphInteractionMode(value)
+        );
+      } catch (_error) {
+      }
     }
   };
 }
@@ -5013,10 +5050,22 @@ var BMSDATA_CSS = `
   #bd-graph { position: relative; padding: 0px; border-width: 0px; background-color: #000; overflow-x: auto; line-height: 0; scrollbar-color: var(--bd-hdbk) black; scrollbar-width: thin; }
   #bd-graph-canvas { background-color: #000; }
   #bd-graph-tooltip { line-height: 1.25; position: fixed; background: rgba(32, 32, 64, 0.88); color: #fff; padding: 4px 8px; font-size: 0.8125rem; pointer-events: none; border-radius: 6px; display: none; z-index: 10; white-space: nowrap; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22); }
-  .bd-scoreviewer-pin { position: absolute; top: 4px; left: 4px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: rgba(32, 32, 64, 0.5); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-sizing: border-box; z-index: 2; width: auto; }
+  .bd-graph-toolbar { position: absolute; top: 4px; left: 4px; display: inline-flex; align-items: center; gap: 2px; z-index: 3; background-color: unset;}
+  .bd-scoreviewer-pin { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: rgba(32, 32, 64, 0.5); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-sizing: border-box; width: auto; }
   .bd-scoreviewer-pin * { background: transparent; color: #fff; font-family: "Inconsolata", "Noto Sans JP"; }
   .bd-scoreviewer-pin input { width: auto; flex: 0 0 auto; min-height: auto; margin: 0; padding: 0; border: none; background: transparent; accent-color: #ffffff; }
   .bd-scoreviewer-pin span { display: inline-block; line-height: 1.25; white-space: nowrap; }
+  .bd-graph-toolbar-button { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; border: unset; border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; box-shadow: none; }
+  .bd-graph-toolbar-button:hover { background: rgba(255, 255, 255, 0.24); }
+  .bd-graph-toolbar-button:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
+  .bd-graph-settings-popup { position: fixed; left: 12px; bottom: 12px; z-index: 2147482999; display: grid; gap: 6px; min-width: 220px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.88); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); box-sizing: border-box; }
+  .bd-graph-settings-popup[hidden] { display: none; }
+  .bd-graph-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .bd-graph-settings-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
+  .bd-graph-settings-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; }
+  .bd-graph-settings-group { display: grid; gap: 4px; }
+  .bd-graph-settings-label { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
+  .bd-graph-settings-select { width: 100%; min-width: 0; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; box-sizing: border-box; }
   .score-viewer-shell * { box-sizing: content-box; }
   .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; isolation: isolate; contain: layout paint style; }
   .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
@@ -5051,7 +5100,7 @@ var BMSDATA_CSS = `
   .score-viewer-mode-select:disabled { opacity: 0.55; cursor: not-allowed; }
   .score-viewer-checkbox-row { justify-content: space-between; gap: 10px; }
   .score-viewer-checkbox-input { width: auto; min-height: auto; margin: 0; padding: 0; accent-color: #ffffff; }
-  .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 16px; min-width: 16px; height: 16px; min-height: 16px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.58rem; line-height: 1; pointer-events: auto; cursor: pointer; }
+  .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 16px; min-width: 16px; height: 16px; min-height: 16px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.464rem; line-height: 1; pointer-events: auto; cursor: pointer; }
   .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
   .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; pointer-events: auto; }
@@ -5165,10 +5214,13 @@ var BMSDATA_TEMPLATE_HTML = `
       </div>
     </div>
     <div id="bd-graph">
-      <label class="bd-scoreviewer-pin">
-        <input id="bd-scoreviewer-pin-input" type="checkbox">
-        <span>Pin the score viewer</span>
-      </label>
+      <div class="bd-graph-toolbar">
+        <button id="bd-graph-settings-toggle" class="bd-graph-toolbar-button" type="button" aria-label="Open graph settings">⚙</button>
+        <label class="bd-scoreviewer-pin">
+          <input id="bd-scoreviewer-pin-input" type="checkbox">
+          <span>PIN THE VIEWER</span>
+        </label>
+      </div>
       <div id="bd-graph-tooltip"></div>
       <canvas id="bd-graph-canvas"></canvas>
     </div>
@@ -5301,6 +5353,9 @@ function createBmsInfoPreview({
   getPersistedGameHsFixMode = () => DEFAULT_GAME_HS_FIX_MODE,
   setPersistedGameHsFixMode = () => {
   },
+  getPersistedGraphInteractionMode = () => DEFAULT_GRAPH_INTERACTION_MODE,
+  setPersistedGraphInteractionMode = () => {
+  },
   onSelectedTimeChange = () => {
   },
   onPinChange = () => {
@@ -5316,9 +5371,44 @@ function createBmsInfoPreview({
   const graphCanvas = container.querySelector("#bd-graph-canvas");
   const graphTooltip = container.querySelector("#bd-graph-tooltip");
   const pinInput = container.querySelector("#bd-scoreviewer-pin-input");
-  if (!graphHost || !graphCanvas || !graphTooltip || !pinInput) {
+  const graphSettingsToggle = container.querySelector("#bd-graph-settings-toggle");
+  if (!graphHost || !graphCanvas || !graphTooltip || !pinInput || !graphSettingsToggle) {
     throw new Error("BMS preview graph elements are missing.");
   }
+  const graphSettingsPopup = documentRef.createElement("div");
+  graphSettingsPopup.id = "bd-graph-settings-popup";
+  graphSettingsPopup.className = "bd-graph-settings-popup";
+  graphSettingsPopup.hidden = true;
+  const graphSettingsHeader = documentRef.createElement("div");
+  graphSettingsHeader.className = "bd-graph-settings-header";
+  const graphSettingsTitle = documentRef.createElement("span");
+  graphSettingsTitle.className = "bd-graph-settings-title";
+  graphSettingsTitle.textContent = "Settings";
+  const graphSettingsClose = documentRef.createElement("button");
+  graphSettingsClose.id = "bd-graph-settings-close";
+  graphSettingsClose.className = "bd-graph-settings-close";
+  graphSettingsClose.type = "button";
+  graphSettingsClose.setAttribute("aria-label", "Close graph settings");
+  graphSettingsClose.textContent = "x";
+  graphSettingsHeader.append(graphSettingsTitle, graphSettingsClose);
+  const graphSettingsGroup = documentRef.createElement("div");
+  graphSettingsGroup.className = "bd-graph-settings-group";
+  const initialGraphInteractionMode = getInitialGraphInteractionMode(getPersistedGraphInteractionMode);
+  const graphInteractionLabel = documentRef.createElement("label");
+  graphInteractionLabel.className = "bd-graph-settings-label";
+  graphInteractionLabel.setAttribute("for", "bd-graph-interaction-select");
+  graphInteractionLabel.textContent = "Line Control";
+  const graphInteractionSelect = documentRef.createElement("select");
+  graphInteractionSelect.id = "bd-graph-interaction-select";
+  graphInteractionSelect.className = "bd-graph-settings-select";
+  graphInteractionSelect.append(
+    createPopupOption(documentRef, "hover", "Hover Follow"),
+    createPopupOption(documentRef, "drag", "Click & Drag")
+  );
+  graphInteractionSelect.value = initialGraphInteractionMode;
+  graphSettingsGroup.append(graphInteractionLabel, graphInteractionSelect);
+  graphSettingsPopup.append(graphSettingsHeader, graphSettingsGroup);
+  documentRef.body.appendChild(graphSettingsPopup);
   const shell = documentRef.createElement("div");
   shell.className = "score-viewer-shell";
   documentRef.body.appendChild(shell);
@@ -5341,10 +5431,12 @@ function createBmsInfoPreview({
       getPersistedGameLaneCoverVisible,
       getPersistedGameHsFixMode
     }),
+    graphInteractionMode: initialGraphInteractionMode,
     isPinned: false,
     isViewerOpen: false,
     isPlaying: false,
     isGraphHovered: false,
+    isGraphSettingsOpen: false,
     parsedScore: null,
     viewerModel: null,
     loadToken: 0,
@@ -5390,6 +5482,7 @@ function createBmsInfoPreview({
     canvas: graphCanvas,
     tooltip: graphTooltip,
     pinInput,
+    interactionMode: state2.graphInteractionMode,
     onHoverTime: () => {
       handleGraphHover();
     },
@@ -5415,6 +5508,19 @@ function createBmsInfoPreview({
       }
       scheduleRender(PREVIEW_RENDER_DIRTY.pin | PREVIEW_RENDER_DIRTY.viewerOpen);
     }
+  });
+  graphSettingsToggle.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setGraphSettingsOpen(!state2.isGraphSettingsOpen);
+  });
+  graphSettingsClose.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setGraphSettingsOpen(false);
+  });
+  graphInteractionSelect.addEventListener("change", () => {
+    setGraphInteractionMode(graphInteractionSelect.value);
   });
   return {
     setRecord,
@@ -5733,6 +5839,27 @@ function createBmsInfoPreview({
     }
     scheduleRender(PREVIEW_RENDER_DIRTY.gameTimingConfig);
   }
+  function setGraphInteractionMode(nextMode) {
+    const normalizedMode = normalizeGraphInteractionMode(nextMode);
+    if (state2.graphInteractionMode === normalizedMode) {
+      return;
+    }
+    state2.graphInteractionMode = normalizedMode;
+    try {
+      setPersistedGraphInteractionMode(normalizedMode);
+    } catch (error) {
+      console.warn("Failed to persist graph interaction mode:", error);
+    }
+    scheduleRender(PREVIEW_RENDER_DIRTY.graphInteractionMode);
+  }
+  function setGraphSettingsOpen(nextOpen) {
+    const normalizedOpen = Boolean(nextOpen);
+    if (state2.isGraphSettingsOpen === normalizedOpen) {
+      return;
+    }
+    state2.isGraphSettingsOpen = normalizedOpen;
+    scheduleRender(PREVIEW_RENDER_DIRTY.graphSettings);
+  }
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state2.isPinned === normalized) {
@@ -5866,6 +5993,13 @@ function createBmsInfoPreview({
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.selection) {
       graphController.setSelectedTimeSec(state2.selectedTimeSec);
     }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.graphInteractionMode) {
+      graphController.setInteractionMode(state2.graphInteractionMode);
+      graphInteractionSelect.value = state2.graphInteractionMode;
+    }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.graphSettings) {
+      graphSettingsPopup.hidden = !state2.isGraphSettingsOpen;
+    }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
       viewerController.setModel(state2.viewerModel);
     }
@@ -5911,6 +6045,7 @@ function createBmsInfoPreview({
     stopPlayback(false);
     graphController.destroy();
     viewerController.destroy();
+    graphSettingsPopup.remove();
     shell.remove();
   }
 }
@@ -6030,6 +6165,14 @@ function getInitialGameTimingConfig({
     hsFixMode: getPersistedGameHsFixMode?.()
   });
 }
+function getInitialGraphInteractionMode(getPersistedGraphInteractionMode) {
+  try {
+    return normalizeGraphInteractionMode(getPersistedGraphInteractionMode?.());
+  } catch (error) {
+    console.warn("Failed to read persisted graph interaction mode:", error);
+    return DEFAULT_GRAPH_INTERACTION_MODE;
+  }
+}
 function getInitialSpacingScale(mode, getPersistedSpacingScale) {
   try {
     return normalizeSpacingScale(Number(getPersistedSpacingScale?.(normalizeSpacingMode2(mode))));
@@ -6053,6 +6196,12 @@ function estimateViewerWidthFromNumericMode(mode) {
     default:
       return estimateViewerWidth(String(mode ?? ""), getDisplayLaneCount(mode));
   }
+}
+function createPopupOption(documentRef, value, label) {
+  const option = documentRef.createElement("option");
+  option.value = value;
+  option.textContent = label;
+  return option;
 }
 function getDisplayLaneCount(mode) {
   switch (mode) {

@@ -1459,10 +1459,11 @@ function clamp(value, minValue, maxValue) {
 // shared/preview-runtime/score-viewer-renderer.js
 var VIEWER_LANE_SIDE_PADDING = 6;
 var DP_GUTTER_UNITS = 1.2;
-var FIXED_LANE_WIDTH = 16;
+var NOTE_WIDTH = 15;
 var BACKGROUND_FILL = "#000000";
 var DP_GUTTER_FILL = "#808080";
 var SEPARATOR_COLOR = "#404040";
+var SEPARATOR_WIDTH = 1;
 var BAR_LINE = "#ffffff";
 var BAR_LINE_HEIGHT = 1;
 var EDITOR_BEAT_GRID_LINE = "#808080";
@@ -1477,7 +1478,6 @@ var TEMPO_MARKER_HEIGHT = 1;
 var TEMPO_MARKER_WIDTH = 8;
 var TEMPO_LABEL_GAP = 8;
 var TEMPO_LABEL_MIN_GAP = 12;
-var LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX = 1;
 var TEMPO_LABEL_FONT = '12px "Inconsolata", "Noto Sans JP"';
 var MEASURE_LABEL_COLOR = "#FFFFFF";
 var JUDGE_LINE_SIDE_OVERHANG = 48;
@@ -1690,9 +1690,43 @@ function createScoreViewerRenderer(canvas) {
 }
 function estimateViewerWidth(mode, laneCount) {
   const layout = getModeLayout(mode, laneCount);
-  const gutterWidth = layout.splitAfter === null ? 0 : FIXED_LANE_WIDTH * DP_GUTTER_UNITS;
-  const contentWidth = layout.display.length * FIXED_LANE_WIDTH + gutterWidth;
+  const gutterWidth = layout.splitAfter === null ? 0 : getDpGutterWidth();
+  const contentWidth = getDisplayLaneAreaWidth(layout.display.length) + gutterWidth;
   return Math.ceil(contentWidth + JUDGE_LINE_SIDE_OVERHANG * 2);
+}
+function getNoteWidth() {
+  const testOverride = globalThis?.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES?.noteWidth;
+  const resolvedWidth = testOverride ?? NOTE_WIDTH;
+  return Number.isFinite(resolvedWidth) && resolvedWidth >= 0 ? resolvedWidth : 0;
+}
+function getSeparatorWidth() {
+  const testOverride = globalThis?.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES?.separatorWidth;
+  const resolvedWidth = testOverride ?? SEPARATOR_WIDTH;
+  return Number.isFinite(resolvedWidth) && resolvedWidth >= 0 ? resolvedWidth : 0;
+}
+function getLaneSlotWidth() {
+  return getNoteWidth() + getSeparatorWidth();
+}
+function getDisplaySeparatorCount(displayLaneCount) {
+  return displayLaneCount > 0 ? displayLaneCount + 1 : 0;
+}
+function getDisplayLaneAreaWidth(displayLaneCount) {
+  return getNoteWidth() * displayLaneCount + getSeparatorWidth() * getDisplaySeparatorCount(displayLaneCount);
+}
+function getDpGutterWidth() {
+  return getNoteWidth() * DP_GUTTER_UNITS;
+}
+function getLaneContentLeftX(lane) {
+  return lane.x + getSeparatorWidth();
+}
+function getLaneContentWidth(lane) {
+  return Math.max(lane.width - getSeparatorWidth(), 0);
+}
+function getLaneRightEdgeWithSeparator(lane) {
+  return lane.x + lane.width + getSeparatorWidth();
+}
+function getSeparatorStrokeCenterX(boundaryX) {
+  return boundaryX + getSeparatorWidth() / 2;
 }
 function drawBarLinesTimeMode(context, barLines, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
@@ -1700,7 +1734,7 @@ function drawBarLinesTimeMode(context, barLines, lanes, selectedTimeSec, startTi
     return;
   }
   const leftX = leftLane.x;
-  const rightX = rightLane.x + rightLane.width + 1;
+  const rightX = getLaneRightEdgeWithSeparator(rightLane);
   context.save();
   context.strokeStyle = BAR_LINE;
   context.lineWidth = BAR_LINE_HEIGHT;
@@ -1847,7 +1881,11 @@ function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTim
     const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
     const bodyHeight = Math.max(bottomY - topY, 2);
     context.fillStyle = dimColor(lane.note, 0.42);
-    context.fillRect(lane.x + 1, topY, Math.max(lane.width - 1, 1), bodyHeight);
+    const contentWidth = getLaneContentWidth(lane);
+    if (!(contentWidth > 0)) {
+      continue;
+    }
+    context.fillRect(getLaneContentLeftX(lane), topY, contentWidth, bodyHeight);
   }
   context.restore();
 }
@@ -2005,7 +2043,7 @@ function drawBarLinesGameMode(context, lanes, projection) {
     return;
   }
   const leftX = leftLane.x;
-  const rightX = rightLane.x + rightLane.width + 1;
+  const rightX = getLaneRightEdgeWithSeparator(rightLane);
   context.save();
   context.strokeStyle = BAR_LINE;
   context.lineWidth = BAR_LINE_HEIGHT;
@@ -2074,7 +2112,11 @@ function drawLongBodiesGameMode(context, model, lanes, projection) {
       continue;
     }
     context.fillStyle = dimColor(lane.note, 0.42);
-    context.fillRect(lane.x + 1, topY, Math.max(lane.width - 1, 1), Math.max(bottomY - topY, 2));
+    const contentWidth = getLaneContentWidth(lane);
+    if (!(contentWidth > 0)) {
+      continue;
+    }
+    context.fillRect(getLaneContentLeftX(lane), topY, contentWidth, Math.max(bottomY - topY, 2));
   }
   context.restore();
 }
@@ -2237,7 +2279,7 @@ function drawLaneCoverGameMode(context, laneLayout, projection) {
   }
   const laneBounds = getLaneBounds(laneLayout);
   const coverLeftX = laneBounds.leftX;
-  const coverWidth = Math.max(laneBounds.rightX - laneBounds.leftX + 1, 0);
+  const coverWidth = Math.max(laneBounds.rightX - laneBounds.leftX + getSeparatorWidth(), 0);
   if (!(coverWidth > 0)) {
     return;
   }
@@ -2275,7 +2317,7 @@ function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixe
     return;
   }
   const leftX = leftLane.x;
-  const rightX = rightLane.x + rightLane.width + 1;
+  const rightX = getLaneRightEdgeWithSeparator(rightLane);
   const visibleGridLines = collectVisibleEditorGridLines(
     measureRanges,
     editorFrameState.startBeat,
@@ -2310,7 +2352,7 @@ function drawBarLinesEditorMode(context, barLines, lanes, editorFrameState, pixe
     return;
   }
   const leftX = leftLane.x;
-  const rightX = rightLane.x + rightLane.width + 1;
+  const rightX = getLaneRightEdgeWithSeparator(rightLane);
   const visibleWindow = getBeatWindowIndices(barLines, editorFrameState.startBeat, editorFrameState.endBeat);
   context.save();
   context.strokeStyle = BAR_LINE;
@@ -2459,7 +2501,7 @@ function getTempoMarkerRect(lane, side) {
   const width = TEMPO_MARKER_WIDTH;
   if (side === "left") {
     return {
-      x: lane.x - width + LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX,
+      x: lane.x + getSeparatorWidth() - width,
       width
     };
   }
@@ -2488,7 +2530,11 @@ function drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixel
     const bottomY = Math.min(Math.max(startY, endY), editorFrameState.viewportHeight + NOTE_HEAD_HEIGHT + 24);
     const bodyHeight = Math.max(bottomY - topY, 2);
     context.fillStyle = dimColor(lane.note, 0.42);
-    context.fillRect(lane.x + 1, topY, Math.max(lane.width - 1, 1), bodyHeight);
+    const contentWidth = getLaneContentWidth(lane);
+    if (!(contentWidth > 0)) {
+      continue;
+    }
+    context.fillRect(getLaneContentLeftX(lane), topY, contentWidth, bodyHeight);
   }
   context.restore();
 }
@@ -2533,17 +2579,25 @@ function drawInvisibleNoteHeadsEditorMode(context, model, lanes, editorFrameStat
   context.restore();
 }
 function drawRectNote(context, lane, y, color) {
+  const contentWidth = getLaneContentWidth(lane);
+  if (!(contentWidth > 0)) {
+    return;
+  }
   context.fillStyle = color;
-  context.fillRect(lane.x + 1, Math.round(y - NOTE_HEAD_HEIGHT), Math.max(lane.width - 1, 1), NOTE_HEAD_HEIGHT);
+  context.fillRect(getLaneContentLeftX(lane), Math.round(y - NOTE_HEAD_HEIGHT), contentWidth, NOTE_HEAD_HEIGHT);
 }
 function drawOutlinedRectNote(context, lane, y, color) {
+  const contentWidth = getLaneContentWidth(lane);
+  if (!(contentWidth > 0)) {
+    return;
+  }
   const topY = Math.round(y - NOTE_HEAD_HEIGHT);
   context.strokeStyle = color;
   context.lineWidth = 1;
   context.strokeRect(
-    lane.x + 1.5,
+    getLaneContentLeftX(lane) + 0.5,
     topY + 0.5,
-    Math.max(lane.width - 2, 1),
+    Math.max(contentWidth - 1, 0),
     Math.max(NOTE_HEAD_HEIGHT - 1, 1)
   );
 }
@@ -2586,9 +2640,13 @@ function drawLaneSeparators(context, lanes, viewportHeight, topY = 0, bottomY = 
   if (lanes.length === 0) {
     return;
   }
+  const separatorWidth = getSeparatorWidth();
+  if (!(separatorWidth > 0)) {
+    return;
+  }
   context.save();
   context.strokeStyle = SEPARATOR_COLOR;
-  context.lineWidth = 1;
+  context.lineWidth = separatorWidth;
   const startY = Math.max(Number.isFinite(topY) ? topY : 0, 0);
   const endY = Math.min(Number.isFinite(bottomY) ? bottomY : viewportHeight, viewportHeight);
   if (endY <= startY) {
@@ -2603,8 +2661,9 @@ function drawLaneSeparators(context, lanes, viewportHeight, topY = 0, bottomY = 
   }
   for (const x of [...uniqueBoundaries].sort((left, right) => left - right)) {
     context.beginPath();
-    context.moveTo(x + 0.5, startY);
-    context.lineTo(x + 0.5, endY);
+    const strokeCenterX = getSeparatorStrokeCenterX(x);
+    context.moveTo(strokeCenterX, startY);
+    context.lineTo(strokeCenterX, endY);
     context.stroke();
   }
   context.restore();
@@ -2666,8 +2725,9 @@ function createEmptyRenderResult() {
 }
 function createLaneLayout(mode, laneCount, viewportWidth) {
   const layout = getModeLayout(mode, laneCount);
-  const gutterWidth = layout.splitAfter === null ? 0 : FIXED_LANE_WIDTH * DP_GUTTER_UNITS;
-  const contentWidth = layout.display.length * FIXED_LANE_WIDTH + gutterWidth;
+  const slotWidth = getLaneSlotWidth();
+  const gutterWidth = layout.splitAfter === null ? 0 : getDpGutterWidth();
+  const contentWidth = getDisplayLaneAreaWidth(layout.display.length) + gutterWidth;
   const startX = Math.max(VIEWER_LANE_SIDE_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
   const lanes = new Array(Math.max(1, laneCount));
   let gutterRect = null;
@@ -2684,10 +2744,10 @@ function createLaneLayout(mode, laneCount, viewportWidth) {
     lanes[slot.actualLane] = {
       lane: slot.actualLane,
       x: cursorX,
-      width: FIXED_LANE_WIDTH,
+      width: slotWidth,
       note: slot.note
     };
-    cursorX += FIXED_LANE_WIDTH;
+    cursorX += slotWidth;
   }
   return {
     lanes,

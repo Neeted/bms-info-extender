@@ -80,8 +80,56 @@ test("renderer draws invisible note outlines inset within lane separators", () =
 
   assert.deepEqual(
     context.strokeRectCalls.map(({ x, y, width, height }) => ({ x, y, width, height })),
-    [{ x: 89.5, y: 156.5, width: 14, height: 3 }],
+    [{ x: 88.5, y: 156.5, width: 14, height: 3 }],
   );
+});
+
+test("renderer adapts note and invisible note geometry when separator width changes", () => {
+  withTestSeparatorWidth(0, () => {
+    const { canvas, context } = createMockCanvas();
+    const renderer = createScoreViewerRenderer(canvas);
+    const model = createScoreViewerModel(createInvisibleNoteScore());
+
+    renderer.resize(240, 320);
+    renderer.render(model, 1, { viewerMode: "time" });
+
+    assert.deepEqual(
+      context.fillRectCalls
+        .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
+        .map(({ x, y, width, height }) => ({ x, y, width, height })),
+      [{ x: 75, y: 156, width: 15, height: 4 }],
+    );
+
+    context.reset();
+    renderer.render(model, 2, { viewerMode: "time", showInvisibleNotes: true });
+    assert.deepEqual(
+      context.strokeRectCalls.map(({ x, y, width, height }) => ({ x, y, width, height })),
+      [{ x: 90.5, y: 156.5, width: 14, height: 3 }],
+    );
+  });
+
+  withTestSeparatorWidth(2, () => {
+    const { canvas, context } = createMockCanvas();
+    const renderer = createScoreViewerRenderer(canvas);
+    const model = createScoreViewerModel(createInvisibleNoteScore());
+
+    renderer.resize(240, 320);
+    renderer.render(model, 1, { viewerMode: "time" });
+
+    assert.deepEqual(
+      context.fillRectCalls
+        .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
+        .map(({ x, y, width, height }) => ({ x, y, width, height })),
+      [{ x: 70, y: 156, width: 15, height: 4 }],
+    );
+
+    context.reset();
+    renderer.render(model, 2, { viewerMode: "time", showInvisibleNotes: true });
+    assert.deepEqual(
+      context.strokeRectCalls.map(({ x, y, width, height }) => ({ x, y, width, height })),
+      [{ x: 87.5, y: 156.5, width: 14, height: 3 }],
+    );
+  });
 });
 
 test("renderer moves the time-mode note head with a custom judge line Y", () => {
@@ -97,7 +145,7 @@ test("renderer moves the time-mode note head with a custom judge line Y", () => 
       .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
-      { x: 73, y: 92, fillStyle: "#bebebe" },
+      { x: 72, y: 92, fillStyle: "#bebebe" },
     ],
   );
 });
@@ -115,7 +163,7 @@ test("renderer moves editor-mode note heads and bar lines with a custom judge li
       .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
-      { x: 73, y: 92, fillStyle: "#bebebe" },
+      { x: 72, y: 92, fillStyle: "#bebebe" },
     ],
   );
   assert.equal(
@@ -174,7 +222,7 @@ test("renderer fills the center gutter in 10k and 14k layouts", () => {
     renderer.render(model, 1, { viewerMode: "time" });
 
     assert.equal(
-      context.fillRectCalls.some((call) => call.fillStyle === "#808080" && call.y === 0 && call.height === 320 && call.width > 16),
+      context.fillRectCalls.some((call) => call.fillStyle === "#808080" && call.y === 0 && call.height === 320 && call.width === 18),
       true,
       `${mode} should draw a gutter fill`,
     );
@@ -238,6 +286,36 @@ test("renderer aligns editor-mode measure labels to the bar line with a bottom b
   );
 });
 
+test("renderer adapts editor horizontal line extents when separator width changes", () => {
+  withTestSeparatorWidth(0, () => {
+    const { canvas, context } = createMockCanvas();
+    const renderer = createScoreViewerRenderer(canvas);
+    const model = createScoreViewerModel(createInvisibleNoteScore());
+
+    renderer.resize(240, 320);
+    renderer.render(model, 1, { viewerMode: "editor" });
+
+    assert.equal(
+      Math.max(...context.lineToCalls.map((call) => call.x)),
+      180,
+    );
+  });
+
+  withTestSeparatorWidth(2, () => {
+    const { canvas, context } = createMockCanvas();
+    const renderer = createScoreViewerRenderer(canvas);
+    const model = createScoreViewerModel(createInvisibleNoteScore());
+
+    renderer.resize(240, 320);
+    renderer.render(model, 1, { viewerMode: "editor" });
+
+    assert.equal(
+      Math.max(...context.lineToCalls.map((call) => call.x)),
+      189,
+    );
+  });
+});
+
 test("renderer draws game-mode measure labels for visible bar lines", () => {
   const { canvas, context } = createMockCanvas();
   const renderer = createScoreViewerRenderer(canvas);
@@ -286,6 +364,36 @@ test("renderer draws left-side tempo marker labels after measure labels so marke
       { text: "2", fillStyle: "#ff0" },
     ],
   );
+});
+
+test("renderer adapts tempo marker positions when separator width changes", () => {
+  withTestSeparatorWidth(0, () => {
+    const { canvas, context } = createMockCanvas();
+    const renderer = createScoreViewerRenderer(canvas);
+    const model = createScoreViewerModel(createTempoMarkerAlignmentScore());
+
+    renderer.resize(240, 320);
+    renderer.render(model, 2, { viewerMode: "time" });
+
+    const markerRects = context.fillRectCalls.filter((call) => call.height === 1 && call.width === 8);
+    assert.equal(markerRects.some((call) => call.fillStyle === "#00ff00" && call.x === 180), true);
+    assert.equal(markerRects.some((call) => call.fillStyle === "#ff00ff" && call.x === 52), true);
+    assert.equal(markerRects.some((call) => call.fillStyle === "#ff0" && call.x === 52), true);
+  });
+
+  withTestSeparatorWidth(2, () => {
+    const { canvas, context } = createMockCanvas();
+    const renderer = createScoreViewerRenderer(canvas);
+    const model = createScoreViewerModel(createTempoMarkerAlignmentScore());
+
+    renderer.resize(240, 320);
+    renderer.render(model, 2, { viewerMode: "time" });
+
+    const markerRects = context.fillRectCalls.filter((call) => call.height === 1 && call.width === 8);
+    assert.equal(markerRects.some((call) => call.fillStyle === "#00ff00" && call.x === 187), true);
+    assert.equal(markerRects.some((call) => call.fillStyle === "#ff00ff" && call.x === 45), true);
+    assert.equal(markerRects.some((call) => call.fillStyle === "#ff0" && call.x === 45), true);
+  });
 });
 
 test("renderer draws Lunatic warp markers with a WARP label in time mode", () => {
@@ -355,7 +463,7 @@ test("renderer game projection stops before drawing reentry notes that come back
       .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
-      { x: 73, y: 156, fillStyle: "#bebebe" },
+      { x: 72, y: 156, fillStyle: "#bebebe" },
     ],
   );
 });
@@ -380,8 +488,8 @@ test("renderer game projection keeps scanning after notes fall below the viewpor
       .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
       .map(({ x, y, fillStyle }) => ({ x, y, fillStyle })),
     [
-      { x: 73, y: 156, fillStyle: "#bebebe" },
-      { x: 89, y: 156, fillStyle: "#5074fe" },
+      { x: 72, y: 156, fillStyle: "#bebebe" },
+      { x: 88, y: 156, fillStyle: "#5074fe" },
     ],
   );
 });
@@ -520,6 +628,38 @@ test("renderer clips game-mode lanes by lane height and draws lane cover labels"
   ]);
 });
 
+test("renderer adapts game lane cover width when separator width changes", () => {
+  const renderCoverWidth = (separatorWidth) => withTestSeparatorWidth(separatorWidth, () => {
+    const { canvas, context } = createMockCanvas();
+    const renderer = createScoreViewerRenderer(canvas);
+    const model = createScoreViewerModel(createGameZeroScrollFreezeScore(), {
+      bpmSummary: {
+        mainBpm: 150,
+        minBpm: 120,
+        maxBpm: 180,
+      },
+    });
+
+    renderer.resize(240, 320);
+    renderer.render(model, 2.25, {
+      viewerMode: "game",
+      judgeLineY: 240,
+      gameTimingConfig: {
+        durationMs: 500,
+        laneHeightPercent: 50,
+        laneCoverPermille: 500,
+        laneCoverVisible: true,
+        hsFixMode: "main",
+      },
+    });
+
+    return context.fillRectCalls.find((call) => call.fillStyle === "#2A2A2A")?.width ?? 0;
+  });
+
+  assert.equal(renderCoverWidth(0), 120);
+  assert.equal(renderCoverWidth(2), 138);
+});
+
 test("renderer skips lane cover drawing and label calculations when cover is hidden", () => {
   const { canvas, context } = createMockCanvas();
   const renderer = createScoreViewerRenderer(canvas);
@@ -618,7 +758,7 @@ test("renderer clamps visible game-mode long bodies to the active lane top", () 
       .filter((call) => call.width === 15 && call.height > 4 && String(call.fillStyle).startsWith("rgb("))
       .map(({ x, y, width, height }) => ({ x, y, width, height })),
     [
-      { x: 73, y: 160, width: 15, height: 40 },
+      { x: 72, y: 160, width: 15, height: 40 },
     ],
   );
 });
@@ -830,6 +970,28 @@ function createLeftMarkerMeasureOverlapScore() {
     comboEvents: [{ lane: 1, beat: 2, timeSec: 1, kind: "normal" }],
     barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }],
     bpmChanges: [],
+    stops: [{ beat: 4, timeSec: 2, stopBeats: 4, durationSec: 1 }],
+    scrollChanges: [{ beat: 4, timeSec: 2, rate: 2 }],
+    warnings: [],
+  };
+}
+
+function createTempoMarkerAlignmentScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
+    ],
+    comboEvents: [{ lane: 1, beat: 2, timeSec: 1, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [{ beat: 4, timeSec: 2, bpm: 180 }],
     stops: [{ beat: 4, timeSec: 2, stopBeats: 4, durationSec: 1 }],
     scrollChanges: [{ beat: 4, timeSec: 2, rate: 2 }],
     warnings: [],
@@ -1111,6 +1273,23 @@ function createMockCanvas() {
     },
     context,
   };
+}
+
+function withTestSeparatorWidth(separatorWidth, callback) {
+  const previousOverrides = globalThis.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES;
+  globalThis.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES = {
+    ...previousOverrides,
+    separatorWidth,
+  };
+  try {
+    return callback();
+  } finally {
+    if (previousOverrides === undefined) {
+      delete globalThis.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES;
+    } else {
+      globalThis.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES = previousOverrides;
+    }
+  }
 }
 
 class MockRenderingContext2D {

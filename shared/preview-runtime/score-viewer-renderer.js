@@ -23,6 +23,7 @@ import {
 export const VIEWER_LANE_SIDE_PADDING = 6;
 export const DP_GUTTER_UNITS = 1.2;
 export const NOTE_WIDTH = 15;
+export const SCRATCH_WIDTH = 30;
 export const SEPARATOR_WIDTH = 1;
 export const BAR_LINE_HEIGHT = 1;
 const BACKGROUND_FILL = "#000000";
@@ -90,6 +91,7 @@ const POPN_LANE_COLORS = new Map([
 
 export const DEFAULT_RENDERER_CONFIG = Object.freeze({
   noteWidth: NOTE_WIDTH,
+  scratchWidth: SCRATCH_WIDTH,
   noteHeight: NOTE_HEAD_HEIGHT,
   barLineHeight: BAR_LINE_HEIGHT,
   markerHeight: TEMPO_MARKER_HEIGHT,
@@ -107,6 +109,7 @@ export function createScoreViewerRenderer(canvas) {
     mode: null,
     laneCount: null,
     noteWidth: null,
+    scratchWidth: null,
     separatorWidth: null,
     width: 0,
     layout: null,
@@ -125,6 +128,7 @@ export function createScoreViewerRenderer(canvas) {
       mode: null,
       laneCount: null,
       noteWidth: null,
+      scratchWidth: null,
       separatorWidth: null,
       width: 0,
       layout: null,
@@ -282,6 +286,7 @@ export function createScoreViewerRenderer(canvas) {
       laneLayoutCache.mode === mode
       && laneLayoutCache.laneCount === laneCount
       && laneLayoutCache.noteWidth === currentRendererConfig.noteWidth
+      && laneLayoutCache.scratchWidth === currentRendererConfig.scratchWidth
       && laneLayoutCache.separatorWidth === currentRendererConfig.separatorWidth
       && laneLayoutCache.width === width
       && laneLayoutCache.layout
@@ -293,6 +298,7 @@ export function createScoreViewerRenderer(canvas) {
       mode,
       laneCount,
       noteWidth: currentRendererConfig.noteWidth,
+      scratchWidth: currentRendererConfig.scratchWidth,
       separatorWidth: currentRendererConfig.separatorWidth,
       width,
       layout,
@@ -305,7 +311,7 @@ export function estimateViewerWidth(mode, laneCount, rendererConfig = undefined)
   return withRendererConfig(rendererConfig, () => {
     const layout = getModeLayout(mode, laneCount);
     const gutterWidth = layout.splitAfter === null ? 0 : getDpGutterWidth();
-    const contentWidth = getDisplayLaneAreaWidth(layout.display.length) + gutterWidth;
+    const contentWidth = getDisplayLaneAreaWidth(layout.display) + gutterWidth;
     return Math.ceil(contentWidth + JUDGE_LINE_SIDE_OVERHANG * 2);
   });
 }
@@ -323,6 +329,7 @@ function withRendererConfig(rendererConfig, callback) {
 export function normalizeRendererConfig(rendererConfig = {}) {
   return {
     noteWidth: normalizeRendererDimension(rendererConfig?.noteWidth, NOTE_WIDTH),
+    scratchWidth: normalizeRendererDimension(rendererConfig?.scratchWidth, SCRATCH_WIDTH),
     noteHeight: normalizeRendererDimension(rendererConfig?.noteHeight, NOTE_HEAD_HEIGHT),
     barLineHeight: normalizeRendererDimension(rendererConfig?.barLineHeight, BAR_LINE_HEIGHT),
     markerHeight: normalizeRendererDimension(rendererConfig?.markerHeight, TEMPO_MARKER_HEIGHT),
@@ -334,6 +341,7 @@ export function areRendererConfigsEqual(left, right) {
   const normalizedLeft = normalizeRendererConfig(left);
   const normalizedRight = normalizeRendererConfig(right);
   return normalizedLeft.noteWidth === normalizedRight.noteWidth
+    && normalizedLeft.scratchWidth === normalizedRight.scratchWidth
     && normalizedLeft.noteHeight === normalizedRight.noteHeight
     && normalizedLeft.barLineHeight === normalizedRight.barLineHeight
     && normalizedLeft.markerHeight === normalizedRight.markerHeight
@@ -349,6 +357,10 @@ function normalizeRendererDimension(value, defaultValue) {
 
 function getNoteWidth() {
   return currentRendererConfig.noteWidth;
+}
+
+function getScratchWidth() {
+  return currentRendererConfig.scratchWidth;
 }
 
 function getSeparatorWidth() {
@@ -367,16 +379,23 @@ function getTempoMarkerHeight() {
   return currentRendererConfig.markerHeight;
 }
 
-function getLaneSlotWidth() {
-  return getNoteWidth() + getSeparatorWidth();
+function getLaneNoteWidth(isScratch = false) {
+  return isScratch ? getScratchWidth() : getNoteWidth();
+}
+
+function getLaneSlotWidth(isScratch = false) {
+  return getLaneNoteWidth(isScratch) + getSeparatorWidth();
 }
 
 function getDisplaySeparatorCount(displayLaneCount) {
   return displayLaneCount > 0 ? displayLaneCount + 1 : 0;
 }
 
-function getDisplayLaneAreaWidth(displayLaneCount) {
-  return getNoteWidth() * displayLaneCount + getSeparatorWidth() * getDisplaySeparatorCount(displayLaneCount);
+function getDisplayLaneAreaWidth(displaySlots) {
+  return displaySlots.reduce(
+    (totalWidth, slot) => totalWidth + getLaneSlotWidth(Boolean(slot?.isScratch)),
+    getSeparatorWidth(),
+  );
 }
 
 function getDpGutterWidth() {
@@ -1493,9 +1512,8 @@ function createEmptyRenderResult() {
 
 function createLaneLayout(mode, laneCount, viewportWidth) {
   const layout = getModeLayout(mode, laneCount);
-  const slotWidth = getLaneSlotWidth();
   const gutterWidth = layout.splitAfter === null ? 0 : getDpGutterWidth();
-  const contentWidth = getDisplayLaneAreaWidth(layout.display.length) + gutterWidth;
+  const contentWidth = getDisplayLaneAreaWidth(layout.display) + gutterWidth;
   const startX = Math.max(VIEWER_LANE_SIDE_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
   const lanes = new Array(Math.max(1, laneCount));
   let gutterRect = null;
@@ -1511,6 +1529,7 @@ function createLaneLayout(mode, laneCount, viewportWidth) {
     }
 
     const slot = layout.display[slotIndex];
+    const slotWidth = getLaneSlotWidth(slot.isScratch);
     lanes[slot.actualLane] = {
       lane: slot.actualLane,
       x: cursorX,
@@ -1529,47 +1548,57 @@ function createLaneLayout(mode, laneCount, viewportWidth) {
 function getModeLayout(mode, laneCount) {
   switch (mode) {
     case "5k":
-      return createDisplayLayout([0, 1, 2, 3, 4, 5], null, (slotIndex) => getBeatNoteColor(`g${slotIndex}`));
+      return createDisplayLayout([0, 1, 2, 3, 4, 5], null, (slotIndex) => getBeatNoteColor(`g${slotIndex}`), (slotIndex) => `g${slotIndex}`);
     case "7k":
-      return createDisplayLayout([0, 1, 2, 3, 4, 5, 6, 7], null, (slotIndex) => getBeatNoteColor(String(slotIndex)));
+      return createDisplayLayout([0, 1, 2, 3, 4, 5, 6, 7], null, (slotIndex) => getBeatNoteColor(String(slotIndex)), (slotIndex) => String(slotIndex));
     case "10k":
       return createDisplayLayout(
         [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 6],
         6,
         (slotIndex) => getBeatNoteColor(`g${slotIndex}`),
+        (slotIndex) => `g${slotIndex}`,
       );
     case "14k":
       return createDisplayLayout(
         [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 8],
         8,
         (slotIndex) => getBeatNoteColor(String(slotIndex)),
+        (slotIndex) => String(slotIndex),
       );
     case "popn-5k":
-      return createDisplayLayout([0, 1, 2, 3, 4], null, (slotIndex) => getPopnNoteColor(slotIndex));
+      return createDisplayLayout([0, 1, 2, 3, 4], null, (slotIndex) => getPopnNoteColor(slotIndex), (slotIndex) => `p${slotIndex}`);
     case "popn-9k":
     case "9k":
       return createDisplayLayout(
         Array.from({ length: Math.max(1, laneCount) }, (_, index) => index),
         null,
         (slotIndex) => getPopnNoteColor(slotIndex),
+        (slotIndex) => `p${slotIndex}`,
       );
     default:
       return createDisplayLayout(
         Array.from({ length: Math.max(1, laneCount) }, (_, index) => index),
         null,
         () => "#bebebe",
+        (_slotIndex, actualLane) => String(actualLane),
       );
   }
 }
 
-function createDisplayLayout(displayOrder, splitAfter, getColor) {
+function createDisplayLayout(displayOrder, splitAfter, getColor, getLaneKey = (_slotIndex, actualLane) => String(actualLane)) {
   return {
     splitAfter,
     display: displayOrder.map((actualLane, slotIndex) => ({
       actualLane,
+      laneKey: getLaneKey(slotIndex, actualLane),
+      isScratch: isScratchLaneKey(getLaneKey(slotIndex, actualLane)),
       note: getColor(slotIndex),
     })),
   };
+}
+
+function isScratchLaneKey(laneKey) {
+  return laneKey === "0" || laneKey === "15" || laneKey === "g0" || laneKey === "g11";
 }
 
 function getBeatNoteColor(key) {

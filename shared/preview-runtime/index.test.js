@@ -22,6 +22,7 @@ import {
   GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY,
   GRAPH_INTERACTION_MODE_STORAGE_KEY,
   VIEWER_NOTE_WIDTH_STORAGE_KEY,
+  VIEWER_SCRATCH_WIDTH_STORAGE_KEY,
   VIEWER_NOTE_HEIGHT_STORAGE_KEY,
   VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY,
   VIEWER_MARKER_HEIGHT_STORAGE_KEY,
@@ -130,12 +131,14 @@ test("graph interaction mode defaults to hover and restores valid persisted valu
 
 test("renderer config defaults and restores valid persisted values", () => {
   assert.equal(VIEWER_NOTE_WIDTH_STORAGE_KEY, "bms-info-extender.viewer.noteWidth");
+  assert.equal(VIEWER_SCRATCH_WIDTH_STORAGE_KEY, "bms-info-extender.viewer.scratchWidth");
   assert.equal(VIEWER_NOTE_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.noteHeight");
   assert.equal(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.barLineHeight");
   assert.equal(VIEWER_MARKER_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.markerHeight");
   assert.equal(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY, "bms-info-extender.viewer.separatorWidth");
   assert.deepEqual(getInitialRendererConfig(), {
     noteWidth: 15,
+    scratchWidth: 30,
     noteHeight: 4,
     barLineHeight: 1,
     markerHeight: 1,
@@ -143,12 +146,14 @@ test("renderer config defaults and restores valid persisted values", () => {
   });
   assert.deepEqual(getInitialRendererConfig({
     getPersistedViewerNoteWidth: () => 20,
+    getPersistedViewerScratchWidth: () => 36,
     getPersistedViewerNoteHeight: () => 6,
     getPersistedViewerBarLineHeight: () => 3,
     getPersistedViewerMarkerHeight: () => 2,
     getPersistedViewerSeparatorWidth: () => 4,
   }), {
     noteWidth: 20,
+    scratchWidth: 36,
     noteHeight: 6,
     barLineHeight: 3,
     markerHeight: 2,
@@ -176,6 +181,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameHsFixMode(), "main");
   assert.equal(preferences.getPersistedGraphInteractionMode(), "hover");
   assert.equal(preferences.getPersistedViewerNoteWidth(), 15);
+  assert.equal(preferences.getPersistedViewerScratchWidth(), 30);
   assert.equal(preferences.getPersistedViewerNoteHeight(), 4);
   assert.equal(preferences.getPersistedViewerBarLineHeight(), 1);
   assert.equal(preferences.getPersistedViewerMarkerHeight(), 1);
@@ -194,6 +200,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   preferences.setPersistedGameHsFixMode("max");
   preferences.setPersistedGraphInteractionMode("drag");
   preferences.setPersistedViewerNoteWidth(20);
+  preferences.setPersistedViewerScratchWidth(36);
   preferences.setPersistedViewerNoteHeight(6);
   preferences.setPersistedViewerBarLineHeight(3);
   preferences.setPersistedViewerMarkerHeight(2);
@@ -212,6 +219,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(store.get(GAME_HS_FIX_MODE_STORAGE_KEY), "max");
   assert.equal(store.get(GRAPH_INTERACTION_MODE_STORAGE_KEY), "drag");
   assert.equal(store.get(VIEWER_NOTE_WIDTH_STORAGE_KEY), 20);
+  assert.equal(store.get(VIEWER_SCRATCH_WIDTH_STORAGE_KEY), 36);
   assert.equal(store.get(VIEWER_NOTE_HEIGHT_STORAGE_KEY), 6);
   assert.equal(store.get(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY), 3);
   assert.equal(store.get(VIEWER_MARKER_HEIGHT_STORAGE_KEY), 2);
@@ -229,6 +237,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameHsFixMode(), "max");
   assert.equal(preferences.getPersistedGraphInteractionMode(), "drag");
   assert.equal(preferences.getPersistedViewerNoteWidth(), 20);
+  assert.equal(preferences.getPersistedViewerScratchWidth(), 36);
   assert.equal(preferences.getPersistedViewerNoteHeight(), 6);
   assert.equal(preferences.getPersistedViewerBarLineHeight(), 3);
   assert.equal(preferences.getPersistedViewerMarkerHeight(), 2);
@@ -243,6 +252,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   store.set(GAME_HS_FIX_MODE_STORAGE_KEY, "invalid");
   store.set(GRAPH_INTERACTION_MODE_STORAGE_KEY, "invalid");
   store.set(VIEWER_NOTE_WIDTH_STORAGE_KEY, "invalid");
+  store.set(VIEWER_SCRATCH_WIDTH_STORAGE_KEY, "invalid");
   store.set(VIEWER_NOTE_HEIGHT_STORAGE_KEY, "invalid");
   store.set(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY, "invalid");
   store.set(VIEWER_MARKER_HEIGHT_STORAGE_KEY, "invalid");
@@ -256,6 +266,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameHsFixMode(), "main");
   assert.equal(preferences.getPersistedGraphInteractionMode(), "hover");
   assert.equal(preferences.getPersistedViewerNoteWidth(), 15);
+  assert.equal(preferences.getPersistedViewerScratchWidth(), 30);
   assert.equal(preferences.getPersistedViewerNoteHeight(), 4);
   assert.equal(preferences.getPersistedViewerBarLineHeight(), 1);
   assert.equal(preferences.getPersistedViewerMarkerHeight(), 1);
@@ -471,12 +482,14 @@ test("viewer detail settings popup opens beside the status panel, reflects defau
     assert.equal(detailSettingsPopup.parentNode, environment.document.body);
 
     const noteWidthInput = findElementById(environment.document.body, "bd-viewer-note-width-input");
+    const scratchWidthInput = findElementById(environment.document.body, "bd-viewer-scratch-width-input");
     const noteHeightInput = findElementById(environment.document.body, "bd-viewer-note-height-input");
     const barLineHeightInput = findElementById(environment.document.body, "bd-viewer-bar-line-height-input");
     const markerHeightInput = findElementById(environment.document.body, "bd-viewer-marker-height-input");
     const separatorWidthInput = findElementById(environment.document.body, "bd-viewer-separator-width-input");
 
     assert.equal(noteWidthInput?.value, "15");
+    assert.equal(scratchWidthInput?.value, "30");
     assert.equal(noteHeightInput?.value, "4");
     assert.equal(barLineHeightInput?.value, "1");
     assert.equal(markerHeightInput?.value, "1");
@@ -489,6 +502,10 @@ test("viewer detail settings popup opens beside the status panel, reflects defau
     await environment.settle();
 
     assert.equal(detailSettingsPopup.hidden, false);
+    assert.equal(
+      detailSettingsPopup.children[1]?.children[0]?.className,
+      "score-viewer-detail-settings-pair-row",
+    );
     assert.equal(detailSettingsPopup.style.left, "12px");
     assert.equal(detailSettingsPopup.style.top, "12px");
     assert.equal(detailSettingsPopup.style.right, "auto");
@@ -519,6 +536,79 @@ test("viewer detail settings popup opens beside the status panel, reflects defau
     preview.destroy();
     await environment.settle();
     assert.equal(findElementById(environment.document.body, "bd-viewer-detail-settings-popup"), null);
+  } finally {
+    environment.restore();
+  }
+});
+
+test("viewer detail settings popup adjusts renderer config by wheel with clamp and persistence", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const store = new Map();
+    const { preview } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createParsedScore(),
+      preferences: createPreviewPreferenceStorage({
+        read: (key, fallbackValue) => store.has(key) ? store.get(key) : fallbackValue,
+        write: (key, value) => store.set(key, value),
+      }),
+    });
+    await environment.settle();
+
+    const detailSettingsToggle = findElementByClass(environment.document.body, "score-viewer-detail-settings-toggle");
+    const noteWidthInput = findElementById(environment.document.body, "bd-viewer-note-width-input");
+    const scratchWidthInput = findElementById(environment.document.body, "bd-viewer-scratch-width-input");
+    const separatorWidthInput = findElementById(environment.document.body, "bd-viewer-separator-width-input");
+
+    assert.ok(detailSettingsToggle);
+    assert.ok(noteWidthInput);
+    assert.ok(scratchWidthInput);
+    assert.ok(separatorWidthInput);
+
+    detailSettingsToggle.dispatchEvent({ type: "click" });
+    await environment.settle();
+
+    noteWidthInput.dispatchEvent({ type: "wheel", deltaY: -1 });
+    await environment.settle();
+    assert.equal(noteWidthInput.value, "16");
+    assert.equal(preview.getState().rendererConfig.noteWidth, 16);
+    assert.equal(store.get(VIEWER_NOTE_WIDTH_STORAGE_KEY), 16);
+
+    noteWidthInput.dispatchEvent({ type: "wheel", deltaY: 1 });
+    await environment.settle();
+    assert.equal(noteWidthInput.value, "15");
+    assert.equal(preview.getState().rendererConfig.noteWidth, 15);
+    assert.equal(store.get(VIEWER_NOTE_WIDTH_STORAGE_KEY), 15);
+
+    scratchWidthInput.dispatchEvent({ type: "wheel", deltaY: -1 });
+    await environment.settle();
+    assert.equal(scratchWidthInput.value, "31");
+    assert.equal(preview.getState().rendererConfig.scratchWidth, 31);
+    assert.equal(store.get(VIEWER_SCRATCH_WIDTH_STORAGE_KEY), 31);
+
+    scratchWidthInput.value = "64";
+    scratchWidthInput.dispatchEvent({ type: "wheel", deltaY: -1 });
+    await environment.settle();
+    assert.equal(scratchWidthInput.value, "64");
+    assert.equal(preview.getState().rendererConfig.scratchWidth, 64);
+    assert.equal(store.get(VIEWER_SCRATCH_WIDTH_STORAGE_KEY), 64);
+
+    separatorWidthInput.value = "0";
+    separatorWidthInput.dispatchEvent({ type: "wheel", deltaY: 1 });
+    await environment.settle();
+    assert.equal(separatorWidthInput.value, "0");
+    assert.equal(preview.getState().rendererConfig.separatorWidth, 0);
+    assert.equal(store.get(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY), 0);
+
+    separatorWidthInput.value = "16";
+    separatorWidthInput.dispatchEvent({ type: "wheel", deltaY: -1 });
+    await environment.settle();
+    assert.equal(separatorWidthInput.value, "16");
+    assert.equal(preview.getState().rendererConfig.separatorWidth, 16);
+    assert.equal(store.get(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY), 16);
+
+    preview.destroy();
+    await environment.settle();
   } finally {
     environment.restore();
   }

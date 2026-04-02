@@ -1460,6 +1460,7 @@ function clamp(value, minValue, maxValue) {
 var VIEWER_LANE_SIDE_PADDING = 6;
 var DP_GUTTER_UNITS = 1.2;
 var NOTE_WIDTH = 15;
+var SCRATCH_WIDTH = 30;
 var SEPARATOR_WIDTH = 1;
 var BAR_LINE_HEIGHT = 1;
 var BACKGROUND_FILL = "#000000";
@@ -1524,6 +1525,7 @@ var POPN_LANE_COLORS = /* @__PURE__ */ new Map([
 ]);
 var DEFAULT_RENDERER_CONFIG = Object.freeze({
   noteWidth: NOTE_WIDTH,
+  scratchWidth: SCRATCH_WIDTH,
   noteHeight: NOTE_HEAD_HEIGHT,
   barLineHeight: BAR_LINE_HEIGHT,
   markerHeight: TEMPO_MARKER_HEIGHT,
@@ -1539,6 +1541,7 @@ function createScoreViewerRenderer(canvas) {
     mode: null,
     laneCount: null,
     noteWidth: null,
+    scratchWidth: null,
     separatorWidth: null,
     width: 0,
     layout: null
@@ -1556,6 +1559,7 @@ function createScoreViewerRenderer(canvas) {
       mode: null,
       laneCount: null,
       noteWidth: null,
+      scratchWidth: null,
       separatorWidth: null,
       width: 0,
       layout: null
@@ -1690,7 +1694,7 @@ function createScoreViewerRenderer(canvas) {
     };
   }
   function getCachedLaneLayout(mode, laneCount) {
-    if (laneLayoutCache.mode === mode && laneLayoutCache.laneCount === laneCount && laneLayoutCache.noteWidth === currentRendererConfig.noteWidth && laneLayoutCache.separatorWidth === currentRendererConfig.separatorWidth && laneLayoutCache.width === width && laneLayoutCache.layout) {
+    if (laneLayoutCache.mode === mode && laneLayoutCache.laneCount === laneCount && laneLayoutCache.noteWidth === currentRendererConfig.noteWidth && laneLayoutCache.scratchWidth === currentRendererConfig.scratchWidth && laneLayoutCache.separatorWidth === currentRendererConfig.separatorWidth && laneLayoutCache.width === width && laneLayoutCache.layout) {
       return laneLayoutCache.layout;
     }
     const layout = createLaneLayout(mode, laneCount, width);
@@ -1698,6 +1702,7 @@ function createScoreViewerRenderer(canvas) {
       mode,
       laneCount,
       noteWidth: currentRendererConfig.noteWidth,
+      scratchWidth: currentRendererConfig.scratchWidth,
       separatorWidth: currentRendererConfig.separatorWidth,
       width,
       layout
@@ -1709,7 +1714,7 @@ function estimateViewerWidth(mode, laneCount, rendererConfig = void 0) {
   return withRendererConfig(rendererConfig, () => {
     const layout = getModeLayout(mode, laneCount);
     const gutterWidth = layout.splitAfter === null ? 0 : getDpGutterWidth();
-    const contentWidth = getDisplayLaneAreaWidth(layout.display.length) + gutterWidth;
+    const contentWidth = getDisplayLaneAreaWidth(layout.display) + gutterWidth;
     return Math.ceil(contentWidth + JUDGE_LINE_SIDE_OVERHANG * 2);
   });
 }
@@ -1725,6 +1730,7 @@ function withRendererConfig(rendererConfig, callback) {
 function normalizeRendererConfig(rendererConfig = {}) {
   return {
     noteWidth: normalizeRendererDimension(rendererConfig?.noteWidth, NOTE_WIDTH),
+    scratchWidth: normalizeRendererDimension(rendererConfig?.scratchWidth, SCRATCH_WIDTH),
     noteHeight: normalizeRendererDimension(rendererConfig?.noteHeight, NOTE_HEAD_HEIGHT),
     barLineHeight: normalizeRendererDimension(rendererConfig?.barLineHeight, BAR_LINE_HEIGHT),
     markerHeight: normalizeRendererDimension(rendererConfig?.markerHeight, TEMPO_MARKER_HEIGHT),
@@ -1734,7 +1740,7 @@ function normalizeRendererConfig(rendererConfig = {}) {
 function areRendererConfigsEqual(left, right) {
   const normalizedLeft = normalizeRendererConfig(left);
   const normalizedRight = normalizeRendererConfig(right);
-  return normalizedLeft.noteWidth === normalizedRight.noteWidth && normalizedLeft.noteHeight === normalizedRight.noteHeight && normalizedLeft.barLineHeight === normalizedRight.barLineHeight && normalizedLeft.markerHeight === normalizedRight.markerHeight && normalizedLeft.separatorWidth === normalizedRight.separatorWidth;
+  return normalizedLeft.noteWidth === normalizedRight.noteWidth && normalizedLeft.scratchWidth === normalizedRight.scratchWidth && normalizedLeft.noteHeight === normalizedRight.noteHeight && normalizedLeft.barLineHeight === normalizedRight.barLineHeight && normalizedLeft.markerHeight === normalizedRight.markerHeight && normalizedLeft.separatorWidth === normalizedRight.separatorWidth;
 }
 function normalizeRendererDimension(value, defaultValue) {
   if (!Number.isFinite(value)) {
@@ -1744,6 +1750,9 @@ function normalizeRendererDimension(value, defaultValue) {
 }
 function getNoteWidth() {
   return currentRendererConfig.noteWidth;
+}
+function getScratchWidth() {
+  return currentRendererConfig.scratchWidth;
 }
 function getSeparatorWidth() {
   return currentRendererConfig.separatorWidth;
@@ -1757,14 +1766,17 @@ function getBarLineHeight() {
 function getTempoMarkerHeight() {
   return currentRendererConfig.markerHeight;
 }
-function getLaneSlotWidth() {
-  return getNoteWidth() + getSeparatorWidth();
+function getLaneNoteWidth(isScratch = false) {
+  return isScratch ? getScratchWidth() : getNoteWidth();
 }
-function getDisplaySeparatorCount(displayLaneCount) {
-  return displayLaneCount > 0 ? displayLaneCount + 1 : 0;
+function getLaneSlotWidth(isScratch = false) {
+  return getLaneNoteWidth(isScratch) + getSeparatorWidth();
 }
-function getDisplayLaneAreaWidth(displayLaneCount) {
-  return getNoteWidth() * displayLaneCount + getSeparatorWidth() * getDisplaySeparatorCount(displayLaneCount);
+function getDisplayLaneAreaWidth(displaySlots) {
+  return displaySlots.reduce(
+    (totalWidth, slot) => totalWidth + getLaneSlotWidth(Boolean(slot?.isScratch)),
+    getSeparatorWidth()
+  );
 }
 function getDpGutterWidth() {
   return getNoteWidth() * DP_GUTTER_UNITS;
@@ -2778,9 +2790,8 @@ function createEmptyRenderResult() {
 }
 function createLaneLayout(mode, laneCount, viewportWidth) {
   const layout = getModeLayout(mode, laneCount);
-  const slotWidth = getLaneSlotWidth();
   const gutterWidth = layout.splitAfter === null ? 0 : getDpGutterWidth();
-  const contentWidth = getDisplayLaneAreaWidth(layout.display.length) + gutterWidth;
+  const contentWidth = getDisplayLaneAreaWidth(layout.display) + gutterWidth;
   const startX = Math.max(VIEWER_LANE_SIDE_PADDING, Math.floor((viewportWidth - contentWidth) / 2));
   const lanes = new Array(Math.max(1, laneCount));
   let gutterRect = null;
@@ -2794,6 +2805,7 @@ function createLaneLayout(mode, laneCount, viewportWidth) {
       cursorX += gutterWidth;
     }
     const slot = layout.display[slotIndex];
+    const slotWidth = getLaneSlotWidth(slot.isScratch);
     lanes[slot.actualLane] = {
       lane: slot.actualLane,
       x: cursorX,
@@ -2810,46 +2822,55 @@ function createLaneLayout(mode, laneCount, viewportWidth) {
 function getModeLayout(mode, laneCount) {
   switch (mode) {
     case "5k":
-      return createDisplayLayout([0, 1, 2, 3, 4, 5], null, (slotIndex) => getBeatNoteColor(`g${slotIndex}`));
+      return createDisplayLayout([0, 1, 2, 3, 4, 5], null, (slotIndex) => getBeatNoteColor(`g${slotIndex}`), (slotIndex) => `g${slotIndex}`);
     case "7k":
-      return createDisplayLayout([0, 1, 2, 3, 4, 5, 6, 7], null, (slotIndex) => getBeatNoteColor(String(slotIndex)));
+      return createDisplayLayout([0, 1, 2, 3, 4, 5, 6, 7], null, (slotIndex) => getBeatNoteColor(String(slotIndex)), (slotIndex) => String(slotIndex));
     case "10k":
       return createDisplayLayout(
         [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 6],
         6,
-        (slotIndex) => getBeatNoteColor(`g${slotIndex}`)
+        (slotIndex) => getBeatNoteColor(`g${slotIndex}`),
+        (slotIndex) => `g${slotIndex}`
       );
     case "14k":
       return createDisplayLayout(
         [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 8],
         8,
-        (slotIndex) => getBeatNoteColor(String(slotIndex))
+        (slotIndex) => getBeatNoteColor(String(slotIndex)),
+        (slotIndex) => String(slotIndex)
       );
     case "popn-5k":
-      return createDisplayLayout([0, 1, 2, 3, 4], null, (slotIndex) => getPopnNoteColor(slotIndex));
+      return createDisplayLayout([0, 1, 2, 3, 4], null, (slotIndex) => getPopnNoteColor(slotIndex), (slotIndex) => `p${slotIndex}`);
     case "popn-9k":
     case "9k":
       return createDisplayLayout(
         Array.from({ length: Math.max(1, laneCount) }, (_, index) => index),
         null,
-        (slotIndex) => getPopnNoteColor(slotIndex)
+        (slotIndex) => getPopnNoteColor(slotIndex),
+        (slotIndex) => `p${slotIndex}`
       );
     default:
       return createDisplayLayout(
         Array.from({ length: Math.max(1, laneCount) }, (_, index) => index),
         null,
-        () => "#bebebe"
+        () => "#bebebe",
+        (_slotIndex, actualLane) => String(actualLane)
       );
   }
 }
-function createDisplayLayout(displayOrder, splitAfter, getColor) {
+function createDisplayLayout(displayOrder, splitAfter, getColor, getLaneKey = (_slotIndex, actualLane) => String(actualLane)) {
   return {
     splitAfter,
     display: displayOrder.map((actualLane, slotIndex) => ({
       actualLane,
+      laneKey: getLaneKey(slotIndex, actualLane),
+      isScratch: isScratchLaneKey(getLaneKey(slotIndex, actualLane)),
       note: getColor(slotIndex)
     }))
   };
+}
+function isScratchLaneKey(laneKey) {
+  return laneKey === "0" || laneKey === "15" || laneKey === "g0" || laneKey === "g11";
 }
 function getBeatNoteColor(key) {
   return BEAT_LANE_COLORS.get(key) ?? "#bebebe";
@@ -5306,6 +5327,7 @@ var GAME_LANE_COVER_VISIBLE_STORAGE_KEY = "bms-info-extender.game.laneCoverVisib
 var GAME_HS_FIX_MODE_STORAGE_KEY = "bms-info-extender.game.hsFixMode";
 var GRAPH_INTERACTION_MODE_STORAGE_KEY = "bms-info-extender.graphInteractionMode";
 var VIEWER_NOTE_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.noteWidth";
+var VIEWER_SCRATCH_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.scratchWidth";
 var VIEWER_NOTE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.noteHeight";
 var VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.barLineHeight";
 var VIEWER_MARKER_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.markerHeight";
@@ -5499,6 +5521,21 @@ function createPreviewPreferenceStorage({ read = () => null, write = () => {
       } catch (_error) {
       }
     },
+    getPersistedViewerScratchWidth() {
+      try {
+        return normalizeRendererConfig({
+          scratchWidth: read(VIEWER_SCRATCH_WIDTH_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.scratchWidth)
+        }).scratchWidth;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.scratchWidth;
+      }
+    },
+    setPersistedViewerScratchWidth(value) {
+      try {
+        write(VIEWER_SCRATCH_WIDTH_STORAGE_KEY, normalizeRendererConfig({ scratchWidth: value }).scratchWidth);
+      } catch (_error) {
+      }
+    },
     getPersistedViewerNoteHeight() {
       try {
         return normalizeRendererConfig({
@@ -5606,19 +5643,23 @@ var BMSDATA_CSS = `
   .bd-graph-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .bd-graph-settings-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .bd-graph-settings-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; }
-  .bd-graph-settings-group { display: grid; gap: 4px; }
+  .bd-graph-settings-group { display: grid; gap: 4px; min-width: 0; }
   .bd-graph-settings-label { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .bd-graph-settings-select { width: 100%; min-width: 0; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; box-sizing: border-box; }
   .score-viewer-detail-settings-toggle { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin-left: auto; padding: 0; border: unset; border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; box-shadow: none; }
   .score-viewer-detail-settings-toggle:hover { background: rgba(255, 255, 255, 0.24); }
   .score-viewer-detail-settings-toggle:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
-  .score-viewer-detail-settings-popup { position: fixed; z-index: 2147483001; display: grid; gap: 6px; min-width: 240px; max-width: min(320px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.88); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); box-sizing: border-box; pointer-events: auto; overflow: auto; contain: layout paint style; }
+  .score-viewer-detail-settings-popup { position: fixed; z-index: 2147483001; display: grid; gap: 6px; width: min(240px, calc(100vw - 24px)); min-width: 0; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.88); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); box-sizing: border-box; pointer-events: auto; overflow-x: hidden; overflow-y: auto; contain: layout paint style; }
   .score-viewer-detail-settings-popup[hidden] { display: none; }
+  .score-viewer-detail-settings-popup > * { min-width: 0; }
   .score-viewer-detail-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .score-viewer-detail-settings-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .score-viewer-detail-settings-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; }
   .score-viewer-detail-settings-close:hover { background: rgba(255, 255, 255, 0.24); }
   .score-viewer-detail-settings-close:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
+  .score-viewer-detail-settings-pair-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: start; }
+  .score-viewer-detail-settings-pair-cell { display: grid; gap: 4px; min-width: 0; }
+  .score-viewer-detail-settings-input { display: block; width: 100%; min-width: 0; max-width: 100%; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; margin: 0; box-sizing: border-box; flex: none; appearance: textfield; -webkit-appearance: textfield; font: inherit; }
   .score-viewer-settings-panel.is-popup { max-height: none; overflow: visible; opacity: 1; pointer-events: auto; transition: none; }
   .score-viewer-shell * { box-sizing: content-box; }
   .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; isolation: isolate; contain: layout paint style; }
@@ -5913,6 +5954,9 @@ function createBmsInfoPreview({
   getPersistedViewerNoteWidth = () => DEFAULT_RENDERER_CONFIG.noteWidth,
   setPersistedViewerNoteWidth = () => {
   },
+  getPersistedViewerScratchWidth = () => DEFAULT_RENDERER_CONFIG.scratchWidth,
+  setPersistedViewerScratchWidth = () => {
+  },
   getPersistedViewerNoteHeight = () => DEFAULT_RENDERER_CONFIG.noteHeight,
   setPersistedViewerNoteHeight = () => {
   },
@@ -6002,6 +6046,7 @@ function createBmsInfoPreview({
     }),
     rendererConfig: getInitialRendererConfig({
       getPersistedViewerNoteWidth,
+      getPersistedViewerScratchWidth,
       getPersistedViewerNoteHeight,
       getPersistedViewerBarLineHeight,
       getPersistedViewerMarkerHeight,
@@ -6080,16 +6125,28 @@ function createBmsInfoPreview({
   viewerDetailSettingsHeader.append(viewerDetailSettingsTitle, viewerDetailSettingsClose);
   const viewerDetailSettingsGroup = documentRef.createElement("div");
   viewerDetailSettingsGroup.className = "bd-graph-settings-group";
+  const noteWidthControl = createViewerDetailNumberField(documentRef, {
+    id: "bd-viewer-note-width-input",
+    key: "noteWidth",
+    label: "Note Width",
+    min: 0,
+    max: 64,
+    value: state2.rendererConfig.noteWidth
+  });
+  const scratchWidthControl = createViewerDetailNumberField(documentRef, {
+    id: "bd-viewer-scratch-width-input",
+    key: "scratchWidth",
+    label: "Scratch Width",
+    min: 0,
+    max: 64,
+    value: state2.rendererConfig.scratchWidth
+  });
   const viewerDetailSettingsControls = [
-    createViewerDetailNumberField(documentRef, {
-      id: "bd-viewer-note-width-input",
-      label: "Note Width",
-      min: 0,
-      max: 64,
-      value: state2.rendererConfig.noteWidth
-    }),
+    noteWidthControl,
+    scratchWidthControl,
     createViewerDetailNumberField(documentRef, {
       id: "bd-viewer-note-height-input",
+      key: "noteHeight",
       label: "Note Height",
       min: 0,
       max: 32,
@@ -6097,6 +6154,7 @@ function createBmsInfoPreview({
     }),
     createViewerDetailNumberField(documentRef, {
       id: "bd-viewer-bar-line-height-input",
+      key: "barLineHeight",
       label: "Bar Line Height",
       min: 0,
       max: 16,
@@ -6104,6 +6162,7 @@ function createBmsInfoPreview({
     }),
     createViewerDetailNumberField(documentRef, {
       id: "bd-viewer-marker-height-input",
+      key: "markerHeight",
       label: "Marker Height",
       min: 0,
       max: 16,
@@ -6111,13 +6170,21 @@ function createBmsInfoPreview({
     }),
     createViewerDetailNumberField(documentRef, {
       id: "bd-viewer-separator-width-input",
+      key: "separatorWidth",
       label: "Separator Width",
       min: 0,
       max: 16,
       value: state2.rendererConfig.separatorWidth
     })
   ];
-  for (const control of viewerDetailSettingsControls) {
+  const viewerDetailSettingsWidthRow = documentRef.createElement("div");
+  viewerDetailSettingsWidthRow.className = "score-viewer-detail-settings-pair-row";
+  viewerDetailSettingsWidthRow.append(
+    createViewerDetailSettingsPairCell(documentRef, noteWidthControl),
+    createViewerDetailSettingsPairCell(documentRef, scratchWidthControl)
+  );
+  viewerDetailSettingsGroup.append(viewerDetailSettingsWidthRow);
+  for (const control of viewerDetailSettingsControls.slice(2)) {
     viewerDetailSettingsGroup.append(control.label, control.input);
   }
   viewerDetailSettingsPopup.append(viewerDetailSettingsHeader, viewerDetailSettingsGroup);
@@ -6183,6 +6250,23 @@ function createBmsInfoPreview({
         [control.key]: normalizeViewerDetailInputValue(control.input.value, control.max, state2.rendererConfig[control.key])
       });
     });
+    control.input.addEventListener("wheel", (event) => {
+      const delta = event.deltaY < 0 ? 1 : event.deltaY > 0 ? -1 : 0;
+      if (delta === 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const normalizedValue = normalizeViewerDetailInputValue(
+        Number(control.input.value) + delta,
+        control.max,
+        state2.rendererConfig[control.key]
+      );
+      control.input.value = String(normalizedValue);
+      setRendererConfig({
+        [control.key]: normalizedValue
+      });
+    }, { passive: false });
     control.input.addEventListener("change", () => {
       const normalizedValue = normalizeViewerDetailInputValue(control.input.value, control.max, state2.rendererConfig[control.key]);
       control.input.value = String(normalizedValue);
@@ -6552,6 +6636,7 @@ function createBmsInfoPreview({
     state2.rendererConfig = normalizedRendererConfig;
     try {
       setPersistedViewerNoteWidth(normalizedRendererConfig.noteWidth);
+      setPersistedViewerScratchWidth(normalizedRendererConfig.scratchWidth);
       setPersistedViewerNoteHeight(normalizedRendererConfig.noteHeight);
       setPersistedViewerBarLineHeight(normalizedRendererConfig.barLineHeight);
       setPersistedViewerMarkerHeight(normalizedRendererConfig.markerHeight);
@@ -6987,6 +7072,7 @@ function getInitialGraphInteractionMode(getPersistedGraphInteractionMode) {
 }
 function getInitialRendererConfig({
   getPersistedViewerNoteWidth,
+  getPersistedViewerScratchWidth,
   getPersistedViewerNoteHeight,
   getPersistedViewerBarLineHeight,
   getPersistedViewerMarkerHeight,
@@ -6995,6 +7081,7 @@ function getInitialRendererConfig({
   try {
     return normalizeRendererConfig({
       noteWidth: getPersistedViewerNoteWidth?.(),
+      scratchWidth: getPersistedViewerScratchWidth?.(),
       noteHeight: getPersistedViewerNoteHeight?.(),
       barLineHeight: getPersistedViewerBarLineHeight?.(),
       markerHeight: getPersistedViewerMarkerHeight?.(),
@@ -7037,12 +7124,12 @@ function createPopupOption(documentRef, value, label) {
 }
 function createViewerDetailNumberField(documentRef, {
   id,
+  key,
   label,
   min,
   max,
   value
 }) {
-  const key = id === "bd-viewer-note-width-input" ? "noteWidth" : id === "bd-viewer-note-height-input" ? "noteHeight" : id === "bd-viewer-bar-line-height-input" ? "barLineHeight" : id === "bd-viewer-marker-height-input" ? "markerHeight" : "separatorWidth";
   const labelElement = documentRef.createElement("label");
   labelElement.className = "bd-graph-settings-label";
   labelElement.setAttribute("for", id);
@@ -7050,17 +7137,36 @@ function createViewerDetailNumberField(documentRef, {
   const inputElement = documentRef.createElement("input");
   inputElement.id = id;
   inputElement.className = "bd-graph-settings-select";
+  inputElement.classList.add("score-viewer-detail-settings-input");
   inputElement.type = "number";
   inputElement.min = String(min);
   inputElement.max = String(max);
   inputElement.step = "1";
   inputElement.value = String(value);
+  inputElement.style.display = "block";
+  inputElement.style.width = "100%";
+  inputElement.style.minWidth = "0";
+  inputElement.style.maxWidth = "100%";
+  inputElement.style.inlineSize = "100%";
+  inputElement.style.minInlineSize = "0";
+  inputElement.style.maxInlineSize = "100%";
+  inputElement.style.margin = "0";
+  inputElement.style.boxSizing = "border-box";
+  inputElement.style.flex = "none";
+  inputElement.style.appearance = "textfield";
+  inputElement.style.font = "inherit";
   return {
     key,
     max,
     label: labelElement,
     input: inputElement
   };
+}
+function createViewerDetailSettingsPairCell(documentRef, control) {
+  const cellElement = documentRef.createElement("div");
+  cellElement.className = "score-viewer-detail-settings-pair-cell";
+  cellElement.append(control.label, control.input);
+  return cellElement;
 }
 function normalizeViewerDetailInputValue(value, maxValue, fallbackValue) {
   if (value === "" || value === null || value === void 0) {

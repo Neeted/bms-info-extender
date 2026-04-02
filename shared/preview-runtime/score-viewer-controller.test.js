@@ -203,6 +203,11 @@ test("embedded CSS hides settings panel until hover or focus-within", () => {
   assert.match(BMSDATA_CSS, /\.score-viewer-status-panel:hover \.score-viewer-settings-panel, \.score-viewer-status-panel:focus-within \.score-viewer-settings-panel \{[^}]*max-height: 320px;[^}]*opacity: 1;[^}]*pointer-events: auto;/);
 });
 
+test("embedded CSS anchors the judge line by its bottom edge with a fixed thickness", () => {
+  assert.match(BMSDATA_CSS, /\.score-viewer-judge-line \{[^}]*top: var\(--score-viewer-judge-line-top, calc\(var\(--score-viewer-judge-line-ratio, 0\.5\) \* 100%\)\);[^}]*transform: translateY\(-100%\);/);
+  assert.match(BMSDATA_CSS, /\.score-viewer-judge-line::after \{[^}]*height: 2px;/);
+});
+
 test("controller blurs focused settings controls on status panel mouseleave", () => {
   const environment = installControllerTestEnvironment();
   try {

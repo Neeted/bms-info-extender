@@ -1493,6 +1493,7 @@
   var DP_GUTTER_FILL = "#808080";
   var SEPARATOR_COLOR = "#404040";
   var BAR_LINE = "#ffffff";
+  var BAR_LINE_HEIGHT = 1;
   var EDITOR_BEAT_GRID_LINE = "#808080";
   var EDITOR_SIXTEENTH_GRID_LINE = "#404040";
   var BPM_MARKER = "#00ff00";
@@ -1502,13 +1503,13 @@
   var INVISIBLE_NOTE_COLOR = "#FFFF00";
   var NOTE_HEAD_HEIGHT = 4;
   var TEMPO_MARKER_HEIGHT = 1;
-  var TEMPO_MARKER_WIDTH_RATIO = 0.5;
+  var TEMPO_MARKER_WIDTH = 8;
   var TEMPO_LABEL_GAP = 8;
   var TEMPO_LABEL_MIN_GAP = 12;
   var LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX = 1;
   var TEMPO_LABEL_FONT = '12px "Inconsolata", "Noto Sans JP"';
   var MEASURE_LABEL_COLOR = "#FFFFFF";
-  var JUDGE_LINE_SIDE_OVERHANG = FIXED_LANE_WIDTH * 3;
+  var JUDGE_LINE_SIDE_OVERHANG = 48;
   var BEAT_LANE_COLORS = /* @__PURE__ */ new Map([
     ["0", "#e04a4a"],
     ["1", "#bebebe"],
@@ -1731,15 +1732,15 @@
     const rightX = rightLane.x + rightLane.width + 1;
     context.save();
     context.strokeStyle = BAR_LINE;
-    context.lineWidth = 1;
+    context.lineWidth = BAR_LINE_HEIGHT;
     for (const barLine of barLines) {
       if (barLine.timeSec < startTimeSec || barLine.timeSec > endTimeSec) {
         continue;
       }
-      const y = timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
+      const y = Math.round(timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY)) - context.lineWidth / 2;
       context.beginPath();
-      context.moveTo(leftX, y + 0.5);
-      context.lineTo(rightX, y + 0.5);
+      context.moveTo(leftX, y);
+      context.lineTo(rightX, y);
       context.stroke();
     }
     context.restore();
@@ -1778,7 +1779,7 @@
       }
       const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       const markerRect = getTempoMarkerRect(rightLane, "right");
-      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
       if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
         drawTempoMarkerLabel(context, {
           type: "bpm",
@@ -1799,7 +1800,7 @@
       }
       const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       const markerRect = getTempoMarkerRect(leftLane, "left");
-      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
       if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
         drawTempoMarkerLabel(context, {
           type: "stop",
@@ -1819,7 +1820,7 @@
       }
       const y = timeToViewportY(warp.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       const markerRect = getTempoMarkerRect(leftLane, "left");
-      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
       if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
         drawTempoMarkerLabel(context, {
           type: "warp",
@@ -1840,7 +1841,7 @@
       }
       const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
       const markerRect = getTempoMarkerRect(leftLane, "left");
-      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
       if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
         drawTempoMarkerLabel(context, {
           type: "scroll",
@@ -2036,7 +2037,7 @@
     const rightX = rightLane.x + rightLane.width + 1;
     context.save();
     context.strokeStyle = BAR_LINE;
-    context.lineWidth = 1;
+    context.lineWidth = BAR_LINE_HEIGHT;
     for (const projectedPoint of projection.points) {
       if (!isGameProjectionYWithinRenderBounds(projectedPoint.y, projection)) {
         continue;
@@ -2046,8 +2047,8 @@
       }
       for (const _barLine of projectedPoint.point.barLines) {
         context.beginPath();
-        context.moveTo(leftX, projectedPoint.y + 0.5);
-        context.lineTo(rightX, projectedPoint.y + 0.5);
+        context.moveTo(leftX, Math.round(projectedPoint.y) - context.lineWidth / 2);
+        context.lineTo(rightX, Math.round(projectedPoint.y) - context.lineWidth / 2);
         context.stroke();
       }
     }
@@ -2166,7 +2167,7 @@
       context.fillStyle = BPM_MARKER;
       for (const bpmChange of projectedPoint.point.bpmChanges) {
         const markerRect = getTempoMarkerRect(rightLane, "right");
-        context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+        context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
         bpmCandidates.push({
           type: "bpm",
           timeSec: bpmChange.timeSec,
@@ -2180,7 +2181,7 @@
       context.fillStyle = STOP_MARKER;
       for (const stop of projectedPoint.point.stops) {
         const markerRect = getTempoMarkerRect(leftLane, "left");
-        context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+        context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
         stopCandidates.push({
           type: "stop",
           timeSec: stop.timeSec,
@@ -2193,7 +2194,7 @@
       }
       for (const warp of projectedPoint.point.warps) {
         const markerRect = getTempoMarkerRect(leftLane, "left");
-        context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+        context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
         stopCandidates.push({
           type: "warp",
           timeSec: warp.timeSec,
@@ -2207,7 +2208,7 @@
       context.fillStyle = SCROLL_MARKER;
       for (const scrollChange of projectedPoint.point.scrollChanges) {
         const markerRect = getTempoMarkerRect(leftLane, "left");
-        context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+        context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
         scrollCandidates.push({
           type: "scroll",
           timeSec: scrollChange.timeSec,
@@ -2313,21 +2314,21 @@
       return;
     }
     context.save();
-    context.lineWidth = 1;
+    context.lineWidth = BAR_LINE_HEIGHT;
     context.strokeStyle = EDITOR_SIXTEENTH_GRID_LINE;
     for (const beat of visibleGridLines.sixteenthBeats) {
-      const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
+      const y = Math.round(beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY)) - context.lineWidth / 2;
       context.beginPath();
-      context.moveTo(leftX, y + 0.5);
-      context.lineTo(rightX, y + 0.5);
+      context.moveTo(leftX, y);
+      context.lineTo(rightX, y);
       context.stroke();
     }
     context.strokeStyle = EDITOR_BEAT_GRID_LINE;
     for (const beat of visibleGridLines.beatBeats) {
-      const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
+      const y = Math.round(beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY)) - context.lineWidth / 2;
       context.beginPath();
-      context.moveTo(leftX, y + 0.5);
-      context.lineTo(rightX, y + 0.5);
+      context.moveTo(leftX, y);
+      context.lineTo(rightX, y);
       context.stroke();
     }
     context.restore();
@@ -2342,13 +2343,13 @@
     const visibleWindow = getBeatWindowIndices(barLines, editorFrameState.startBeat, editorFrameState.endBeat);
     context.save();
     context.strokeStyle = BAR_LINE;
-    context.lineWidth = 1;
+    context.lineWidth = BAR_LINE_HEIGHT;
     for (let index = visibleWindow.startIndex; index < visibleWindow.endIndex; index += 1) {
       const barLine = barLines[index];
-      const y = beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
+      const y = Math.round(beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY)) - context.lineWidth / 2;
       context.beginPath();
-      context.moveTo(leftX, y + 0.5);
-      context.lineTo(rightX, y + 0.5);
+      context.moveTo(leftX, y);
+      context.lineTo(rightX, y);
       context.stroke();
     }
     context.restore();
@@ -2390,7 +2391,7 @@
       const markerRect = getTempoMarkerRect(rightLane, "right");
       context.fillRect(
         markerRect.x,
-        Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+        Math.round(y - TEMPO_MARKER_HEIGHT),
         markerRect.width,
         TEMPO_MARKER_HEIGHT
       );
@@ -2414,7 +2415,7 @@
       const markerRect = getTempoMarkerRect(leftLane, "left");
       context.fillRect(
         markerRect.x,
-        Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+        Math.round(y - TEMPO_MARKER_HEIGHT),
         markerRect.width,
         TEMPO_MARKER_HEIGHT
       );
@@ -2437,7 +2438,7 @@
       const markerRect = getTempoMarkerRect(leftLane, "left");
       context.fillRect(
         markerRect.x,
-        Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+        Math.round(y - TEMPO_MARKER_HEIGHT),
         markerRect.width,
         TEMPO_MARKER_HEIGHT
       );
@@ -2461,7 +2462,7 @@
       const markerRect = getTempoMarkerRect(leftLane, "left");
       context.fillRect(
         markerRect.x,
-        Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+        Math.round(y - TEMPO_MARKER_HEIGHT),
         markerRect.width,
         TEMPO_MARKER_HEIGHT
       );
@@ -2484,7 +2485,7 @@
     return !Number.isFinite(lastAcceptedY) || Math.abs(nextY - lastAcceptedY) >= TEMPO_LABEL_MIN_GAP;
   }
   function getTempoMarkerRect(lane, side) {
-    const width = lane.width * TEMPO_MARKER_WIDTH_RATIO;
+    const width = TEMPO_MARKER_WIDTH;
     if (side === "left") {
       return {
         x: lane.x - width + LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX,
@@ -5200,6 +5201,7 @@
   var GAME_HS_FIX_MODE_STORAGE_KEY = "bms-info-extender.game.hsFixMode";
   var GRAPH_INTERACTION_MODE_STORAGE_KEY = "bms-info-extender.graphInteractionMode";
   var DEFAULT_SPACING_SCALE2 = 1;
+  var SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX = 2;
   var PREVIEW_RENDER_DIRTY = {
     record: 1 << 0,
     selection: 1 << 1,
@@ -5463,8 +5465,8 @@
   .score-viewer-drag-line.is-draggable::after, .score-viewer-drag-line.is-dragging::after { height: 2px; background: linear-gradient(90deg, rgba(145, 210, 255, 0.18) 0%, rgba(145, 210, 255, 0.95) 48%, rgba(145, 210, 255, 0.18) 100%); box-shadow: 0 0 22px rgba(145, 210, 255, 0.2); }
   .score-viewer-lane-height-handle::after { background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.3) 48%, rgba(255, 255, 255, 0.04) 100%); }
   .score-viewer-lane-cover-handle::after { background: linear-gradient(90deg, rgba(137, 255, 178, 0.06) 0%, rgba(137, 255, 178, 0.42) 48%, rgba(137, 255, 178, 0.06) 100%); }
-  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: var(--score-viewer-judge-line-top, calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%)); display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
-  .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
+  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: var(--score-viewer-judge-line-top, calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%)); display: flex; align-items: center; transform: translateY(-100%); pointer-events: none; }
+  .score-viewer-judge-line::after { content: ""; width: 100%; height: ${SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX}px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
   .score-viewer-judge-line.is-draggable::after, .score-viewer-judge-line.is-dragging::after { background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%); box-shadow: 0 0 28px rgba(255, 120, 88, 0.34); }
   .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
   .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }

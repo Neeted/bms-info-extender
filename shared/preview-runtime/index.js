@@ -56,6 +56,7 @@ export const GAME_LANE_COVER_VISIBLE_STORAGE_KEY = "bms-info-extender.game.laneC
 export const GAME_HS_FIX_MODE_STORAGE_KEY = "bms-info-extender.game.hsFixMode";
 export const GRAPH_INTERACTION_MODE_STORAGE_KEY = "bms-info-extender.graphInteractionMode";
 export const DEFAULT_SPACING_SCALE = 1.0;
+const SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX = 2;
 export { DEFAULT_VIEWER_MODE };
 export { DEFAULT_INVISIBLE_NOTE_VISIBILITY };
 export { DEFAULT_JUDGE_LINE_POSITION_RATIO };
@@ -348,8 +349,8 @@ export const BMSDATA_CSS = `
   .score-viewer-drag-line.is-draggable::after, .score-viewer-drag-line.is-dragging::after { height: 2px; background: linear-gradient(90deg, rgba(145, 210, 255, 0.18) 0%, rgba(145, 210, 255, 0.95) 48%, rgba(145, 210, 255, 0.18) 100%); box-shadow: 0 0 22px rgba(145, 210, 255, 0.2); }
   .score-viewer-lane-height-handle::after { background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.3) 48%, rgba(255, 255, 255, 0.04) 100%); }
   .score-viewer-lane-cover-handle::after { background: linear-gradient(90deg, rgba(137, 255, 178, 0.06) 0%, rgba(137, 255, 178, 0.42) 48%, rgba(137, 255, 178, 0.06) 100%); }
-  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: var(--score-viewer-judge-line-top, calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%)); display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; }
-  .score-viewer-judge-line::after { content: ""; width: 100%; height: 2px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
+  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: var(--score-viewer-judge-line-top, calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%)); display: flex; align-items: center; transform: translateY(-100%); pointer-events: none; }
+  .score-viewer-judge-line::after { content: ""; width: 100%; height: ${SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX}px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
   .score-viewer-judge-line.is-draggable::after, .score-viewer-judge-line.is-dragging::after { background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%); box-shadow: 0 0 28px rgba(255, 120, 88, 0.34); }
   .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
   .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }

@@ -119,7 +119,7 @@ test("renderer moves editor-mode note heads and bar lines with a custom judge li
     ],
   );
   assert.equal(
-    context.lineToCalls.some((call) => call.y === 224.5),
+    context.lineToCalls.some((call) => call.y === 223.5),
     true,
   );
 });

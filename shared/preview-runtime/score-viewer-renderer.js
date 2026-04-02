@@ -26,7 +26,9 @@ export const FIXED_LANE_WIDTH = 16;
 const BACKGROUND_FILL = "#000000";
 const DP_GUTTER_FILL = "#808080";
 const SEPARATOR_COLOR = "#404040";
+const SEPARATOR_WIDTH = 1;
 const BAR_LINE = "#ffffff";
+const BAR_LINE_HEIGHT = 1;
 const EDITOR_BEAT_GRID_LINE = "#808080";
 const EDITOR_SIXTEENTH_GRID_LINE = "#404040";
 const BPM_MARKER = "#00ff00";
@@ -36,13 +38,13 @@ const MINE_COLOR = "#880000";
 const INVISIBLE_NOTE_COLOR = "#FFFF00";
 const NOTE_HEAD_HEIGHT = 4;
 const TEMPO_MARKER_HEIGHT = 1;
-const TEMPO_MARKER_WIDTH_RATIO = 0.5;
+const TEMPO_MARKER_WIDTH = 8;
 const TEMPO_LABEL_GAP = 8;
 const TEMPO_LABEL_MIN_GAP = 12;
 const LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX = 1;
 const TEMPO_LABEL_FONT = '12px "Inconsolata", "Noto Sans JP"';
 const MEASURE_LABEL_COLOR = "#FFFFFF";
-const JUDGE_LINE_SIDE_OVERHANG = FIXED_LANE_WIDTH * 3;
+const JUDGE_LINE_SIDE_OVERHANG = 48;
 
 const BEAT_LANE_COLORS = new Map([
   ["0", "#e04a4a"],
@@ -295,15 +297,15 @@ function drawBarLinesTimeMode(context, barLines, lanes, selectedTimeSec, startTi
   const rightX = rightLane.x + rightLane.width + 1;
   context.save();
   context.strokeStyle = BAR_LINE;
-  context.lineWidth = 1;
+  context.lineWidth = BAR_LINE_HEIGHT;
   for (const barLine of barLines) {
     if (barLine.timeSec < startTimeSec || barLine.timeSec > endTimeSec) {
       continue;
     }
-    const y = timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
+    const y = Math.round(timeToViewportY(barLine.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY)) - context.lineWidth / 2;
     context.beginPath();
-    context.moveTo(leftX, y + 0.5);
-    context.lineTo(rightX, y + 0.5);
+    context.moveTo(leftX, y);
+    context.lineTo(rightX, y);
     context.stroke();
   }
   context.restore();
@@ -358,7 +360,7 @@ function drawTempoMarkersTimeMode(
     }
     const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
     const markerRect = getTempoMarkerRect(rightLane, "right");
-    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
       drawTempoMarkerLabel(context, {
         type: "bpm",
@@ -380,7 +382,7 @@ function drawTempoMarkersTimeMode(
     }
     const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
     const markerRect = getTempoMarkerRect(leftLane, "left");
-    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
       drawTempoMarkerLabel(context, {
         type: "stop",
@@ -401,7 +403,7 @@ function drawTempoMarkersTimeMode(
     }
     const y = timeToViewportY(warp.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
     const markerRect = getTempoMarkerRect(leftLane, "left");
-    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
       drawTempoMarkerLabel(context, {
         type: "warp",
@@ -423,7 +425,7 @@ function drawTempoMarkersTimeMode(
     }
     const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
     const markerRect = getTempoMarkerRect(leftLane, "left");
-    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
     if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
       drawTempoMarkerLabel(context, {
         type: "scroll",
@@ -648,7 +650,7 @@ function drawBarLinesGameMode(context, lanes, projection) {
   const rightX = rightLane.x + rightLane.width + 1;
   context.save();
   context.strokeStyle = BAR_LINE;
-  context.lineWidth = 1;
+  context.lineWidth = BAR_LINE_HEIGHT;
   for (const projectedPoint of projection.points) {
     if (!isGameProjectionYWithinRenderBounds(projectedPoint.y, projection)) {
       continue;
@@ -658,8 +660,8 @@ function drawBarLinesGameMode(context, lanes, projection) {
     }
     for (const _barLine of projectedPoint.point.barLines) {
       context.beginPath();
-      context.moveTo(leftX, projectedPoint.y + 0.5);
-      context.lineTo(rightX, projectedPoint.y + 0.5);
+      context.moveTo(leftX, Math.round(projectedPoint.y) - context.lineWidth / 2);
+      context.lineTo(rightX, Math.round(projectedPoint.y) - context.lineWidth / 2);
       context.stroke();
     }
   }
@@ -781,10 +783,11 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
     if (!isGameProjectionYWithinRenderBounds(projectedPoint.y, projection)) {
       continue;
     }
+
     context.fillStyle = BPM_MARKER;
     for (const bpmChange of projectedPoint.point.bpmChanges) {
       const markerRect = getTempoMarkerRect(rightLane, "right");
-      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
       bpmCandidates.push({
         type: "bpm",
         timeSec: bpmChange.timeSec,
@@ -792,14 +795,14 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
         label: formatBpmMarkerLabel(bpmChange.bpm),
         side: "right",
         color: BPM_MARKER,
-        x: rightLane.x + rightLane.width + TEMPO_LABEL_GAP,
+        x: rightLane.x + rightLane.width + TEMPO_LABEL_GAP
       });
     }
 
     context.fillStyle = STOP_MARKER;
     for (const stop of projectedPoint.point.stops) {
       const markerRect = getTempoMarkerRect(leftLane, "left");
-      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
       stopCandidates.push({
         type: "stop",
         timeSec: stop.timeSec,
@@ -807,13 +810,13 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
         label: formatStopMarkerLabel(stop.durationSec),
         side: "left",
         color: STOP_MARKER,
-        x: leftLane.x - TEMPO_LABEL_GAP,
+        x: leftLane.x - TEMPO_LABEL_GAP
       });
     }
 
     for (const warp of projectedPoint.point.warps) {
       const markerRect = getTempoMarkerRect(leftLane, "left");
-      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
       stopCandidates.push({
         type: "warp",
         timeSec: warp.timeSec,
@@ -821,14 +824,14 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
         label: formatWarpMarkerLabel(),
         side: "left",
         color: STOP_MARKER,
-        x: leftLane.x - TEMPO_LABEL_GAP,
+        x: leftLane.x - TEMPO_LABEL_GAP
       });
     }
 
     context.fillStyle = SCROLL_MARKER;
     for (const scrollChange of projectedPoint.point.scrollChanges) {
       const markerRect = getTempoMarkerRect(leftLane, "left");
-      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT / 2), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
       scrollCandidates.push({
         type: "scroll",
         timeSec: scrollChange.timeSec,
@@ -836,12 +839,11 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
         label: formatScrollMarkerLabel(scrollChange.rate),
         side: "left",
         color: SCROLL_MARKER,
-        x: leftLane.x - TEMPO_LABEL_GAP,
+        x: leftLane.x - TEMPO_LABEL_GAP
       });
     }
   }
   context.restore();
-
   drawSpacedTempoMarkerLabels(context, bpmCandidates);
   drawSpacedTempoMarkerLabels(context, stopCandidates);
   drawSpacedTempoMarkerLabels(context, scrollCandidates);
@@ -943,23 +945,23 @@ function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixe
   }
 
   context.save();
-  context.lineWidth = 1;
+  context.lineWidth = BAR_LINE_HEIGHT;
 
   context.strokeStyle = EDITOR_SIXTEENTH_GRID_LINE;
   for (const beat of visibleGridLines.sixteenthBeats) {
-    const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
+    const y = Math.round(beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY)) - context.lineWidth / 2;
     context.beginPath();
-    context.moveTo(leftX, y + 0.5);
-    context.lineTo(rightX, y + 0.5);
+    context.moveTo(leftX, y);
+    context.lineTo(rightX, y);
     context.stroke();
   }
 
   context.strokeStyle = EDITOR_BEAT_GRID_LINE;
   for (const beat of visibleGridLines.beatBeats) {
-    const y = beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
+    const y = Math.round(beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY)) - context.lineWidth / 2;
     context.beginPath();
-    context.moveTo(leftX, y + 0.5);
-    context.lineTo(rightX, y + 0.5);
+    context.moveTo(leftX, y);
+    context.lineTo(rightX, y);
     context.stroke();
   }
 
@@ -976,13 +978,13 @@ function drawBarLinesEditorMode(context, barLines, lanes, editorFrameState, pixe
   const visibleWindow = getBeatWindowIndices(barLines, editorFrameState.startBeat, editorFrameState.endBeat);
   context.save();
   context.strokeStyle = BAR_LINE;
-  context.lineWidth = 1;
+  context.lineWidth = BAR_LINE_HEIGHT;
   for (let index = visibleWindow.startIndex; index < visibleWindow.endIndex; index += 1) {
     const barLine = barLines[index];
-    const y = beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
+    const y = Math.round(beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY)) - context.lineWidth / 2;
     context.beginPath();
-    context.moveTo(leftX, y + 0.5);
-    context.lineTo(rightX, y + 0.5);
+    context.moveTo(leftX, y);
+    context.lineTo(rightX, y);
     context.stroke();
   }
   context.restore();
@@ -1027,7 +1029,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
     const markerRect = getTempoMarkerRect(rightLane, "right");
     context.fillRect(
       markerRect.x,
-      Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+      Math.round(y - TEMPO_MARKER_HEIGHT),
       markerRect.width,
       TEMPO_MARKER_HEIGHT,
     );
@@ -1052,7 +1054,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(
       markerRect.x,
-      Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+      Math.round(y - TEMPO_MARKER_HEIGHT),
       markerRect.width,
       TEMPO_MARKER_HEIGHT,
     );
@@ -1076,7 +1078,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(
       markerRect.x,
-      Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+      Math.round(y - TEMPO_MARKER_HEIGHT),
       markerRect.width,
       TEMPO_MARKER_HEIGHT,
     );
@@ -1101,7 +1103,7 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(
       markerRect.x,
-      Math.round(y - TEMPO_MARKER_HEIGHT / 2),
+      Math.round(y - TEMPO_MARKER_HEIGHT),
       markerRect.width,
       TEMPO_MARKER_HEIGHT,
     );
@@ -1127,9 +1129,9 @@ function shouldKeepTempoMarkerLabel(lastAcceptedY, nextY) {
 }
 
 function getTempoMarkerRect(lane, side) {
-  const width = lane.width * TEMPO_MARKER_WIDTH_RATIO;
+  const width = TEMPO_MARKER_WIDTH;
   if (side === "left") {
-    // 左側はセパレーター線と重なりすぎないように 1px だけ内側へ寄せる。
+    // 左側は右側とセパレーター線との距離を合わせるため 1px だけ内側へ寄せる。
     return {
       x: lane.x - width + LEFT_TEMPO_MARKER_SEPARATOR_COMPENSATION_PX,
       width,

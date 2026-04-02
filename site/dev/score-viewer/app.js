@@ -1460,12 +1460,12 @@ function clamp(value, minValue, maxValue) {
 var VIEWER_LANE_SIDE_PADDING = 6;
 var DP_GUTTER_UNITS = 1.2;
 var NOTE_WIDTH = 15;
+var SEPARATOR_WIDTH = 1;
+var BAR_LINE_HEIGHT = 1;
 var BACKGROUND_FILL = "#000000";
 var DP_GUTTER_FILL = "#808080";
 var SEPARATOR_COLOR = "#404040";
-var SEPARATOR_WIDTH = 1;
 var BAR_LINE = "#ffffff";
-var BAR_LINE_HEIGHT = 1;
 var EDITOR_BEAT_GRID_LINE = "#808080";
 var EDITOR_SIXTEENTH_GRID_LINE = "#404040";
 var BPM_MARKER = "#00ff00";
@@ -1522,6 +1522,14 @@ var POPN_LANE_COLORS = /* @__PURE__ */ new Map([
   ["p7", "#fff500"],
   ["p8", "#c4c4c4"]
 ]);
+var DEFAULT_RENDERER_CONFIG = Object.freeze({
+  noteWidth: NOTE_WIDTH,
+  noteHeight: NOTE_HEAD_HEIGHT,
+  barLineHeight: BAR_LINE_HEIGHT,
+  markerHeight: TEMPO_MARKER_HEIGHT,
+  separatorWidth: SEPARATOR_WIDTH
+});
+var currentRendererConfig = DEFAULT_RENDERER_CONFIG;
 function createScoreViewerRenderer(canvas) {
   const context = canvas.getContext("2d");
   let width = 0;
@@ -1530,6 +1538,8 @@ function createScoreViewerRenderer(canvas) {
   let laneLayoutCache = {
     mode: null,
     laneCount: null,
+    noteWidth: null,
+    separatorWidth: null,
     width: 0,
     layout: null
   };
@@ -1545,6 +1555,8 @@ function createScoreViewerRenderer(canvas) {
     laneLayoutCache = {
       mode: null,
       laneCount: null,
+      noteWidth: null,
+      separatorWidth: null,
       width: 0,
       layout: null
     };
@@ -1556,30 +1568,33 @@ function createScoreViewerRenderer(canvas) {
     editorFrameState = null,
     showInvisibleNotes = false,
     judgeLineY = getJudgeLineY(height, DEFAULT_JUDGE_LINE_POSITION_RATIO),
-    gameTimingConfig = createDefaultGameTimingConfig()
+    gameTimingConfig = createDefaultGameTimingConfig(),
+    rendererConfig = void 0
   } = {}) {
-    context.clearRect(0, 0, width, height);
-    context.fillStyle = BACKGROUND_FILL;
-    context.fillRect(0, 0, width, height);
-    if (!model) {
-      return createEmptyRenderResult();
-    }
-    const laneLayout = getCachedLaneLayout(model.score.mode, model.score.laneCount);
-    const resolvedMode = resolveViewerModeForModel(model, viewerMode);
-    if (resolvedMode === "time") {
-      return renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes, judgeLineY);
-    }
-    if (resolvedMode === "game" || resolvedMode === "lunatic") {
-      return renderGameMode(model, laneLayout, selectedTimeSec, showInvisibleNotes, judgeLineY, gameTimingConfig);
-    }
-    return renderEditorMode(
-      model,
-      laneLayout,
-      editorFrameState ?? getEditorFrameState(model, selectedTimeSec, height, pixelsPerBeat, judgeLineY),
-      pixelsPerBeat,
-      showInvisibleNotes,
-      judgeLineY
-    );
+    return withRendererConfig(rendererConfig, () => {
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = BACKGROUND_FILL;
+      context.fillRect(0, 0, width, height);
+      if (!model) {
+        return createEmptyRenderResult();
+      }
+      const laneLayout = getCachedLaneLayout(model.score.mode, model.score.laneCount);
+      const resolvedMode = resolveViewerModeForModel(model, viewerMode);
+      if (resolvedMode === "time") {
+        return renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes, judgeLineY);
+      }
+      if (resolvedMode === "game" || resolvedMode === "lunatic") {
+        return renderGameMode(model, laneLayout, selectedTimeSec, showInvisibleNotes, judgeLineY, gameTimingConfig);
+      }
+      return renderEditorMode(
+        model,
+        laneLayout,
+        editorFrameState ?? getEditorFrameState(model, selectedTimeSec, height, pixelsPerBeat, judgeLineY),
+        pixelsPerBeat,
+        showInvisibleNotes,
+        judgeLineY
+      );
+    });
   }
   return { resize, render: render2 };
   function renderTimeMode(model, laneLayout, selectedTimeSec, pixelsPerSecond, showInvisibleNotes, judgeLineY) {
@@ -1675,34 +1690,72 @@ function createScoreViewerRenderer(canvas) {
     };
   }
   function getCachedLaneLayout(mode, laneCount) {
-    if (laneLayoutCache.mode === mode && laneLayoutCache.laneCount === laneCount && laneLayoutCache.width === width && laneLayoutCache.layout) {
+    if (laneLayoutCache.mode === mode && laneLayoutCache.laneCount === laneCount && laneLayoutCache.noteWidth === currentRendererConfig.noteWidth && laneLayoutCache.separatorWidth === currentRendererConfig.separatorWidth && laneLayoutCache.width === width && laneLayoutCache.layout) {
       return laneLayoutCache.layout;
     }
     const layout = createLaneLayout(mode, laneCount, width);
     laneLayoutCache = {
       mode,
       laneCount,
+      noteWidth: currentRendererConfig.noteWidth,
+      separatorWidth: currentRendererConfig.separatorWidth,
       width,
       layout
     };
     return layout;
   }
 }
-function estimateViewerWidth(mode, laneCount) {
-  const layout = getModeLayout(mode, laneCount);
-  const gutterWidth = layout.splitAfter === null ? 0 : getDpGutterWidth();
-  const contentWidth = getDisplayLaneAreaWidth(layout.display.length) + gutterWidth;
-  return Math.ceil(contentWidth + JUDGE_LINE_SIDE_OVERHANG * 2);
+function estimateViewerWidth(mode, laneCount, rendererConfig = void 0) {
+  return withRendererConfig(rendererConfig, () => {
+    const layout = getModeLayout(mode, laneCount);
+    const gutterWidth = layout.splitAfter === null ? 0 : getDpGutterWidth();
+    const contentWidth = getDisplayLaneAreaWidth(layout.display.length) + gutterWidth;
+    return Math.ceil(contentWidth + JUDGE_LINE_SIDE_OVERHANG * 2);
+  });
+}
+function withRendererConfig(rendererConfig, callback) {
+  const previousRendererConfig = currentRendererConfig;
+  currentRendererConfig = normalizeRendererConfig(rendererConfig);
+  try {
+    return callback();
+  } finally {
+    currentRendererConfig = previousRendererConfig;
+  }
+}
+function normalizeRendererConfig(rendererConfig = {}) {
+  return {
+    noteWidth: normalizeRendererDimension(rendererConfig?.noteWidth, NOTE_WIDTH),
+    noteHeight: normalizeRendererDimension(rendererConfig?.noteHeight, NOTE_HEAD_HEIGHT),
+    barLineHeight: normalizeRendererDimension(rendererConfig?.barLineHeight, BAR_LINE_HEIGHT),
+    markerHeight: normalizeRendererDimension(rendererConfig?.markerHeight, TEMPO_MARKER_HEIGHT),
+    separatorWidth: normalizeRendererDimension(rendererConfig?.separatorWidth, SEPARATOR_WIDTH)
+  };
+}
+function areRendererConfigsEqual(left, right) {
+  const normalizedLeft = normalizeRendererConfig(left);
+  const normalizedRight = normalizeRendererConfig(right);
+  return normalizedLeft.noteWidth === normalizedRight.noteWidth && normalizedLeft.noteHeight === normalizedRight.noteHeight && normalizedLeft.barLineHeight === normalizedRight.barLineHeight && normalizedLeft.markerHeight === normalizedRight.markerHeight && normalizedLeft.separatorWidth === normalizedRight.separatorWidth;
+}
+function normalizeRendererDimension(value, defaultValue) {
+  if (!Number.isFinite(value)) {
+    return defaultValue;
+  }
+  return Math.max(0, Math.floor(value));
 }
 function getNoteWidth() {
-  const testOverride = globalThis?.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES?.noteWidth;
-  const resolvedWidth = testOverride ?? NOTE_WIDTH;
-  return Number.isFinite(resolvedWidth) && resolvedWidth >= 0 ? resolvedWidth : 0;
+  return currentRendererConfig.noteWidth;
 }
 function getSeparatorWidth() {
-  const testOverride = globalThis?.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES?.separatorWidth;
-  const resolvedWidth = testOverride ?? SEPARATOR_WIDTH;
-  return Number.isFinite(resolvedWidth) && resolvedWidth >= 0 ? resolvedWidth : 0;
+  return currentRendererConfig.separatorWidth;
+}
+function getNoteHeadHeight() {
+  return currentRendererConfig.noteHeight;
+}
+function getBarLineHeight() {
+  return currentRendererConfig.barLineHeight;
+}
+function getTempoMarkerHeight() {
+  return currentRendererConfig.markerHeight;
 }
 function getLaneSlotWidth() {
   return getNoteWidth() + getSeparatorWidth();
@@ -1737,7 +1790,7 @@ function drawBarLinesTimeMode(context, barLines, lanes, selectedTimeSec, startTi
   const rightX = getLaneRightEdgeWithSeparator(rightLane);
   context.save();
   context.strokeStyle = BAR_LINE;
-  context.lineWidth = BAR_LINE_HEIGHT;
+  context.lineWidth = getBarLineHeight();
   for (const barLine of barLines) {
     if (barLine.timeSec < startTimeSec || barLine.timeSec > endTimeSec) {
       continue;
@@ -1784,7 +1837,7 @@ function drawTempoMarkersTimeMode(context, bpmChanges, stops, warps, scrollChang
     }
     const y = timeToViewportY(bpmChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
     const markerRect = getTempoMarkerRect(rightLane, "right");
-    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
+    context.fillRect(markerRect.x, Math.round(y - getTempoMarkerHeight()), markerRect.width, getTempoMarkerHeight());
     if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
       drawTempoMarkerLabel(context, {
         type: "bpm",
@@ -1805,7 +1858,7 @@ function drawTempoMarkersTimeMode(context, bpmChanges, stops, warps, scrollChang
     }
     const y = timeToViewportY(stop.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
     const markerRect = getTempoMarkerRect(leftLane, "left");
-    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
+    context.fillRect(markerRect.x, Math.round(y - getTempoMarkerHeight()), markerRect.width, getTempoMarkerHeight());
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
       drawTempoMarkerLabel(context, {
         type: "stop",
@@ -1825,7 +1878,7 @@ function drawTempoMarkersTimeMode(context, bpmChanges, stops, warps, scrollChang
     }
     const y = timeToViewportY(warp.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
     const markerRect = getTempoMarkerRect(leftLane, "left");
-    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
+    context.fillRect(markerRect.x, Math.round(y - getTempoMarkerHeight()), markerRect.width, getTempoMarkerHeight());
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
       drawTempoMarkerLabel(context, {
         type: "warp",
@@ -1846,7 +1899,7 @@ function drawTempoMarkersTimeMode(context, bpmChanges, stops, warps, scrollChang
     }
     const y = timeToViewportY(scrollChange.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
     const markerRect = getTempoMarkerRect(leftLane, "left");
-    context.fillRect(markerRect.x, Math.round(y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
+    context.fillRect(markerRect.x, Math.round(y - getTempoMarkerHeight()), markerRect.width, getTempoMarkerHeight());
     if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
       drawTempoMarkerLabel(context, {
         type: "scroll",
@@ -1877,8 +1930,8 @@ function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTim
     }
     const startY = timeToViewportY(note.timeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
     const endY = timeToViewportY(note.endTimeSec, selectedTimeSec, viewportHeight, pixelsPerSecond, judgeLineY);
-    const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
-    const bottomY = Math.min(Math.max(startY, endY), viewportHeight + NOTE_HEAD_HEIGHT + 24);
+    const topY = Math.max(Math.min(startY, endY), -getNoteHeadHeight() - 24);
+    const bottomY = Math.min(Math.max(startY, endY), viewportHeight + getNoteHeadHeight() + 24);
     const bodyHeight = Math.max(bottomY - topY, 2);
     context.fillStyle = dimColor(lane.note, 0.42);
     const contentWidth = getLaneContentWidth(lane);
@@ -1963,7 +2016,7 @@ function collectGameProjection(model, selectedTimeSec, viewportHeight, options =
     hsFixBaseBpm: derivedMetrics.hsFixBaseBpm,
     hispeed: derivedMetrics.hispeed,
     gameTimingConfig: normalizedGameTimingConfig,
-    scanMargin: NOTE_HEAD_HEIGHT + 24,
+    scanMargin: getNoteHeadHeight() + 24,
     points: [],
     pointYByIndex: /* @__PURE__ */ new Map(),
     exitPoint: null
@@ -2046,7 +2099,7 @@ function drawBarLinesGameMode(context, lanes, projection) {
   const rightX = getLaneRightEdgeWithSeparator(rightLane);
   context.save();
   context.strokeStyle = BAR_LINE;
-  context.lineWidth = BAR_LINE_HEIGHT;
+  context.lineWidth = getBarLineHeight();
   for (const projectedPoint of projection.points) {
     if (!isGameProjectionYWithinRenderBounds(projectedPoint.y, projection)) {
       continue;
@@ -2180,7 +2233,7 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
     context.fillStyle = BPM_MARKER;
     for (const bpmChange of projectedPoint.point.bpmChanges) {
       const markerRect = getTempoMarkerRect(rightLane, "right");
-      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - getTempoMarkerHeight()), markerRect.width, getTempoMarkerHeight());
       bpmCandidates.push({
         type: "bpm",
         timeSec: bpmChange.timeSec,
@@ -2194,7 +2247,7 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
     context.fillStyle = STOP_MARKER;
     for (const stop of projectedPoint.point.stops) {
       const markerRect = getTempoMarkerRect(leftLane, "left");
-      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - getTempoMarkerHeight()), markerRect.width, getTempoMarkerHeight());
       stopCandidates.push({
         type: "stop",
         timeSec: stop.timeSec,
@@ -2207,7 +2260,7 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
     }
     for (const warp of projectedPoint.point.warps) {
       const markerRect = getTempoMarkerRect(leftLane, "left");
-      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - getTempoMarkerHeight()), markerRect.width, getTempoMarkerHeight());
       stopCandidates.push({
         type: "warp",
         timeSec: warp.timeSec,
@@ -2221,7 +2274,7 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
     context.fillStyle = SCROLL_MARKER;
     for (const scrollChange of projectedPoint.point.scrollChanges) {
       const markerRect = getTempoMarkerRect(leftLane, "left");
-      context.fillRect(markerRect.x, Math.round(projectedPoint.y - TEMPO_MARKER_HEIGHT), markerRect.width, TEMPO_MARKER_HEIGHT);
+      context.fillRect(markerRect.x, Math.round(projectedPoint.y - getTempoMarkerHeight()), markerRect.width, getTempoMarkerHeight());
       scrollCandidates.push({
         type: "scroll",
         timeSec: scrollChange.timeSec,
@@ -2327,7 +2380,7 @@ function drawEditorSubGrid(context, measureRanges, lanes, editorFrameState, pixe
     return;
   }
   context.save();
-  context.lineWidth = BAR_LINE_HEIGHT;
+  context.lineWidth = getBarLineHeight();
   context.strokeStyle = EDITOR_SIXTEENTH_GRID_LINE;
   for (const beat of visibleGridLines.sixteenthBeats) {
     const y = Math.round(beatToViewportY(beat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY)) - context.lineWidth / 2;
@@ -2356,7 +2409,7 @@ function drawBarLinesEditorMode(context, barLines, lanes, editorFrameState, pixe
   const visibleWindow = getBeatWindowIndices(barLines, editorFrameState.startBeat, editorFrameState.endBeat);
   context.save();
   context.strokeStyle = BAR_LINE;
-  context.lineWidth = BAR_LINE_HEIGHT;
+  context.lineWidth = getBarLineHeight();
   for (let index = visibleWindow.startIndex; index < visibleWindow.endIndex; index += 1) {
     const barLine = barLines[index];
     const y = Math.round(beatToViewportY(barLine.beat ?? 0, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY)) - context.lineWidth / 2;
@@ -2404,9 +2457,9 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
     const markerRect = getTempoMarkerRect(rightLane, "right");
     context.fillRect(
       markerRect.x,
-      Math.round(y - TEMPO_MARKER_HEIGHT),
+      Math.round(y - getTempoMarkerHeight()),
       markerRect.width,
-      TEMPO_MARKER_HEIGHT
+      getTempoMarkerHeight()
     );
     if (shouldKeepTempoMarkerLabel(lastBpmLabelY, y)) {
       drawTempoMarkerLabel(context, {
@@ -2428,9 +2481,9 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(
       markerRect.x,
-      Math.round(y - TEMPO_MARKER_HEIGHT),
+      Math.round(y - getTempoMarkerHeight()),
       markerRect.width,
-      TEMPO_MARKER_HEIGHT
+      getTempoMarkerHeight()
     );
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
       drawTempoMarkerLabel(context, {
@@ -2451,9 +2504,9 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(
       markerRect.x,
-      Math.round(y - TEMPO_MARKER_HEIGHT),
+      Math.round(y - getTempoMarkerHeight()),
       markerRect.width,
-      TEMPO_MARKER_HEIGHT
+      getTempoMarkerHeight()
     );
     if (shouldKeepTempoMarkerLabel(lastStopLabelY, y)) {
       drawTempoMarkerLabel(context, {
@@ -2475,9 +2528,9 @@ function drawTempoMarkersEditorMode(context, model, lanes, editorFrameState, pix
     const markerRect = getTempoMarkerRect(leftLane, "left");
     context.fillRect(
       markerRect.x,
-      Math.round(y - TEMPO_MARKER_HEIGHT),
+      Math.round(y - getTempoMarkerHeight()),
       markerRect.width,
-      TEMPO_MARKER_HEIGHT
+      getTempoMarkerHeight()
     );
     if (shouldKeepTempoMarkerLabel(lastScrollLabelY, y)) {
       drawTempoMarkerLabel(context, {
@@ -2526,8 +2579,8 @@ function drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixel
     }
     const startY = beatToViewportY(noteStartBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
     const endY = beatToViewportY(noteEndBeat, editorFrameState.selectedBeat, editorFrameState.viewportHeight, pixelsPerBeat, judgeLineY);
-    const topY = Math.max(Math.min(startY, endY), -NOTE_HEAD_HEIGHT - 24);
-    const bottomY = Math.min(Math.max(startY, endY), editorFrameState.viewportHeight + NOTE_HEAD_HEIGHT + 24);
+    const topY = Math.max(Math.min(startY, endY), -getNoteHeadHeight() - 24);
+    const bottomY = Math.min(Math.max(startY, endY), editorFrameState.viewportHeight + getNoteHeadHeight() + 24);
     const bodyHeight = Math.max(bottomY - topY, 2);
     context.fillStyle = dimColor(lane.note, 0.42);
     const contentWidth = getLaneContentWidth(lane);
@@ -2584,21 +2637,21 @@ function drawRectNote(context, lane, y, color) {
     return;
   }
   context.fillStyle = color;
-  context.fillRect(getLaneContentLeftX(lane), Math.round(y - NOTE_HEAD_HEIGHT), contentWidth, NOTE_HEAD_HEIGHT);
+  context.fillRect(getLaneContentLeftX(lane), Math.round(y - getNoteHeadHeight()), contentWidth, getNoteHeadHeight());
 }
 function drawOutlinedRectNote(context, lane, y, color) {
   const contentWidth = getLaneContentWidth(lane);
   if (!(contentWidth > 0)) {
     return;
   }
-  const topY = Math.round(y - NOTE_HEAD_HEIGHT);
+  const topY = Math.round(y - getNoteHeadHeight());
   context.strokeStyle = color;
   context.lineWidth = 1;
   context.strokeRect(
     getLaneContentLeftX(lane) + 0.5,
     topY + 0.5,
     Math.max(contentWidth - 1, 0),
-    Math.max(NOTE_HEAD_HEIGHT - 1, 1)
+    Math.max(getNoteHeadHeight() - 1, 1)
   );
 }
 function drawSpacedTempoMarkerLabels(context, candidates) {
@@ -2850,7 +2903,7 @@ function normalizeGameProjectionOptions(viewportHeight, options, legacyJudgeLine
     )
   };
 }
-function isViewportYVisible(y, viewportTopY, viewportBottomY, margin = NOTE_HEAD_HEIGHT + 24) {
+function isViewportYVisible(y, viewportTopY, viewportBottomY, margin = getNoteHeadHeight() + 24) {
   return y >= viewportTopY - margin && y <= viewportBottomY + margin;
 }
 function formatBpmMarkerLabel(bpm) {
@@ -3045,6 +3098,8 @@ function createScoreViewerController({
   onSpacingScaleChange = () => {
   },
   onGameTimingConfigChange = () => {
+  },
+  onRendererConfigChange = () => {
   }
 }) {
   const scrollHost = document.createElement("div");
@@ -3067,7 +3122,12 @@ function createScoreViewerController({
   playbackButton.textContent = "▶";
   const playbackTime = document.createElement("span");
   playbackTime.className = "score-viewer-playback-time";
-  playbackRow.append(playbackButton, playbackTime);
+  const detailSettingsToggle = document.createElement("button");
+  detailSettingsToggle.className = "score-viewer-detail-settings-toggle";
+  detailSettingsToggle.type = "button";
+  detailSettingsToggle.setAttribute("aria-label", "Open viewer detail settings");
+  detailSettingsToggle.textContent = "⚙";
+  playbackRow.append(playbackButton, playbackTime, detailSettingsToggle);
   const measureRow = document.createElement("div");
   measureRow.className = "score-viewer-status-row score-viewer-status-metric";
   const comboRow = document.createElement("div");
@@ -3208,6 +3268,7 @@ function createScoreViewerController({
     isPlaying: false,
     spacingScaleByMode: createDefaultSpacingScaleByMode(),
     gameTimingConfig: createDefaultGameTimingConfig(),
+    rendererConfig: DEFAULT_RENDERER_CONFIG,
     viewerMode: DEFAULT_VIEWER_MODE,
     invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
     judgeLinePositionRatio: DEFAULT_JUDGE_LINE_POSITION_RATIO,
@@ -3585,6 +3646,17 @@ function createScoreViewerController({
     state2.gameTimingConfig = normalizedGameTimingConfig;
     refreshLayout();
   }
+  function setRendererConfig(nextRendererConfig = {}) {
+    const normalizedRendererConfig = normalizeRendererConfig({
+      ...state2.rendererConfig,
+      ...nextRendererConfig
+    });
+    if (areRendererConfigsEqual(state2.rendererConfig, normalizedRendererConfig)) {
+      return;
+    }
+    state2.rendererConfig = normalizedRendererConfig;
+    refreshLayout();
+  }
   function setEmptyState(_title, _message) {
   }
   function togglePlayback() {
@@ -3894,7 +3966,8 @@ function createScoreViewerController({
       editorFrameState,
       showInvisibleNotes: state2.invisibleNoteVisibility === "show",
       judgeLineY: currentJudgeLineY,
-      gameTimingConfig: state2.gameTimingConfig
+      gameTimingConfig: state2.gameTimingConfig,
+      rendererConfig: state2.rendererConfig
     });
   }
   function destroy() {
@@ -3928,6 +4001,7 @@ function createScoreViewerController({
     setJudgeLinePositionRatio,
     setSpacingScaleByMode,
     setGameTimingConfig,
+    setRendererConfig,
     setEmptyState,
     refreshLayout,
     destroy
@@ -3980,7 +4054,7 @@ function createScoreViewerController({
     }
     root.style.setProperty(
       "--score-viewer-width",
-      `${estimateViewerWidth(state2.model.score.mode, state2.model.score.laneCount)}px`
+      `${estimateViewerWidth(state2.model.score.mode, state2.model.score.laneCount, state2.rendererConfig)}px`
     );
   }
   function updateScrollInteractivity() {
@@ -5231,6 +5305,11 @@ var GAME_LANE_COVER_PERMILLE_STORAGE_KEY = "bms-info-extender.game.laneCoverPerm
 var GAME_LANE_COVER_VISIBLE_STORAGE_KEY = "bms-info-extender.game.laneCoverVisible";
 var GAME_HS_FIX_MODE_STORAGE_KEY = "bms-info-extender.game.hsFixMode";
 var GRAPH_INTERACTION_MODE_STORAGE_KEY = "bms-info-extender.graphInteractionMode";
+var VIEWER_NOTE_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.noteWidth";
+var VIEWER_NOTE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.noteHeight";
+var VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.barLineHeight";
+var VIEWER_MARKER_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.markerHeight";
+var VIEWER_SEPARATOR_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.separatorWidth";
 var DEFAULT_SPACING_SCALE2 = 1;
 var SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX = 2;
 var PREVIEW_RENDER_DIRTY = {
@@ -5246,7 +5325,9 @@ var PREVIEW_RENDER_DIRTY = {
   gameTimingConfig: 1 << 9,
   viewerOpen: 1 << 10,
   graphInteractionMode: 1 << 11,
-  graphSettings: 1 << 12
+  graphSettings: 1 << 12,
+  rendererConfig: 1 << 13,
+  viewerDetailSettings: 1 << 14
 };
 var PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 var bmsSearchPatternAvailabilityCache = /* @__PURE__ */ new Map();
@@ -5402,13 +5483,88 @@ function createPreviewPreferenceStorage({ read = () => null, write = () => {
         );
       } catch (_error) {
       }
+    },
+    getPersistedViewerNoteWidth() {
+      try {
+        return normalizeRendererConfig({
+          noteWidth: read(VIEWER_NOTE_WIDTH_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.noteWidth)
+        }).noteWidth;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.noteWidth;
+      }
+    },
+    setPersistedViewerNoteWidth(value) {
+      try {
+        write(VIEWER_NOTE_WIDTH_STORAGE_KEY, normalizeRendererConfig({ noteWidth: value }).noteWidth);
+      } catch (_error) {
+      }
+    },
+    getPersistedViewerNoteHeight() {
+      try {
+        return normalizeRendererConfig({
+          noteHeight: read(VIEWER_NOTE_HEIGHT_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.noteHeight)
+        }).noteHeight;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.noteHeight;
+      }
+    },
+    setPersistedViewerNoteHeight(value) {
+      try {
+        write(VIEWER_NOTE_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ noteHeight: value }).noteHeight);
+      } catch (_error) {
+      }
+    },
+    getPersistedViewerBarLineHeight() {
+      try {
+        return normalizeRendererConfig({
+          barLineHeight: read(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.barLineHeight)
+        }).barLineHeight;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.barLineHeight;
+      }
+    },
+    setPersistedViewerBarLineHeight(value) {
+      try {
+        write(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ barLineHeight: value }).barLineHeight);
+      } catch (_error) {
+      }
+    },
+    getPersistedViewerMarkerHeight() {
+      try {
+        return normalizeRendererConfig({
+          markerHeight: read(VIEWER_MARKER_HEIGHT_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.markerHeight)
+        }).markerHeight;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.markerHeight;
+      }
+    },
+    setPersistedViewerMarkerHeight(value) {
+      try {
+        write(VIEWER_MARKER_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ markerHeight: value }).markerHeight);
+      } catch (_error) {
+      }
+    },
+    getPersistedViewerSeparatorWidth() {
+      try {
+        return normalizeRendererConfig({
+          separatorWidth: read(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.separatorWidth)
+        }).separatorWidth;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.separatorWidth;
+      }
+    },
+    setPersistedViewerSeparatorWidth(value) {
+      try {
+        write(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY, normalizeRendererConfig({ separatorWidth: value }).separatorWidth);
+      } catch (_error) {
+      }
     }
   };
 }
 function expandPreviewRenderMask(renderMask = 0) {
   let expandedMask = renderMask;
   if (expandedMask & PREVIEW_RENDER_DIRTY.viewerModel) {
-    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible | PREVIEW_RENDER_DIRTY.judgeLinePosition | PREVIEW_RENDER_DIRTY.spacing | PREVIEW_RENDER_DIRTY.gameTimingConfig;
+    expandedMask |= PREVIEW_RENDER_DIRTY.viewerMode | PREVIEW_RENDER_DIRTY.invisible | PREVIEW_RENDER_DIRTY.judgeLinePosition | PREVIEW_RENDER_DIRTY.spacing | PREVIEW_RENDER_DIRTY.gameTimingConfig | PREVIEW_RENDER_DIRTY.rendererConfig;
   }
   return expandedMask;
 }
@@ -5453,6 +5609,17 @@ var BMSDATA_CSS = `
   .bd-graph-settings-group { display: grid; gap: 4px; }
   .bd-graph-settings-label { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .bd-graph-settings-select { width: 100%; min-width: 0; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; box-sizing: border-box; }
+  .score-viewer-detail-settings-toggle { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin-left: auto; padding: 0; border: unset; border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; box-shadow: none; }
+  .score-viewer-detail-settings-toggle:hover { background: rgba(255, 255, 255, 0.24); }
+  .score-viewer-detail-settings-toggle:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
+  .score-viewer-detail-settings-popup { position: fixed; z-index: 2147483001; display: grid; gap: 6px; min-width: 240px; max-width: min(320px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.88); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); box-sizing: border-box; pointer-events: auto; overflow: auto; contain: layout paint style; }
+  .score-viewer-detail-settings-popup[hidden] { display: none; }
+  .score-viewer-detail-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .score-viewer-detail-settings-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
+  .score-viewer-detail-settings-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; }
+  .score-viewer-detail-settings-close:hover { background: rgba(255, 255, 255, 0.24); }
+  .score-viewer-detail-settings-close:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
+  .score-viewer-settings-panel.is-popup { max-height: none; overflow: visible; opacity: 1; pointer-events: auto; transition: none; }
   .score-viewer-shell * { box-sizing: content-box; }
   .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; isolation: isolate; contain: layout paint style; }
   .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
@@ -5743,6 +5910,21 @@ function createBmsInfoPreview({
   getPersistedGraphInteractionMode = () => DEFAULT_GRAPH_INTERACTION_MODE,
   setPersistedGraphInteractionMode = () => {
   },
+  getPersistedViewerNoteWidth = () => DEFAULT_RENDERER_CONFIG.noteWidth,
+  setPersistedViewerNoteWidth = () => {
+  },
+  getPersistedViewerNoteHeight = () => DEFAULT_RENDERER_CONFIG.noteHeight,
+  setPersistedViewerNoteHeight = () => {
+  },
+  getPersistedViewerBarLineHeight = () => DEFAULT_RENDERER_CONFIG.barLineHeight,
+  setPersistedViewerBarLineHeight = () => {
+  },
+  getPersistedViewerMarkerHeight = () => DEFAULT_RENDERER_CONFIG.markerHeight,
+  setPersistedViewerMarkerHeight = () => {
+  },
+  getPersistedViewerSeparatorWidth = () => DEFAULT_RENDERER_CONFIG.separatorWidth,
+  setPersistedViewerSeparatorWidth = () => {
+  },
   onSelectedTimeChange = () => {
   },
   onPinChange = () => {
@@ -5818,9 +6000,17 @@ function createBmsInfoPreview({
       getPersistedGameLaneCoverVisible,
       getPersistedGameHsFixMode
     }),
+    rendererConfig: getInitialRendererConfig({
+      getPersistedViewerNoteWidth,
+      getPersistedViewerNoteHeight,
+      getPersistedViewerBarLineHeight,
+      getPersistedViewerMarkerHeight,
+      getPersistedViewerSeparatorWidth
+    }),
     graphInteractionMode: initialGraphInteractionMode,
     isPinned: false,
     isViewerOpen: false,
+    isViewerDetailSettingsOpen: false,
     isPlaying: false,
     isGraphHovered: false,
     isGraphSettingsOpen: false,
@@ -5862,8 +6052,76 @@ function createBmsInfoPreview({
     },
     onGameTimingConfigChange: (nextGameTimingConfig) => {
       setGameTimingConfig(nextGameTimingConfig);
+    },
+    onRendererConfigChange: (nextRendererConfig) => {
+      setRendererConfig(nextRendererConfig);
     }
   });
+  const statusPanel = findFirstElementByClass(shell, "score-viewer-status-panel");
+  const detailSettingsToggle = findFirstElementByClass(shell, "score-viewer-detail-settings-toggle");
+  if (!statusPanel || !detailSettingsToggle) {
+    throw new Error("BMS preview viewer detail settings elements are missing.");
+  }
+  detailSettingsToggle.setAttribute("aria-expanded", "false");
+  const viewerDetailSettingsPopup = documentRef.createElement("div");
+  viewerDetailSettingsPopup.id = "bd-viewer-detail-settings-popup";
+  viewerDetailSettingsPopup.className = "score-viewer-detail-settings-popup";
+  viewerDetailSettingsPopup.hidden = true;
+  const viewerDetailSettingsHeader = documentRef.createElement("div");
+  viewerDetailSettingsHeader.className = "score-viewer-detail-settings-header";
+  const viewerDetailSettingsTitle = documentRef.createElement("span");
+  viewerDetailSettingsTitle.className = "score-viewer-detail-settings-title";
+  viewerDetailSettingsTitle.textContent = "Viewer Details";
+  const viewerDetailSettingsClose = documentRef.createElement("button");
+  viewerDetailSettingsClose.className = "score-viewer-detail-settings-close";
+  viewerDetailSettingsClose.type = "button";
+  viewerDetailSettingsClose.setAttribute("aria-label", "Close viewer detail settings");
+  viewerDetailSettingsClose.textContent = "x";
+  viewerDetailSettingsHeader.append(viewerDetailSettingsTitle, viewerDetailSettingsClose);
+  const viewerDetailSettingsGroup = documentRef.createElement("div");
+  viewerDetailSettingsGroup.className = "bd-graph-settings-group";
+  const viewerDetailSettingsControls = [
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-note-width-input",
+      label: "Note Width",
+      min: 0,
+      max: 64,
+      value: state2.rendererConfig.noteWidth
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-note-height-input",
+      label: "Note Height",
+      min: 0,
+      max: 32,
+      value: state2.rendererConfig.noteHeight
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-bar-line-height-input",
+      label: "Bar Line Height",
+      min: 0,
+      max: 16,
+      value: state2.rendererConfig.barLineHeight
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-marker-height-input",
+      label: "Marker Height",
+      min: 0,
+      max: 16,
+      value: state2.rendererConfig.markerHeight
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-separator-width-input",
+      label: "Separator Width",
+      min: 0,
+      max: 16,
+      value: state2.rendererConfig.separatorWidth
+    })
+  ];
+  for (const control of viewerDetailSettingsControls) {
+    viewerDetailSettingsGroup.append(control.label, control.input);
+  }
+  viewerDetailSettingsPopup.append(viewerDetailSettingsHeader, viewerDetailSettingsGroup);
+  documentRef.body.appendChild(viewerDetailSettingsPopup);
   const graphController = createBmsInfoGraph({
     scrollHost: graphHost,
     canvas: graphCanvas,
@@ -5909,6 +6167,42 @@ function createBmsInfoPreview({
   graphInteractionSelect.addEventListener("change", () => {
     setGraphInteractionMode(graphInteractionSelect.value);
   });
+  detailSettingsToggle.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setViewerDetailSettingsOpen(!state2.isViewerDetailSettingsOpen);
+  });
+  viewerDetailSettingsClose.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setViewerDetailSettingsOpen(false);
+  });
+  for (const control of viewerDetailSettingsControls) {
+    control.input.addEventListener("input", () => {
+      setRendererConfig({
+        [control.key]: normalizeViewerDetailInputValue(control.input.value, control.max, state2.rendererConfig[control.key])
+      });
+    });
+    control.input.addEventListener("change", () => {
+      const normalizedValue = normalizeViewerDetailInputValue(control.input.value, control.max, state2.rendererConfig[control.key]);
+      control.input.value = String(normalizedValue);
+      setRendererConfig({
+        [control.key]: normalizedValue
+      });
+    });
+  }
+  viewerDetailSettingsPopup.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !state2.isViewerDetailSettingsOpen) {
+      return;
+    }
+    event.preventDefault();
+    setViewerDetailSettingsOpen(false);
+  });
+  documentRef.body.addEventListener("pointerdown", handleDocumentBodyPointerDown);
+  documentRef.body.addEventListener("keydown", handleDocumentBodyKeydown);
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("resize", positionViewerDetailSettingsPopup);
+  }
   return {
     setRecord,
     setSelectedTimeSec: setSelectedTimeSec2,
@@ -5945,7 +6239,7 @@ function createBmsInfoPreview({
     }
     if (recordChanged) {
       renderBmsData(container, normalizedRecord);
-      shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(normalizedRecord.mode)}px`);
+      shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(normalizedRecord.mode, state2.rendererConfig)}px`);
       renderMask |= PREVIEW_RENDER_DIRTY.record;
     }
     const nextSha256 = normalizedRecord.sha256 ? normalizedRecord.sha256.toLowerCase() : null;
@@ -6247,6 +6541,40 @@ function createBmsInfoPreview({
     state2.isGraphSettingsOpen = normalizedOpen;
     scheduleRender(PREVIEW_RENDER_DIRTY.graphSettings);
   }
+  function setRendererConfig(nextRendererConfig = {}) {
+    const normalizedRendererConfig = normalizeRendererConfig({
+      ...state2.rendererConfig,
+      ...nextRendererConfig
+    });
+    if (areRendererConfigsEqual(state2.rendererConfig, normalizedRendererConfig)) {
+      return;
+    }
+    state2.rendererConfig = normalizedRendererConfig;
+    try {
+      setPersistedViewerNoteWidth(normalizedRendererConfig.noteWidth);
+      setPersistedViewerNoteHeight(normalizedRendererConfig.noteHeight);
+      setPersistedViewerBarLineHeight(normalizedRendererConfig.barLineHeight);
+      setPersistedViewerMarkerHeight(normalizedRendererConfig.markerHeight);
+      setPersistedViewerSeparatorWidth(normalizedRendererConfig.separatorWidth);
+    } catch (error) {
+      console.warn("Failed to persist renderer config:", error);
+    }
+    if (state2.record) {
+      shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(state2.record.mode, state2.rendererConfig)}px`);
+    }
+    scheduleRender(PREVIEW_RENDER_DIRTY.rendererConfig);
+  }
+  function setViewerDetailSettingsOpen(nextOpen) {
+    const normalizedOpen = Boolean(nextOpen);
+    if (state2.isViewerDetailSettingsOpen === normalizedOpen) {
+      if (normalizedOpen) {
+        positionViewerDetailSettingsPopup();
+      }
+      return;
+    }
+    state2.isViewerDetailSettingsOpen = normalizedOpen;
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerDetailSettings);
+  }
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state2.isPinned === normalized) {
@@ -6390,6 +6718,13 @@ function createBmsInfoPreview({
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.graphSettings) {
       graphSettingsPopup.hidden = !state2.isGraphSettingsOpen;
     }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerDetailSettings) {
+      viewerDetailSettingsPopup.hidden = !state2.isViewerDetailSettingsOpen;
+      detailSettingsToggle.setAttribute("aria-expanded", String(state2.isViewerDetailSettingsOpen));
+    }
+    if (state2.isViewerDetailSettingsOpen) {
+      positionViewerDetailSettingsPopup();
+    }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
       viewerController.setModel(state2.viewerModel);
     }
@@ -6407,6 +6742,15 @@ function createBmsInfoPreview({
     }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.gameTimingConfig) {
       viewerController.setGameTimingConfig(state2.gameTimingConfig);
+    }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.rendererConfig) {
+      viewerController.setRendererConfig(state2.rendererConfig);
+      for (const control of viewerDetailSettingsControls) {
+        control.input.value = String(state2.rendererConfig[control.key]);
+      }
+      if (state2.record) {
+        shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(state2.record.mode, state2.rendererConfig)}px`);
+      }
     }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
       viewerController.setPlaybackState(state2.isPlaying);
@@ -6436,7 +6780,56 @@ function createBmsInfoPreview({
     graphController.destroy();
     viewerController.destroy();
     graphSettingsPopup.remove();
+    documentRef.body.removeEventListener("pointerdown", handleDocumentBodyPointerDown);
+    documentRef.body.removeEventListener("keydown", handleDocumentBodyKeydown);
+    if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+      window.removeEventListener("resize", positionViewerDetailSettingsPopup);
+    }
+    viewerDetailSettingsPopup.remove();
     shell.remove();
+  }
+  function positionViewerDetailSettingsPopup() {
+    if (!state2.isViewerDetailSettingsOpen || viewerDetailSettingsPopup.hidden || !statusPanel.isConnected) {
+      return;
+    }
+    const statusRect = statusPanel.getBoundingClientRect();
+    const viewportWidth = documentRef.documentElement?.clientWidth ?? window.innerWidth ?? 0;
+    const viewportHeight = documentRef.documentElement?.clientHeight ?? window.innerHeight ?? 0;
+    const popupWidth = Math.max(
+      viewerDetailSettingsPopup.offsetWidth || viewerDetailSettingsPopup.getBoundingClientRect?.().width || 240,
+      0
+    );
+    const popupHeight = Math.max(
+      viewerDetailSettingsPopup.offsetHeight || viewerDetailSettingsPopup.getBoundingClientRect?.().height || 0,
+      0
+    );
+    const left = Math.max(statusRect.left - popupWidth - 12, 12);
+    const top = Math.min(
+      Math.max(statusRect.bottom - popupHeight, 12),
+      Math.max(viewportHeight - popupHeight - 12, 12)
+    );
+    viewerDetailSettingsPopup.style.left = `${left}px`;
+    viewerDetailSettingsPopup.style.top = `${top}px`;
+    viewerDetailSettingsPopup.style.right = "auto";
+    viewerDetailSettingsPopup.style.bottom = "auto";
+    viewerDetailSettingsPopup.style.transform = "none";
+  }
+  function handleDocumentBodyPointerDown(event) {
+    if (!state2.isViewerDetailSettingsOpen) {
+      return;
+    }
+    const target = event.target ?? null;
+    if (isDescendantOf2(target, viewerDetailSettingsPopup) || isDescendantOf2(target, detailSettingsToggle)) {
+      return;
+    }
+    setViewerDetailSettingsOpen(false);
+  }
+  function handleDocumentBodyKeydown(event) {
+    if (!state2.isViewerDetailSettingsOpen || event.key !== "Escape") {
+      return;
+    }
+    event.preventDefault();
+    setViewerDetailSettingsOpen(false);
   }
 }
 function renderLinks(container, normalizedRecord) {
@@ -6485,6 +6878,35 @@ function showLink(linkElement, href) {
   }
   linkElement.href = href;
   linkElement.style.display = "inline";
+}
+function findFirstElementByClass(root, className) {
+  if (!root) {
+    return null;
+  }
+  const classNames = String(root.className ?? "").split(/\s+/).filter(Boolean);
+  if (root.classList?.contains?.(className) || classNames.includes(className)) {
+    return root;
+  }
+  for (const child of root.children ?? []) {
+    const match = findFirstElementByClass(child, className);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+}
+function isDescendantOf2(node, ancestor) {
+  if (!node || !ancestor) {
+    return false;
+  }
+  let current = node;
+  while (current) {
+    if (current === ancestor) {
+      return true;
+    }
+    current = current.parentNode ?? null;
+  }
+  return false;
 }
 function clampSelectedTimeSec(state2, timeSec) {
   if (state2.viewerModel) {
@@ -6563,6 +6985,26 @@ function getInitialGraphInteractionMode(getPersistedGraphInteractionMode) {
     return DEFAULT_GRAPH_INTERACTION_MODE;
   }
 }
+function getInitialRendererConfig({
+  getPersistedViewerNoteWidth,
+  getPersistedViewerNoteHeight,
+  getPersistedViewerBarLineHeight,
+  getPersistedViewerMarkerHeight,
+  getPersistedViewerSeparatorWidth
+} = {}) {
+  try {
+    return normalizeRendererConfig({
+      noteWidth: getPersistedViewerNoteWidth?.(),
+      noteHeight: getPersistedViewerNoteHeight?.(),
+      barLineHeight: getPersistedViewerBarLineHeight?.(),
+      markerHeight: getPersistedViewerMarkerHeight?.(),
+      separatorWidth: getPersistedViewerSeparatorWidth?.()
+    });
+  } catch (error) {
+    console.warn("Failed to read persisted renderer config:", error);
+    return DEFAULT_RENDERER_CONFIG;
+  }
+}
 function getInitialSpacingScale(mode, getPersistedSpacingScale) {
   try {
     return normalizeSpacingScale(Number(getPersistedSpacingScale?.(normalizeSpacingMode2(mode))));
@@ -6571,20 +7013,20 @@ function getInitialSpacingScale(mode, getPersistedSpacingScale) {
     return DEFAULT_SPACING_SCALE2;
   }
 }
-function estimateViewerWidthFromNumericMode(mode) {
+function estimateViewerWidthFromNumericMode(mode, rendererConfig = DEFAULT_RENDERER_CONFIG) {
   switch (Number(mode)) {
     case 5:
-      return estimateViewerWidth("5k", 6);
+      return estimateViewerWidth("5k", 6, rendererConfig);
     case 7:
-      return estimateViewerWidth("7k", 8);
+      return estimateViewerWidth("7k", 8, rendererConfig);
     case 9:
-      return estimateViewerWidth("popn-9k", 9);
+      return estimateViewerWidth("popn-9k", 9, rendererConfig);
     case 10:
-      return estimateViewerWidth("10k", 12);
+      return estimateViewerWidth("10k", 12, rendererConfig);
     case 14:
-      return estimateViewerWidth("14k", 16);
+      return estimateViewerWidth("14k", 16, rendererConfig);
     default:
-      return estimateViewerWidth(String(mode ?? ""), getDisplayLaneCount(mode));
+      return estimateViewerWidth(String(mode ?? ""), getDisplayLaneCount(mode), rendererConfig);
   }
 }
 function createPopupOption(documentRef, value, label) {
@@ -6592,6 +7034,42 @@ function createPopupOption(documentRef, value, label) {
   option.value = value;
   option.textContent = label;
   return option;
+}
+function createViewerDetailNumberField(documentRef, {
+  id,
+  label,
+  min,
+  max,
+  value
+}) {
+  const key = id === "bd-viewer-note-width-input" ? "noteWidth" : id === "bd-viewer-note-height-input" ? "noteHeight" : id === "bd-viewer-bar-line-height-input" ? "barLineHeight" : id === "bd-viewer-marker-height-input" ? "markerHeight" : "separatorWidth";
+  const labelElement = documentRef.createElement("label");
+  labelElement.className = "bd-graph-settings-label";
+  labelElement.setAttribute("for", id);
+  labelElement.textContent = label;
+  const inputElement = documentRef.createElement("input");
+  inputElement.id = id;
+  inputElement.className = "bd-graph-settings-select";
+  inputElement.type = "number";
+  inputElement.min = String(min);
+  inputElement.max = String(max);
+  inputElement.step = "1";
+  inputElement.value = String(value);
+  return {
+    key,
+    max,
+    label: labelElement,
+    input: inputElement
+  };
+}
+function normalizeViewerDetailInputValue(value, maxValue, fallbackValue) {
+  if (value === "" || value === null || value === void 0) {
+    return fallbackValue;
+  }
+  if (!Number.isFinite(Number(value))) {
+    return fallbackValue;
+  }
+  return Math.min(Math.max(Math.round(Number(value)), 0), maxValue);
 }
 function getDisplayLaneCount(mode) {
   switch (mode) {

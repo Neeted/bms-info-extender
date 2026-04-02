@@ -6,6 +6,7 @@ import {
   collectGameProjection,
   collectVisibleEditorGridLines,
   createScoreViewerRenderer,
+  estimateViewerWidth,
 } from "./score-viewer-renderer.js";
 
 test("collectVisibleEditorGridLines emits quarter and sixteenth lines without duplicating bar lines", () => {
@@ -84,52 +85,126 @@ test("renderer draws invisible note outlines inset within lane separators", () =
   );
 });
 
+test("renderer keeps existing default geometry when rendererConfig is omitted", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "time" });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.fillStyle !== "#000000")
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 72, y: 156, width: 15, height: 4 }],
+  );
+  assert.equal(estimateViewerWidth("7k", 8), 225);
+  assert.equal(estimateViewerWidth("7k", 8), estimateViewerWidth("7k", 8, {}));
+});
+
+test("rendererConfig reflects custom note, separator, note head, bar line, and marker sizes", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createTempoMarkerAlignmentScore());
+  const rendererConfig = {
+    noteWidth: 20,
+    separatorWidth: 2,
+    noteHeight: 6,
+    barLineHeight: 3,
+    markerHeight: 2,
+  };
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "time", rendererConfig });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.fillStyle === "#bebebe")
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 55, y: 154, width: 20, height: 6 }],
+  );
+  assert.equal(
+    context.strokeCalls.some((call) => call.strokeStyle === "#ffffff" && call.lineWidth === 3),
+    true,
+  );
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#00ff00" && call.width === 8 && call.height === 2),
+    true,
+  );
+  assert.equal(estimateViewerWidth("7k", 8, rendererConfig), 274);
+});
+
+test("rendererConfig normalizes zero values safely", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createTempoMarkerAlignmentScore());
+  const rendererConfig = {
+    noteWidth: 0,
+    separatorWidth: 0,
+    noteHeight: 0,
+    barLineHeight: 0,
+    markerHeight: 0,
+  };
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "time", rendererConfig });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle !== "#000000" && call.width > 0 && call.height > 0),
+    false,
+  );
+  assert.equal(
+    context.strokeRectCalls.length,
+    0,
+  );
+  assert.equal(
+    estimateViewerWidth("7k", 8, rendererConfig),
+    96,
+  );
+});
+
 test("renderer adapts note and invisible note geometry when separator width changes", () => {
-  withTestSeparatorWidth(0, () => {
+  const renderWithSeparatorWidth = (separatorWidth) => {
     const { canvas, context } = createMockCanvas();
     const renderer = createScoreViewerRenderer(canvas);
     const model = createScoreViewerModel(createInvisibleNoteScore());
 
     renderer.resize(240, 320);
-    renderer.render(model, 1, { viewerMode: "time" });
+    renderer.render(model, 1, { viewerMode: "time", rendererConfig: { separatorWidth } });
 
-    assert.deepEqual(
-      context.fillRectCalls
-        .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
-        .map(({ x, y, width, height }) => ({ x, y, width, height })),
-      [{ x: 75, y: 156, width: 15, height: 4 }],
-    );
+    return { renderer, context, model };
+  };
 
-    context.reset();
-    renderer.render(model, 2, { viewerMode: "time", showInvisibleNotes: true });
-    assert.deepEqual(
-      context.strokeRectCalls.map(({ x, y, width, height }) => ({ x, y, width, height })),
-      [{ x: 90.5, y: 156.5, width: 14, height: 3 }],
-    );
-  });
+  const zeroSeparator = renderWithSeparatorWidth(0);
+  assert.deepEqual(
+    zeroSeparator.context.fillRectCalls
+      .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 75, y: 156, width: 15, height: 4 }],
+  );
 
-  withTestSeparatorWidth(2, () => {
-    const { canvas, context } = createMockCanvas();
-    const renderer = createScoreViewerRenderer(canvas);
-    const model = createScoreViewerModel(createInvisibleNoteScore());
+  zeroSeparator.context.reset();
+  zeroSeparator.renderer.render(zeroSeparator.model, 2, { viewerMode: "time", showInvisibleNotes: true, rendererConfig: { separatorWidth: 0 } });
+  assert.deepEqual(
+    zeroSeparator.context.strokeRectCalls.map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 90.5, y: 156.5, width: 14, height: 3 }],
+  );
 
-    renderer.resize(240, 320);
-    renderer.render(model, 1, { viewerMode: "time" });
+  const widerSeparator = renderWithSeparatorWidth(2);
+  assert.deepEqual(
+    widerSeparator.context.fillRectCalls
+      .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 70, y: 156, width: 15, height: 4 }],
+  );
 
-    assert.deepEqual(
-      context.fillRectCalls
-        .filter((call) => call.width === 15 && call.height === 4 && call.fillStyle !== "#000000")
-        .map(({ x, y, width, height }) => ({ x, y, width, height })),
-      [{ x: 70, y: 156, width: 15, height: 4 }],
-    );
-
-    context.reset();
-    renderer.render(model, 2, { viewerMode: "time", showInvisibleNotes: true });
-    assert.deepEqual(
-      context.strokeRectCalls.map(({ x, y, width, height }) => ({ x, y, width, height })),
-      [{ x: 87.5, y: 156.5, width: 14, height: 3 }],
-    );
-  });
+  widerSeparator.context.reset();
+  widerSeparator.renderer.render(widerSeparator.model, 2, { viewerMode: "time", showInvisibleNotes: true, rendererConfig: { separatorWidth: 2 } });
+  assert.deepEqual(
+    widerSeparator.context.strokeRectCalls.map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 87.5, y: 156.5, width: 14, height: 3 }],
+  );
 });
 
 test("renderer moves the time-mode note head with a custom judge line Y", () => {
@@ -287,33 +362,33 @@ test("renderer aligns editor-mode measure labels to the bar line with a bottom b
 });
 
 test("renderer adapts editor horizontal line extents when separator width changes", () => {
-  withTestSeparatorWidth(0, () => {
+  {
     const { canvas, context } = createMockCanvas();
     const renderer = createScoreViewerRenderer(canvas);
     const model = createScoreViewerModel(createInvisibleNoteScore());
 
     renderer.resize(240, 320);
-    renderer.render(model, 1, { viewerMode: "editor" });
+    renderer.render(model, 1, { viewerMode: "editor", rendererConfig: { separatorWidth: 0 } });
 
     assert.equal(
       Math.max(...context.lineToCalls.map((call) => call.x)),
       180,
     );
-  });
+  }
 
-  withTestSeparatorWidth(2, () => {
+  {
     const { canvas, context } = createMockCanvas();
     const renderer = createScoreViewerRenderer(canvas);
     const model = createScoreViewerModel(createInvisibleNoteScore());
 
     renderer.resize(240, 320);
-    renderer.render(model, 1, { viewerMode: "editor" });
+    renderer.render(model, 1, { viewerMode: "editor", rendererConfig: { separatorWidth: 2 } });
 
     assert.equal(
       Math.max(...context.lineToCalls.map((call) => call.x)),
       189,
     );
-  });
+  }
 });
 
 test("renderer draws game-mode measure labels for visible bar lines", () => {
@@ -367,33 +442,33 @@ test("renderer draws left-side tempo marker labels after measure labels so marke
 });
 
 test("renderer adapts tempo marker positions when separator width changes", () => {
-  withTestSeparatorWidth(0, () => {
+  {
     const { canvas, context } = createMockCanvas();
     const renderer = createScoreViewerRenderer(canvas);
     const model = createScoreViewerModel(createTempoMarkerAlignmentScore());
 
     renderer.resize(240, 320);
-    renderer.render(model, 2, { viewerMode: "time" });
+    renderer.render(model, 2, { viewerMode: "time", rendererConfig: { separatorWidth: 0 } });
 
     const markerRects = context.fillRectCalls.filter((call) => call.height === 1 && call.width === 8);
     assert.equal(markerRects.some((call) => call.fillStyle === "#00ff00" && call.x === 180), true);
     assert.equal(markerRects.some((call) => call.fillStyle === "#ff00ff" && call.x === 52), true);
     assert.equal(markerRects.some((call) => call.fillStyle === "#ff0" && call.x === 52), true);
-  });
+  }
 
-  withTestSeparatorWidth(2, () => {
+  {
     const { canvas, context } = createMockCanvas();
     const renderer = createScoreViewerRenderer(canvas);
     const model = createScoreViewerModel(createTempoMarkerAlignmentScore());
 
     renderer.resize(240, 320);
-    renderer.render(model, 2, { viewerMode: "time" });
+    renderer.render(model, 2, { viewerMode: "time", rendererConfig: { separatorWidth: 2 } });
 
     const markerRects = context.fillRectCalls.filter((call) => call.height === 1 && call.width === 8);
     assert.equal(markerRects.some((call) => call.fillStyle === "#00ff00" && call.x === 187), true);
     assert.equal(markerRects.some((call) => call.fillStyle === "#ff00ff" && call.x === 45), true);
     assert.equal(markerRects.some((call) => call.fillStyle === "#ff0" && call.x === 45), true);
-  });
+  }
 });
 
 test("renderer draws Lunatic warp markers with a WARP label in time mode", () => {
@@ -629,7 +704,7 @@ test("renderer clips game-mode lanes by lane height and draws lane cover labels"
 });
 
 test("renderer adapts game lane cover width when separator width changes", () => {
-  const renderCoverWidth = (separatorWidth) => withTestSeparatorWidth(separatorWidth, () => {
+  const renderCoverWidth = (separatorWidth) => {
     const { canvas, context } = createMockCanvas();
     const renderer = createScoreViewerRenderer(canvas);
     const model = createScoreViewerModel(createGameZeroScrollFreezeScore(), {
@@ -651,10 +726,11 @@ test("renderer adapts game lane cover width when separator width changes", () =>
         laneCoverVisible: true,
         hsFixMode: "main",
       },
+      rendererConfig: { separatorWidth },
     });
 
     return context.fillRectCalls.find((call) => call.fillStyle === "#2A2A2A")?.width ?? 0;
-  });
+  };
 
   assert.equal(renderCoverWidth(0), 120);
   assert.equal(renderCoverWidth(2), 138);
@@ -1275,23 +1351,6 @@ function createMockCanvas() {
   };
 }
 
-function withTestSeparatorWidth(separatorWidth, callback) {
-  const previousOverrides = globalThis.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES;
-  globalThis.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES = {
-    ...previousOverrides,
-    separatorWidth,
-  };
-  try {
-    return callback();
-  } finally {
-    if (previousOverrides === undefined) {
-      delete globalThis.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES;
-    } else {
-      globalThis.__BMS_INFO_EXTENDER_RENDERER_TEST_OVERRIDES = previousOverrides;
-    }
-  }
-}
-
 class MockRenderingContext2D {
   constructor() {
     this.fillStyle = "#000000";
@@ -1302,6 +1361,7 @@ class MockRenderingContext2D {
     this.textAlign = "start";
     this.fillRectCalls = [];
     this.strokeRectCalls = [];
+    this.strokeCalls = [];
     this.fillTextCalls = [];
     this.moveToCalls = [];
     this.lineToCalls = [];
@@ -1315,6 +1375,7 @@ class MockRenderingContext2D {
   reset() {
     this.fillRectCalls = [];
     this.strokeRectCalls = [];
+    this.strokeCalls = [];
     this.fillTextCalls = [];
     this.moveToCalls = [];
     this.lineToCalls = [];
@@ -1378,7 +1439,9 @@ class MockRenderingContext2D {
     this.lineToCalls.push({ x, y });
   }
 
-  stroke() {}
+  stroke() {
+    this.strokeCalls.push({ strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
+  }
 
   rect(x, y, width, height) {
     const rect = normalizeRect({ x, y, width, height });

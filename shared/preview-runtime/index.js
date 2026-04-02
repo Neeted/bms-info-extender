@@ -26,7 +26,12 @@ import {
   resolveViewerModeForModel,
 } from "./score-viewer-model.js";
 import { createScoreViewerController } from "./score-viewer-controller.js";
-import { estimateViewerWidth } from "./score-viewer-renderer.js";
+import {
+  areRendererConfigsEqual,
+  DEFAULT_RENDERER_CONFIG,
+  estimateViewerWidth,
+  normalizeRendererConfig,
+} from "./score-viewer-renderer.js";
 import {
   fetchBmsInfoRecordByLookupKey,
   getLaneChipKey,
@@ -55,6 +60,11 @@ export const GAME_LANE_COVER_PERMILLE_STORAGE_KEY = "bms-info-extender.game.lane
 export const GAME_LANE_COVER_VISIBLE_STORAGE_KEY = "bms-info-extender.game.laneCoverVisible";
 export const GAME_HS_FIX_MODE_STORAGE_KEY = "bms-info-extender.game.hsFixMode";
 export const GRAPH_INTERACTION_MODE_STORAGE_KEY = "bms-info-extender.graphInteractionMode";
+export const VIEWER_NOTE_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.noteWidth";
+export const VIEWER_NOTE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.noteHeight";
+export const VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.barLineHeight";
+export const VIEWER_MARKER_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.markerHeight";
+export const VIEWER_SEPARATOR_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.separatorWidth";
 export const DEFAULT_SPACING_SCALE = 1.0;
 const SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX = 2;
 export { DEFAULT_VIEWER_MODE };
@@ -83,6 +93,8 @@ export const PREVIEW_RENDER_DIRTY = {
   viewerOpen: 1 << 10,
   graphInteractionMode: 1 << 11,
   graphSettings: 1 << 12,
+  rendererConfig: 1 << 13,
+  viewerDetailSettings: 1 << 14,
 };
 const PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 
@@ -250,6 +262,86 @@ export function createPreviewPreferenceStorage({ read = () => null, write = () =
         // Ignore storage failures and keep runtime state only.
       }
     },
+    getPersistedViewerNoteWidth() {
+      try {
+        return normalizeRendererConfig({
+          noteWidth: read(VIEWER_NOTE_WIDTH_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.noteWidth),
+        }).noteWidth;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.noteWidth;
+      }
+    },
+    setPersistedViewerNoteWidth(value) {
+      try {
+        write(VIEWER_NOTE_WIDTH_STORAGE_KEY, normalizeRendererConfig({ noteWidth: value }).noteWidth);
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedViewerNoteHeight() {
+      try {
+        return normalizeRendererConfig({
+          noteHeight: read(VIEWER_NOTE_HEIGHT_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.noteHeight),
+        }).noteHeight;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.noteHeight;
+      }
+    },
+    setPersistedViewerNoteHeight(value) {
+      try {
+        write(VIEWER_NOTE_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ noteHeight: value }).noteHeight);
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedViewerBarLineHeight() {
+      try {
+        return normalizeRendererConfig({
+          barLineHeight: read(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.barLineHeight),
+        }).barLineHeight;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.barLineHeight;
+      }
+    },
+    setPersistedViewerBarLineHeight(value) {
+      try {
+        write(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ barLineHeight: value }).barLineHeight);
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedViewerMarkerHeight() {
+      try {
+        return normalizeRendererConfig({
+          markerHeight: read(VIEWER_MARKER_HEIGHT_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.markerHeight),
+        }).markerHeight;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.markerHeight;
+      }
+    },
+    setPersistedViewerMarkerHeight(value) {
+      try {
+        write(VIEWER_MARKER_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ markerHeight: value }).markerHeight);
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedViewerSeparatorWidth() {
+      try {
+        return normalizeRendererConfig({
+          separatorWidth: read(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.separatorWidth),
+        }).separatorWidth;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.separatorWidth;
+      }
+    },
+    setPersistedViewerSeparatorWidth(value) {
+      try {
+        write(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY, normalizeRendererConfig({ separatorWidth: value }).separatorWidth);
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
   };
 }
 
@@ -260,7 +352,8 @@ export function expandPreviewRenderMask(renderMask = 0) {
       | PREVIEW_RENDER_DIRTY.invisible
       | PREVIEW_RENDER_DIRTY.judgeLinePosition
       | PREVIEW_RENDER_DIRTY.spacing
-      | PREVIEW_RENDER_DIRTY.gameTimingConfig;
+      | PREVIEW_RENDER_DIRTY.gameTimingConfig
+      | PREVIEW_RENDER_DIRTY.rendererConfig;
   }
   return expandedMask;
 }
@@ -306,6 +399,17 @@ export const BMSDATA_CSS = `
   .bd-graph-settings-group { display: grid; gap: 4px; }
   .bd-graph-settings-label { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
   .bd-graph-settings-select { width: 100%; min-width: 0; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; box-sizing: border-box; }
+  .score-viewer-detail-settings-toggle { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin-left: auto; padding: 0; border: unset; border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; box-shadow: none; }
+  .score-viewer-detail-settings-toggle:hover { background: rgba(255, 255, 255, 0.24); }
+  .score-viewer-detail-settings-toggle:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
+  .score-viewer-detail-settings-popup { position: fixed; z-index: 2147483001; display: grid; gap: 6px; min-width: 240px; max-width: min(320px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.88); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); box-sizing: border-box; pointer-events: auto; overflow: auto; contain: layout paint style; }
+  .score-viewer-detail-settings-popup[hidden] { display: none; }
+  .score-viewer-detail-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .score-viewer-detail-settings-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
+  .score-viewer-detail-settings-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; }
+  .score-viewer-detail-settings-close:hover { background: rgba(255, 255, 255, 0.24); }
+  .score-viewer-detail-settings-close:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
+  .score-viewer-settings-panel.is-popup { max-height: none; overflow: visible; opacity: 1; pointer-events: auto; transition: none; }
   .score-viewer-shell * { box-sizing: content-box; }
   .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; isolation: isolate; contain: layout paint style; }
   .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
@@ -603,6 +707,16 @@ export function createBmsInfoPreview({
   setPersistedGameHsFixMode = () => {},
   getPersistedGraphInteractionMode = () => DEFAULT_GRAPH_INTERACTION_MODE,
   setPersistedGraphInteractionMode = () => {},
+  getPersistedViewerNoteWidth = () => DEFAULT_RENDERER_CONFIG.noteWidth,
+  setPersistedViewerNoteWidth = () => {},
+  getPersistedViewerNoteHeight = () => DEFAULT_RENDERER_CONFIG.noteHeight,
+  setPersistedViewerNoteHeight = () => {},
+  getPersistedViewerBarLineHeight = () => DEFAULT_RENDERER_CONFIG.barLineHeight,
+  setPersistedViewerBarLineHeight = () => {},
+  getPersistedViewerMarkerHeight = () => DEFAULT_RENDERER_CONFIG.markerHeight,
+  setPersistedViewerMarkerHeight = () => {},
+  getPersistedViewerSeparatorWidth = () => DEFAULT_RENDERER_CONFIG.separatorWidth,
+  setPersistedViewerSeparatorWidth = () => {},
   onSelectedTimeChange = () => {},
   onPinChange = () => {},
   onPlaybackChange = () => {},
@@ -677,9 +791,17 @@ export function createBmsInfoPreview({
       getPersistedGameLaneCoverVisible,
       getPersistedGameHsFixMode,
     }),
+    rendererConfig: getInitialRendererConfig({
+      getPersistedViewerNoteWidth,
+      getPersistedViewerNoteHeight,
+      getPersistedViewerBarLineHeight,
+      getPersistedViewerMarkerHeight,
+      getPersistedViewerSeparatorWidth,
+    }),
     graphInteractionMode: initialGraphInteractionMode,
     isPinned: false,
     isViewerOpen: false,
+    isViewerDetailSettingsOpen: false,
     isPlaying: false,
     isGraphHovered: false,
     isGraphSettingsOpen: false,
@@ -723,7 +845,77 @@ export function createBmsInfoPreview({
     onGameTimingConfigChange: (nextGameTimingConfig) => {
       setGameTimingConfig(nextGameTimingConfig);
     },
+    onRendererConfigChange: (nextRendererConfig) => {
+      setRendererConfig(nextRendererConfig);
+    },
   });
+
+  const statusPanel = findFirstElementByClass(shell, "score-viewer-status-panel");
+  const detailSettingsToggle = findFirstElementByClass(shell, "score-viewer-detail-settings-toggle");
+  if (!statusPanel || !detailSettingsToggle) {
+    throw new Error("BMS preview viewer detail settings elements are missing.");
+  }
+  detailSettingsToggle.setAttribute("aria-expanded", "false");
+
+  const viewerDetailSettingsPopup = documentRef.createElement("div");
+  viewerDetailSettingsPopup.id = "bd-viewer-detail-settings-popup";
+  viewerDetailSettingsPopup.className = "score-viewer-detail-settings-popup";
+  viewerDetailSettingsPopup.hidden = true;
+  const viewerDetailSettingsHeader = documentRef.createElement("div");
+  viewerDetailSettingsHeader.className = "score-viewer-detail-settings-header";
+  const viewerDetailSettingsTitle = documentRef.createElement("span");
+  viewerDetailSettingsTitle.className = "score-viewer-detail-settings-title";
+  viewerDetailSettingsTitle.textContent = "Viewer Details";
+  const viewerDetailSettingsClose = documentRef.createElement("button");
+  viewerDetailSettingsClose.className = "score-viewer-detail-settings-close";
+  viewerDetailSettingsClose.type = "button";
+  viewerDetailSettingsClose.setAttribute("aria-label", "Close viewer detail settings");
+  viewerDetailSettingsClose.textContent = "x";
+  viewerDetailSettingsHeader.append(viewerDetailSettingsTitle, viewerDetailSettingsClose);
+  const viewerDetailSettingsGroup = documentRef.createElement("div");
+  viewerDetailSettingsGroup.className = "bd-graph-settings-group";
+  const viewerDetailSettingsControls = [
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-note-width-input",
+      label: "Note Width",
+      min: 0,
+      max: 64,
+      value: state.rendererConfig.noteWidth,
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-note-height-input",
+      label: "Note Height",
+      min: 0,
+      max: 32,
+      value: state.rendererConfig.noteHeight,
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-bar-line-height-input",
+      label: "Bar Line Height",
+      min: 0,
+      max: 16,
+      value: state.rendererConfig.barLineHeight,
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-marker-height-input",
+      label: "Marker Height",
+      min: 0,
+      max: 16,
+      value: state.rendererConfig.markerHeight,
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-separator-width-input",
+      label: "Separator Width",
+      min: 0,
+      max: 16,
+      value: state.rendererConfig.separatorWidth,
+    }),
+  ];
+  for (const control of viewerDetailSettingsControls) {
+    viewerDetailSettingsGroup.append(control.label, control.input);
+  }
+  viewerDetailSettingsPopup.append(viewerDetailSettingsHeader, viewerDetailSettingsGroup);
+  documentRef.body.appendChild(viewerDetailSettingsPopup);
 
   const graphController = createBmsInfoGraph({
     scrollHost: graphHost,
@@ -771,6 +963,42 @@ export function createBmsInfoPreview({
   graphInteractionSelect.addEventListener("change", () => {
     setGraphInteractionMode(graphInteractionSelect.value);
   });
+  detailSettingsToggle.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setViewerDetailSettingsOpen(!state.isViewerDetailSettingsOpen);
+  });
+  viewerDetailSettingsClose.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setViewerDetailSettingsOpen(false);
+  });
+  for (const control of viewerDetailSettingsControls) {
+    control.input.addEventListener("input", () => {
+      setRendererConfig({
+        [control.key]: normalizeViewerDetailInputValue(control.input.value, control.max, state.rendererConfig[control.key]),
+      });
+    });
+    control.input.addEventListener("change", () => {
+      const normalizedValue = normalizeViewerDetailInputValue(control.input.value, control.max, state.rendererConfig[control.key]);
+      control.input.value = String(normalizedValue);
+      setRendererConfig({
+        [control.key]: normalizedValue,
+      });
+    });
+  }
+  viewerDetailSettingsPopup.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !state.isViewerDetailSettingsOpen) {
+      return;
+    }
+    event.preventDefault();
+    setViewerDetailSettingsOpen(false);
+  });
+  documentRef.body.addEventListener("pointerdown", handleDocumentBodyPointerDown);
+  documentRef.body.addEventListener("keydown", handleDocumentBodyKeydown);
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("resize", positionViewerDetailSettingsPopup);
+  }
 
   return {
     setRecord,
@@ -810,7 +1038,7 @@ export function createBmsInfoPreview({
 
     if (recordChanged) {
       renderBmsData(container, normalizedRecord);
-      shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(normalizedRecord.mode)}px`);
+      shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(normalizedRecord.mode, state.rendererConfig)}px`);
       renderMask |= PREVIEW_RENDER_DIRTY.record;
     }
 
@@ -1148,6 +1376,42 @@ export function createBmsInfoPreview({
     scheduleRender(PREVIEW_RENDER_DIRTY.graphSettings);
   }
 
+  function setRendererConfig(nextRendererConfig = {}) {
+    const normalizedRendererConfig = normalizeRendererConfig({
+      ...state.rendererConfig,
+      ...nextRendererConfig,
+    });
+    if (areRendererConfigsEqual(state.rendererConfig, normalizedRendererConfig)) {
+      return;
+    }
+    state.rendererConfig = normalizedRendererConfig;
+    try {
+      setPersistedViewerNoteWidth(normalizedRendererConfig.noteWidth);
+      setPersistedViewerNoteHeight(normalizedRendererConfig.noteHeight);
+      setPersistedViewerBarLineHeight(normalizedRendererConfig.barLineHeight);
+      setPersistedViewerMarkerHeight(normalizedRendererConfig.markerHeight);
+      setPersistedViewerSeparatorWidth(normalizedRendererConfig.separatorWidth);
+    } catch (error) {
+      console.warn("Failed to persist renderer config:", error);
+    }
+    if (state.record) {
+      shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(state.record.mode, state.rendererConfig)}px`);
+    }
+    scheduleRender(PREVIEW_RENDER_DIRTY.rendererConfig);
+  }
+
+  function setViewerDetailSettingsOpen(nextOpen) {
+    const normalizedOpen = Boolean(nextOpen);
+    if (state.isViewerDetailSettingsOpen === normalizedOpen) {
+      if (normalizedOpen) {
+        positionViewerDetailSettingsPopup();
+      }
+      return;
+    }
+    state.isViewerDetailSettingsOpen = normalizedOpen;
+    scheduleRender(PREVIEW_RENDER_DIRTY.viewerDetailSettings);
+  }
+
   function setPinned(nextPinned) {
     const normalized = Boolean(nextPinned);
     if (state.isPinned === normalized) {
@@ -1297,6 +1561,13 @@ export function createBmsInfoPreview({
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.graphSettings) {
       graphSettingsPopup.hidden = !state.isGraphSettingsOpen;
     }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerDetailSettings) {
+      viewerDetailSettingsPopup.hidden = !state.isViewerDetailSettingsOpen;
+      detailSettingsToggle.setAttribute("aria-expanded", String(state.isViewerDetailSettingsOpen));
+    }
+    if (state.isViewerDetailSettingsOpen) {
+      positionViewerDetailSettingsPopup();
+    }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
       viewerController.setModel(state.viewerModel);
     }
@@ -1314,6 +1585,15 @@ export function createBmsInfoPreview({
     }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.gameTimingConfig) {
       viewerController.setGameTimingConfig(state.gameTimingConfig);
+    }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.rendererConfig) {
+      viewerController.setRendererConfig(state.rendererConfig);
+      for (const control of viewerDetailSettingsControls) {
+        control.input.value = String(state.rendererConfig[control.key]);
+      }
+      if (state.record) {
+        shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(state.record.mode, state.rendererConfig)}px`);
+      }
     }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
       viewerController.setPlaybackState(state.isPlaying);
@@ -1345,7 +1625,63 @@ export function createBmsInfoPreview({
     graphController.destroy();
     viewerController.destroy();
     graphSettingsPopup.remove();
+    documentRef.body.removeEventListener("pointerdown", handleDocumentBodyPointerDown);
+    documentRef.body.removeEventListener("keydown", handleDocumentBodyKeydown);
+    if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+      window.removeEventListener("resize", positionViewerDetailSettingsPopup);
+    }
+    viewerDetailSettingsPopup.remove();
     shell.remove();
+  }
+
+  function positionViewerDetailSettingsPopup() {
+    if (!state.isViewerDetailSettingsOpen || viewerDetailSettingsPopup.hidden || !statusPanel.isConnected) {
+      return;
+    }
+    const statusRect = statusPanel.getBoundingClientRect();
+    const viewportWidth = documentRef.documentElement?.clientWidth ?? window.innerWidth ?? 0;
+    const viewportHeight = documentRef.documentElement?.clientHeight ?? window.innerHeight ?? 0;
+    const popupWidth = Math.max(
+      viewerDetailSettingsPopup.offsetWidth
+      || viewerDetailSettingsPopup.getBoundingClientRect?.().width
+      || 240,
+      0,
+    );
+    const popupHeight = Math.max(
+      viewerDetailSettingsPopup.offsetHeight
+      || viewerDetailSettingsPopup.getBoundingClientRect?.().height
+      || 0,
+      0,
+    );
+    const left = Math.max(statusRect.left - popupWidth - 12, 12);
+    const top = Math.min(
+      Math.max(statusRect.bottom - popupHeight, 12),
+      Math.max(viewportHeight - popupHeight - 12, 12),
+    );
+    viewerDetailSettingsPopup.style.left = `${left}px`;
+    viewerDetailSettingsPopup.style.top = `${top}px`;
+    viewerDetailSettingsPopup.style.right = "auto";
+    viewerDetailSettingsPopup.style.bottom = "auto";
+    viewerDetailSettingsPopup.style.transform = "none";
+  }
+
+  function handleDocumentBodyPointerDown(event) {
+    if (!state.isViewerDetailSettingsOpen) {
+      return;
+    }
+    const target = event.target ?? null;
+    if (isDescendantOf(target, viewerDetailSettingsPopup) || isDescendantOf(target, detailSettingsToggle)) {
+      return;
+    }
+    setViewerDetailSettingsOpen(false);
+  }
+
+  function handleDocumentBodyKeydown(event) {
+    if (!state.isViewerDetailSettingsOpen || event.key !== "Escape") {
+      return;
+    }
+    event.preventDefault();
+    setViewerDetailSettingsOpen(false);
   }
 }
 
@@ -1399,6 +1735,37 @@ function showLink(linkElement, href) {
   }
   linkElement.href = href;
   linkElement.style.display = "inline";
+}
+
+function findFirstElementByClass(root, className) {
+  if (!root) {
+    return null;
+  }
+  const classNames = String(root.className ?? "").split(/\s+/).filter(Boolean);
+  if (root.classList?.contains?.(className) || classNames.includes(className)) {
+    return root;
+  }
+  for (const child of root.children ?? []) {
+    const match = findFirstElementByClass(child, className);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+}
+
+function isDescendantOf(node, ancestor) {
+  if (!node || !ancestor) {
+    return false;
+  }
+  let current = node;
+  while (current) {
+    if (current === ancestor) {
+      return true;
+    }
+    current = current.parentNode ?? null;
+  }
+  return false;
 }
 
 function clampSelectedTimeSec(state, timeSec) {
@@ -1487,6 +1854,27 @@ export function getInitialGraphInteractionMode(getPersistedGraphInteractionMode)
   }
 }
 
+export function getInitialRendererConfig({
+  getPersistedViewerNoteWidth,
+  getPersistedViewerNoteHeight,
+  getPersistedViewerBarLineHeight,
+  getPersistedViewerMarkerHeight,
+  getPersistedViewerSeparatorWidth,
+} = {}) {
+  try {
+    return normalizeRendererConfig({
+      noteWidth: getPersistedViewerNoteWidth?.(),
+      noteHeight: getPersistedViewerNoteHeight?.(),
+      barLineHeight: getPersistedViewerBarLineHeight?.(),
+      markerHeight: getPersistedViewerMarkerHeight?.(),
+      separatorWidth: getPersistedViewerSeparatorWidth?.(),
+    });
+  } catch (error) {
+    console.warn("Failed to read persisted renderer config:", error);
+    return DEFAULT_RENDERER_CONFIG;
+  }
+}
+
 export function getInitialSpacingScale(mode, getPersistedSpacingScale) {
   try {
     return normalizeSpacingScale(Number(getPersistedSpacingScale?.(normalizeSpacingMode(mode))));
@@ -1496,20 +1884,20 @@ export function getInitialSpacingScale(mode, getPersistedSpacingScale) {
   }
 }
 
-function estimateViewerWidthFromNumericMode(mode) {
+function estimateViewerWidthFromNumericMode(mode, rendererConfig = DEFAULT_RENDERER_CONFIG) {
   switch (Number(mode)) {
     case 5:
-      return estimateViewerWidth("5k", 6);
+      return estimateViewerWidth("5k", 6, rendererConfig);
     case 7:
-      return estimateViewerWidth("7k", 8);
+      return estimateViewerWidth("7k", 8, rendererConfig);
     case 9:
-      return estimateViewerWidth("popn-9k", 9);
+      return estimateViewerWidth("popn-9k", 9, rendererConfig);
     case 10:
-      return estimateViewerWidth("10k", 12);
+      return estimateViewerWidth("10k", 12, rendererConfig);
     case 14:
-      return estimateViewerWidth("14k", 16);
+      return estimateViewerWidth("14k", 16, rendererConfig);
     default:
-      return estimateViewerWidth(String(mode ?? ""), getDisplayLaneCount(mode));
+      return estimateViewerWidth(String(mode ?? ""), getDisplayLaneCount(mode), rendererConfig);
   }
 }
 
@@ -1518,6 +1906,52 @@ function createPopupOption(documentRef, value, label) {
   option.value = value;
   option.textContent = label;
   return option;
+}
+
+function createViewerDetailNumberField(documentRef, {
+  id,
+  label,
+  min,
+  max,
+  value,
+}) {
+  const key = id === "bd-viewer-note-width-input"
+    ? "noteWidth"
+    : id === "bd-viewer-note-height-input"
+      ? "noteHeight"
+      : id === "bd-viewer-bar-line-height-input"
+        ? "barLineHeight"
+        : id === "bd-viewer-marker-height-input"
+          ? "markerHeight"
+          : "separatorWidth";
+  const labelElement = documentRef.createElement("label");
+  labelElement.className = "bd-graph-settings-label";
+  labelElement.setAttribute("for", id);
+  labelElement.textContent = label;
+  const inputElement = documentRef.createElement("input");
+  inputElement.id = id;
+  inputElement.className = "bd-graph-settings-select";
+  inputElement.type = "number";
+  inputElement.min = String(min);
+  inputElement.max = String(max);
+  inputElement.step = "1";
+  inputElement.value = String(value);
+  return {
+    key,
+    max,
+    label: labelElement,
+    input: inputElement,
+  };
+}
+
+function normalizeViewerDetailInputValue(value, maxValue, fallbackValue) {
+  if (value === "" || value === null || value === undefined) {
+    return fallbackValue;
+  }
+  if (!Number.isFinite(Number(value))) {
+    return fallbackValue;
+  }
+  return Math.min(Math.max(Math.round(Number(value)), 0), maxValue);
 }
 
 function getDisplayLaneCount(mode) {

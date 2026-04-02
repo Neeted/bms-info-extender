@@ -197,6 +197,28 @@ test("controller groups spacing and mode controls into a settings panel", () => 
   }
 });
 
+test("controller adds a gear button next to the playback row for detail settings", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const controller = createScoreViewerController({ root });
+    const playbackRow = findElementByClass(root, "score-viewer-status-row");
+    const detailSettingsToggle = findElementByClass(root, "score-viewer-detail-settings-toggle");
+
+    assert.ok(playbackRow);
+    assert.ok(detailSettingsToggle);
+    assert.equal(detailSettingsToggle.textContent, "⚙");
+    assert.equal(detailSettingsToggle["aria-label"], "Open viewer detail settings");
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
 test("embedded CSS hides settings panel until hover or focus-within", () => {
   assert.match(BMSDATA_CSS, /\.score-viewer-settings-group \{[^}]*display: grid;[^}]*gap: 4px;/);
   assert.match(BMSDATA_CSS, /\.score-viewer-settings-panel \{[^}]*max-height: 0;[^}]*opacity: 0;[^}]*pointer-events: none;/);

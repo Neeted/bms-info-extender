@@ -46,8 +46,11 @@ import {
   resolveViewerModeForModel,
 } from "./score-viewer-model.js";
 import {
+  areRendererConfigsEqual,
   createScoreViewerRenderer,
+  DEFAULT_RENDERER_CONFIG,
   estimateViewerWidth,
+  normalizeRendererConfig,
 } from "./score-viewer-renderer.js";
 
 const DEFAULT_WHEEL_LINE_HEIGHT_PX = 16;
@@ -76,6 +79,7 @@ export function createScoreViewerController({
   onJudgeLinePositionChange = () => {},
   onSpacingScaleChange = () => {},
   onGameTimingConfigChange = () => {},
+  onRendererConfigChange = () => {},
 }) {
   const scrollHost = document.createElement("div");
   scrollHost.className = "score-viewer-scroll-host";
@@ -105,7 +109,13 @@ export function createScoreViewerController({
   const playbackTime = document.createElement("span");
   playbackTime.className = "score-viewer-playback-time";
 
-  playbackRow.append(playbackButton, playbackTime);
+  const detailSettingsToggle = document.createElement("button");
+  detailSettingsToggle.className = "score-viewer-detail-settings-toggle";
+  detailSettingsToggle.type = "button";
+  detailSettingsToggle.setAttribute("aria-label", "Open viewer detail settings");
+  detailSettingsToggle.textContent = "⚙";
+
+  playbackRow.append(playbackButton, playbackTime, detailSettingsToggle);
 
   const measureRow = document.createElement("div");
   measureRow.className = "score-viewer-status-row score-viewer-status-metric";
@@ -268,6 +278,7 @@ export function createScoreViewerController({
     isPlaying: false,
     spacingScaleByMode: createDefaultSpacingScaleByMode(),
     gameTimingConfig: createDefaultGameTimingConfig(),
+    rendererConfig: DEFAULT_RENDERER_CONFIG,
     viewerMode: DEFAULT_VIEWER_MODE,
     invisibleNoteVisibility: DEFAULT_INVISIBLE_NOTE_VISIBILITY,
     judgeLinePositionRatio: DEFAULT_JUDGE_LINE_POSITION_RATIO,
@@ -689,6 +700,18 @@ export function createScoreViewerController({
     refreshLayout();
   }
 
+  function setRendererConfig(nextRendererConfig = {}) {
+    const normalizedRendererConfig = normalizeRendererConfig({
+      ...state.rendererConfig,
+      ...nextRendererConfig,
+    });
+    if (areRendererConfigsEqual(state.rendererConfig, normalizedRendererConfig)) {
+      return;
+    }
+    state.rendererConfig = normalizedRendererConfig;
+    refreshLayout();
+  }
+
   function setEmptyState(_title, _message) {}
 
   function togglePlayback() {
@@ -1015,6 +1038,7 @@ export function createScoreViewerController({
       showInvisibleNotes: state.invisibleNoteVisibility === "show",
       judgeLineY: currentJudgeLineY,
       gameTimingConfig: state.gameTimingConfig,
+      rendererConfig: state.rendererConfig,
     });
   }
 
@@ -1051,6 +1075,7 @@ export function createScoreViewerController({
     setJudgeLinePositionRatio,
     setSpacingScaleByMode,
     setGameTimingConfig,
+    setRendererConfig,
     setEmptyState,
     refreshLayout,
     destroy,
@@ -1119,7 +1144,7 @@ export function createScoreViewerController({
     }
     root.style.setProperty(
       "--score-viewer-width",
-      `${estimateViewerWidth(state.model.score.mode, state.model.score.laneCount)}px`,
+      `${estimateViewerWidth(state.model.score.mode, state.model.score.laneCount, state.rendererConfig)}px`,
     );
   }
 

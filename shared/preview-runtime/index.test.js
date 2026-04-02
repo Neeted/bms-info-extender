@@ -21,6 +21,11 @@ import {
   GAME_LANE_COVER_VISIBLE_STORAGE_KEY,
   GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY,
   GRAPH_INTERACTION_MODE_STORAGE_KEY,
+  VIEWER_NOTE_WIDTH_STORAGE_KEY,
+  VIEWER_NOTE_HEIGHT_STORAGE_KEY,
+  VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY,
+  VIEWER_MARKER_HEIGHT_STORAGE_KEY,
+  VIEWER_SEPARATOR_WIDTH_STORAGE_KEY,
   INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
   JUDGE_LINE_POSITION_RATIO_STORAGE_KEY,
   SPACING_SCALE_STORAGE_KEYS,
@@ -33,6 +38,7 @@ import {
   getInitialInvisibleNoteVisibility,
   getInitialJudgeLinePositionRatio,
   getInitialGameTimingConfig,
+  getInitialRendererConfig,
 } from "./index.js";
 
 test("viewer mode defaults to time and keeps persisted game values", () => {
@@ -122,6 +128,34 @@ test("graph interaction mode defaults to hover and restores valid persisted valu
   assert.equal(getInitialGraphInteractionMode(() => "invalid"), "hover");
 });
 
+test("renderer config defaults and restores valid persisted values", () => {
+  assert.equal(VIEWER_NOTE_WIDTH_STORAGE_KEY, "bms-info-extender.viewer.noteWidth");
+  assert.equal(VIEWER_NOTE_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.noteHeight");
+  assert.equal(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.barLineHeight");
+  assert.equal(VIEWER_MARKER_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.markerHeight");
+  assert.equal(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY, "bms-info-extender.viewer.separatorWidth");
+  assert.deepEqual(getInitialRendererConfig(), {
+    noteWidth: 15,
+    noteHeight: 4,
+    barLineHeight: 1,
+    markerHeight: 1,
+    separatorWidth: 1,
+  });
+  assert.deepEqual(getInitialRendererConfig({
+    getPersistedViewerNoteWidth: () => 20,
+    getPersistedViewerNoteHeight: () => 6,
+    getPersistedViewerBarLineHeight: () => 3,
+    getPersistedViewerMarkerHeight: () => 2,
+    getPersistedViewerSeparatorWidth: () => 4,
+  }), {
+    noteWidth: 20,
+    noteHeight: 6,
+    barLineHeight: 3,
+    markerHeight: 2,
+    separatorWidth: 4,
+  });
+});
+
 test("preview preference storage shares persistence wiring for viewer mode, invisible notes, judge line position, and per-mode spacing", () => {
   const store = new Map();
   const preferences = createPreviewPreferenceStorage({
@@ -141,6 +175,11 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameLaneCoverVisible(), true);
   assert.equal(preferences.getPersistedGameHsFixMode(), "main");
   assert.equal(preferences.getPersistedGraphInteractionMode(), "hover");
+  assert.equal(preferences.getPersistedViewerNoteWidth(), 15);
+  assert.equal(preferences.getPersistedViewerNoteHeight(), 4);
+  assert.equal(preferences.getPersistedViewerBarLineHeight(), 1);
+  assert.equal(preferences.getPersistedViewerMarkerHeight(), 1);
+  assert.equal(preferences.getPersistedViewerSeparatorWidth(), 1);
 
   preferences.setPersistedViewerMode("lunatic");
   preferences.setPersistedInvisibleNoteVisibility("show");
@@ -154,6 +193,11 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   preferences.setPersistedGameLaneCoverVisible(false);
   preferences.setPersistedGameHsFixMode("max");
   preferences.setPersistedGraphInteractionMode("drag");
+  preferences.setPersistedViewerNoteWidth(20);
+  preferences.setPersistedViewerNoteHeight(6);
+  preferences.setPersistedViewerBarLineHeight(3);
+  preferences.setPersistedViewerMarkerHeight(2);
+  preferences.setPersistedViewerSeparatorWidth(4);
 
   assert.equal(store.get(VIEWER_MODE_STORAGE_KEY), "lunatic");
   assert.equal(store.get(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY), "show");
@@ -167,6 +211,11 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(store.get(GAME_LANE_COVER_VISIBLE_STORAGE_KEY), false);
   assert.equal(store.get(GAME_HS_FIX_MODE_STORAGE_KEY), "max");
   assert.equal(store.get(GRAPH_INTERACTION_MODE_STORAGE_KEY), "drag");
+  assert.equal(store.get(VIEWER_NOTE_WIDTH_STORAGE_KEY), 20);
+  assert.equal(store.get(VIEWER_NOTE_HEIGHT_STORAGE_KEY), 6);
+  assert.equal(store.get(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY), 3);
+  assert.equal(store.get(VIEWER_MARKER_HEIGHT_STORAGE_KEY), 2);
+  assert.equal(store.get(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY), 4);
   assert.equal(preferences.getPersistedViewerMode(), "lunatic");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "show");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.25);
@@ -179,6 +228,11 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameLaneCoverVisible(), false);
   assert.equal(preferences.getPersistedGameHsFixMode(), "max");
   assert.equal(preferences.getPersistedGraphInteractionMode(), "drag");
+  assert.equal(preferences.getPersistedViewerNoteWidth(), 20);
+  assert.equal(preferences.getPersistedViewerNoteHeight(), 6);
+  assert.equal(preferences.getPersistedViewerBarLineHeight(), 3);
+  assert.equal(preferences.getPersistedViewerMarkerHeight(), 2);
+  assert.equal(preferences.getPersistedViewerSeparatorWidth(), 4);
 
   store.set(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, "invalid");
   store.set(SPACING_SCALE_STORAGE_KEYS.editor, "invalid");
@@ -188,6 +242,11 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   store.set(GAME_LANE_COVER_VISIBLE_STORAGE_KEY, "invalid");
   store.set(GAME_HS_FIX_MODE_STORAGE_KEY, "invalid");
   store.set(GRAPH_INTERACTION_MODE_STORAGE_KEY, "invalid");
+  store.set(VIEWER_NOTE_WIDTH_STORAGE_KEY, "invalid");
+  store.set(VIEWER_NOTE_HEIGHT_STORAGE_KEY, "invalid");
+  store.set(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY, "invalid");
+  store.set(VIEWER_MARKER_HEIGHT_STORAGE_KEY, "invalid");
+  store.set(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY, "invalid");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.5);
   assert.equal(preferences.getPersistedSpacingScale("editor"), 1.0);
   assert.equal(preferences.getPersistedGameDurationMs(), 500);
@@ -196,6 +255,11 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedGameLaneCoverVisible(), true);
   assert.equal(preferences.getPersistedGameHsFixMode(), "main");
   assert.equal(preferences.getPersistedGraphInteractionMode(), "hover");
+  assert.equal(preferences.getPersistedViewerNoteWidth(), 15);
+  assert.equal(preferences.getPersistedViewerNoteHeight(), 4);
+  assert.equal(preferences.getPersistedViewerBarLineHeight(), 1);
+  assert.equal(preferences.getPersistedViewerMarkerHeight(), 1);
+  assert.equal(preferences.getPersistedViewerSeparatorWidth(), 1);
 });
 
 test("viewer model dirty render also reapplies persisted viewer chrome", () => {
@@ -385,6 +449,81 @@ test("graph settings popup toggles and persists interaction mode", async () => {
   }
 });
 
+test("viewer detail settings popup opens beside the status panel, reflects defaults, and closes on outside pointerdown or Escape", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createParsedScore(),
+    });
+    await environment.settle();
+
+    const statusPanel = findElementByClass(environment.document.body, "score-viewer-status-panel");
+    const detailSettingsPopup = findElementById(environment.document.body, "bd-viewer-detail-settings-popup");
+    const detailSettingsToggle = findElementByClass(environment.document.body, "score-viewer-detail-settings-toggle");
+    const detailSettingsClose = findElementByClass(environment.document.body, "score-viewer-detail-settings-close");
+
+    assert.ok(statusPanel);
+    assert.ok(detailSettingsPopup);
+    assert.ok(detailSettingsToggle);
+    assert.ok(detailSettingsClose);
+    assert.equal(detailSettingsPopup.hidden, true);
+    assert.equal(detailSettingsPopup.parentNode, environment.document.body);
+
+    const noteWidthInput = findElementById(environment.document.body, "bd-viewer-note-width-input");
+    const noteHeightInput = findElementById(environment.document.body, "bd-viewer-note-height-input");
+    const barLineHeightInput = findElementById(environment.document.body, "bd-viewer-bar-line-height-input");
+    const markerHeightInput = findElementById(environment.document.body, "bd-viewer-marker-height-input");
+    const separatorWidthInput = findElementById(environment.document.body, "bd-viewer-separator-width-input");
+
+    assert.equal(noteWidthInput?.value, "15");
+    assert.equal(noteHeightInput?.value, "4");
+    assert.equal(barLineHeightInput?.value, "1");
+    assert.equal(markerHeightInput?.value, "1");
+    assert.equal(separatorWidthInput?.value, "1");
+
+    detailSettingsPopup.getBoundingClientRect = () => ({ width: 240, height: 180 });
+    statusPanel.getBoundingClientRect = () => ({ left: 220, top: 96, bottom: 180 });
+
+    detailSettingsToggle.dispatchEvent({ type: "click" });
+    await environment.settle();
+
+    assert.equal(detailSettingsPopup.hidden, false);
+    assert.equal(detailSettingsPopup.style.left, "12px");
+    assert.equal(detailSettingsPopup.style.top, "12px");
+    assert.equal(detailSettingsPopup.style.right, "auto");
+    assert.equal(detailSettingsPopup.style.bottom, "auto");
+    assert.equal(detailSettingsToggle.getAttribute("aria-expanded"), "true");
+
+    detailSettingsClose.dispatchEvent({ type: "click" });
+    await environment.settle();
+    assert.equal(detailSettingsPopup.hidden, true);
+    assert.equal(detailSettingsToggle.getAttribute("aria-expanded"), "false");
+
+    detailSettingsToggle.dispatchEvent({ type: "click" });
+    await environment.settle();
+    assert.equal(detailSettingsPopup.hidden, false);
+
+    environment.document.body.dispatchEvent({ type: "pointerdown" });
+    await environment.settle();
+    assert.equal(detailSettingsPopup.hidden, true);
+
+    detailSettingsToggle.dispatchEvent({ type: "click" });
+    await environment.settle();
+    assert.equal(detailSettingsPopup.hidden, false);
+
+    environment.document.body.dispatchEvent({ type: "keydown", key: "Escape" });
+    await environment.settle();
+    assert.equal(detailSettingsPopup.hidden, true);
+
+    preview.destroy();
+    await environment.settle();
+    assert.equal(findElementById(environment.document.body, "bd-viewer-detail-settings-popup"), null);
+  } finally {
+    environment.restore();
+  }
+});
+
 test("preview playback stops at the Lunatic profile duration instead of the raw parser duration", async () => {
   const environment = installPreviewTestEnvironment();
   try {
@@ -556,6 +695,9 @@ function createPreviewHarness(documentRef, {
   elements.graphSettingsPopup = findElementById(documentRef.body, "bd-graph-settings-popup");
   elements.graphSettingsClose = findElementById(documentRef.body, "bd-graph-settings-close");
   elements.graphInteractionSelect = findElementById(documentRef.body, "bd-graph-interaction-select");
+  elements.viewerDetailSettingsPopup = findElementById(documentRef.body, "bd-viewer-detail-settings-popup");
+  elements.viewerDetailSettingsToggle = findElementByClass(documentRef.body, "score-viewer-detail-settings-toggle");
+  elements.viewerDetailSettingsClose = findElementByClass(documentRef.body, "score-viewer-detail-settings-close");
   return { preview, elements };
 }
 
@@ -625,6 +767,23 @@ function findElementById(root, id) {
   }
   for (const child of root.children ?? []) {
     const match = findElementById(child, id);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+}
+
+function findElementByClass(root, className) {
+  if (!root) {
+    return null;
+  }
+  const classNames = String(root.className ?? "").split(/\s+/).filter(Boolean);
+  if (root.classList?.contains?.(className) || classNames.includes(className)) {
+    return root;
+  }
+  for (const child of root.children ?? []) {
+    const match = findElementByClass(child, className);
     if (match) {
       return match;
     }
@@ -730,6 +889,8 @@ function installPreviewTestEnvironment() {
   globalThis.document = documentRef;
   globalThis.window = {
     devicePixelRatio: 1,
+    innerWidth: 800,
+    innerHeight: 768,
     addEventListener() {},
     removeEventListener() {},
   };
@@ -779,6 +940,9 @@ function installPreviewTestEnvironment() {
 
 class MockDocument {
   constructor() {
+    this.documentElement = new MockElement("html", this);
+    this.documentElement.clientWidth = 800;
+    this.documentElement.clientHeight = 768;
     this.body = new MockElement("body", this);
     this.head = new MockElement("head", this);
   }

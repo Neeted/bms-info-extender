@@ -361,7 +361,7 @@ test("controller exposes game-mode controls with the requested steps and without
     controller.setViewerMode("game");
     controller.setGameTimingConfig({
       durationMs: 500,
-      laneHeightPercent: 12.5,
+      laneHeightPx: 420,
       laneCoverPermille: 350,
       laneCoverVisible: false,
       hsFixMode: "max",
@@ -379,21 +379,23 @@ test("controller exposes game-mode controls with the requested steps and without
 
     assert.equal(GAME_DURATION_SLIDER_STEP, 10);
     assert.equal(GAME_DURATION_WHEEL_STEP, 1);
-    assert.equal(GAME_LANE_HEIGHT_SLIDER_STEP, 1);
-    assert.equal(GAME_LANE_HEIGHT_WHEEL_STEP, 0.1);
+    assert.equal(GAME_LANE_HEIGHT_SLIDER_STEP, 10);
+    assert.equal(GAME_LANE_HEIGHT_WHEEL_STEP, 1);
     assert.equal(GAME_LANE_COVER_SLIDER_STEP, 10);
     assert.equal(GAME_LANE_COVER_WHEEL_STEP, 1);
     assert.equal(spacingInput.min, "1");
     assert.equal(spacingInput.max, "5000");
     assert.equal(spacingInput.step, "10");
-    assert.equal(laneHeightInput.step, "1");
+    assert.equal(laneHeightInput.min, "1");
+    assert.equal(laneHeightInput.max, "2160");
+    assert.equal(laneHeightInput.step, "10");
     assert.equal(laneCoverInput.step, "10");
     assert.equal(laneCoverVisibleInput.checked, false);
     assert.equal(hsFixSelect.value, "max");
     assert.equal(hsFixSelect.children.some((option) => option.value === "off"), false);
     assert.equal(spacingPrimary.textContent, "500ms");
     assert.equal(spacingSecondary.textContent, "(300)");
-    assert.match(laneHeightRow.children[1].textContent, /12\.5%\(/);
+    assert.equal(laneHeightRow.children[1].textContent, "420px");
     assert.match(laneCoverRow.children[1].textContent, /350\(35\.0%\)/);
 
     controller.destroy();
@@ -513,7 +515,7 @@ test("controller avoids rewriting chrome-only styles during selection-only updat
     controller.setViewerMode("game");
     controller.setGameTimingConfig({
       durationMs: 500,
-      laneHeightPercent: 12.5,
+      laneHeightPx: 420,
       laneCoverPermille: 350,
       laneCoverVisible: true,
       hsFixMode: "max",
@@ -696,7 +698,7 @@ test("controller applies resize cursor classes on hover before dragging", () => 
     controller.setOpen(true);
     controller.setViewerMode("game");
     controller.setGameTimingConfig({
-      laneHeightPercent: 20,
+      laneHeightPx: 216,
       laneCoverPermille: 250,
       laneCoverVisible: true,
     });
@@ -742,7 +744,7 @@ test("controller updates lane height and lane cover by pointer drag in game mode
     controller.setViewerMode("game");
     controller.setGameTimingConfig({
       durationMs: 500,
-      laneHeightPercent: 20,
+      laneHeightPx: 216,
       laneCoverPermille: 250,
       laneCoverVisible: true,
       hsFixMode: "main",
@@ -765,24 +767,24 @@ test("controller updates lane height and lane cover by pointer drag in game mode
       clientY: 288,
     });
 
-    assert.equal(gameTimingConfigChanges.at(-1)?.laneHeightPercent, 40);
+    assert.equal(gameTimingConfigChanges.at(-1)?.laneHeightPx, 72);
     assert.equal(laneHeightHandle.style.top, "288px");
 
     dispatchPointerEvent(scrollHost, "pointerdown", {
       pointerId: 2,
-      clientY: 342,
+      clientY: 306,
     });
     dispatchPointerEvent(scrollHost, "pointermove", {
       pointerId: 2,
-      clientY: 450,
+      clientY: 342,
     });
     dispatchPointerEvent(scrollHost, "pointerup", {
       pointerId: 2,
-      clientY: 450,
+      clientY: 342,
     });
 
     assert.equal(gameTimingConfigChanges.at(-1)?.laneCoverPermille, 750);
-    assert.equal(laneCoverHandle.style.top, "450px");
+    assert.equal(laneCoverHandle.style.top, "342px");
 
     controller.destroy();
   } finally {
@@ -802,7 +804,7 @@ test("controller aligns lane-cover handle with the renderer's rounded cover bott
     controller.setOpen(true);
     controller.setViewerMode("game");
     controller.setGameTimingConfig({
-      laneHeightPercent: 33.3,
+      laneHeightPx: 300,
       laneCoverPermille: 500,
       laneCoverVisible: true,
       hsFixMode: "main",
@@ -811,8 +813,8 @@ test("controller aligns lane-cover handle with the renderer's rounded cover bott
     const laneHeightHandle = findElementByClass(root, "score-viewer-lane-height-handle");
     const laneCoverHandle = findElementByClass(root, "score-viewer-lane-cover-handle");
 
-    assert.equal(laneHeightHandle.style.top, "107px");
-    assert.equal(laneCoverHandle.style.top, "161px");
+    assert.equal(laneHeightHandle.style.top, "0px");
+    assert.equal(laneCoverHandle.style.top, "80px");
 
     controller.destroy();
   } finally {
@@ -838,7 +840,7 @@ test("controller does not allow lane-cover drag when cover is hidden", () => {
     controller.setOpen(true);
     controller.setViewerMode("game");
     controller.setGameTimingConfig({
-      laneHeightPercent: 20,
+      laneHeightPx: 216,
       laneCoverPermille: 250,
       laneCoverVisible: false,
     });

@@ -11,7 +11,7 @@ import {
   DEFAULT_GAME_HS_FIX_MODE,
   DEFAULT_GAME_LANE_COVER_PERMILLE,
   DEFAULT_GAME_LANE_COVER_VISIBLE,
-  DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+  DEFAULT_GAME_LANE_HEIGHT_PX,
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
   DEFAULT_SPACING_SCALE,
   DEFAULT_GRAPH_INTERACTION_MODE,
@@ -20,7 +20,7 @@ import {
   GAME_HS_FIX_MODE_STORAGE_KEY,
   GAME_LANE_COVER_PERMILLE_STORAGE_KEY,
   GAME_LANE_COVER_VISIBLE_STORAGE_KEY,
-  GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY,
+  GAME_LANE_HEIGHT_PX_STORAGE_KEY,
   GRAPH_INTERACTION_MODE_STORAGE_KEY,
   VIEWER_NOTE_WIDTH_STORAGE_KEY,
   VIEWER_SCRATCH_WIDTH_STORAGE_KEY,
@@ -92,31 +92,31 @@ test("spacing scale defaults to 1.0 and restores valid persisted values per mode
 
 test("game timing config defaults and restores valid persisted values", () => {
   assert.equal(DEFAULT_GAME_DURATION_MS, 500);
-  assert.equal(DEFAULT_GAME_LANE_HEIGHT_PERCENT, 0);
+  assert.equal(DEFAULT_GAME_LANE_HEIGHT_PX, 300);
   assert.equal(DEFAULT_GAME_LANE_COVER_PERMILLE, 0);
   assert.equal(DEFAULT_GAME_LANE_COVER_VISIBLE, true);
   assert.equal(DEFAULT_GAME_HS_FIX_MODE, "main");
   assert.equal(GAME_DURATION_MS_STORAGE_KEY, "bms-info-extender.game.durationMs");
-  assert.equal(GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY, "bms-info-extender.game.laneHeightPercent");
+  assert.equal(GAME_LANE_HEIGHT_PX_STORAGE_KEY, "bms-info-extender.game.laneHeightPx");
   assert.equal(GAME_LANE_COVER_PERMILLE_STORAGE_KEY, "bms-info-extender.game.laneCoverPermille");
   assert.equal(GAME_LANE_COVER_VISIBLE_STORAGE_KEY, "bms-info-extender.game.laneCoverVisible");
   assert.equal(GAME_HS_FIX_MODE_STORAGE_KEY, "bms-info-extender.game.hsFixMode");
   assert.deepEqual(getInitialGameTimingConfig(), {
     durationMs: 500,
-    laneHeightPercent: 0,
+    laneHeightPx: 300,
     laneCoverPermille: 0,
     laneCoverVisible: true,
     hsFixMode: "main",
   });
   assert.deepEqual(getInitialGameTimingConfig({
     getPersistedGameDurationMs: () => 640,
-    getPersistedGameLaneHeightPercent: () => 12.5,
+    getPersistedGameLaneHeightPx: () => 420,
     getPersistedGameLaneCoverPermille: () => 350,
     getPersistedGameLaneCoverVisible: () => false,
     getPersistedGameHsFixMode: () => "max",
   }), {
     durationMs: 640,
-    laneHeightPercent: 12.5,
+    laneHeightPx: 420,
     laneCoverPermille: 350,
     laneCoverVisible: false,
     hsFixMode: "max",
@@ -177,7 +177,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedSpacingScale("editor"), 1.0);
   assert.equal(preferences.getPersistedSpacingScale("game"), 1.0);
   assert.equal(preferences.getPersistedGameDurationMs(), 500);
-  assert.equal(preferences.getPersistedGameLaneHeightPercent(), 0);
+  assert.equal(preferences.getPersistedGameLaneHeightPx(), 300);
   assert.equal(preferences.getPersistedGameLaneCoverPermille(), 0);
   assert.equal(preferences.getPersistedGameLaneCoverVisible(), true);
   assert.equal(preferences.getPersistedGameHsFixMode(), "main");
@@ -196,7 +196,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   preferences.setPersistedSpacingScale("editor", 1.25);
   preferences.setPersistedSpacingScale("game", 1.5);
   preferences.setPersistedGameDurationMs(640);
-  preferences.setPersistedGameLaneHeightPercent(12.5);
+  preferences.setPersistedGameLaneHeightPx(420);
   preferences.setPersistedGameLaneCoverPermille(350);
   preferences.setPersistedGameLaneCoverVisible(false);
   preferences.setPersistedGameHsFixMode("max");
@@ -215,7 +215,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(store.get(SPACING_SCALE_STORAGE_KEYS.editor), 1.25);
   assert.equal(store.get(SPACING_SCALE_STORAGE_KEYS.game), 1.5);
   assert.equal(store.get(GAME_DURATION_MS_STORAGE_KEY), 640);
-  assert.equal(store.get(GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY), 12.5);
+  assert.equal(store.get(GAME_LANE_HEIGHT_PX_STORAGE_KEY), 420);
   assert.equal(store.get(GAME_LANE_COVER_PERMILLE_STORAGE_KEY), 350);
   assert.equal(store.get(GAME_LANE_COVER_VISIBLE_STORAGE_KEY), false);
   assert.equal(store.get(GAME_HS_FIX_MODE_STORAGE_KEY), "max");
@@ -233,7 +233,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedSpacingScale("editor"), 1.25);
   assert.equal(preferences.getPersistedSpacingScale("game"), 1.5);
   assert.equal(preferences.getPersistedGameDurationMs(), 640);
-  assert.equal(preferences.getPersistedGameLaneHeightPercent(), 12.5);
+  assert.equal(preferences.getPersistedGameLaneHeightPx(), 420);
   assert.equal(preferences.getPersistedGameLaneCoverPermille(), 350);
   assert.equal(preferences.getPersistedGameLaneCoverVisible(), false);
   assert.equal(preferences.getPersistedGameHsFixMode(), "max");
@@ -248,7 +248,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   store.set(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, "invalid");
   store.set(SPACING_SCALE_STORAGE_KEYS.editor, "invalid");
   store.set(GAME_DURATION_MS_STORAGE_KEY, "invalid");
-  store.set(GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY, "invalid");
+  store.set(GAME_LANE_HEIGHT_PX_STORAGE_KEY, "invalid");
   store.set(GAME_LANE_COVER_PERMILLE_STORAGE_KEY, "invalid");
   store.set(GAME_LANE_COVER_VISIBLE_STORAGE_KEY, "invalid");
   store.set(GAME_HS_FIX_MODE_STORAGE_KEY, "invalid");
@@ -262,7 +262,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.5);
   assert.equal(preferences.getPersistedSpacingScale("editor"), 1.0);
   assert.equal(preferences.getPersistedGameDurationMs(), 500);
-  assert.equal(preferences.getPersistedGameLaneHeightPercent(), 0);
+  assert.equal(preferences.getPersistedGameLaneHeightPx(), 300);
   assert.equal(preferences.getPersistedGameLaneCoverPermille(), 0);
   assert.equal(preferences.getPersistedGameLaneCoverVisible(), true);
   assert.equal(preferences.getPersistedGameHsFixMode(), "main");

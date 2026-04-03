@@ -167,44 +167,69 @@ test("viewer model derives game lane geometry and judge line ratios within the a
     getGameLaneGeometry(500, 0.5, 50),
     {
       viewportHeight: 500,
-      laneTopY: 250,
+      laneTopY: 200,
       laneBottomY: 500,
-      laneHeightPx: 250,
-      judgeLineY: 375,
-      judgeDistancePx: 125,
+      laneHeightPx: 50,
+      configuredLaneHeightPx: 50,
+      judgeLineY: 250,
+      judgeDistancePx: 50,
     },
   );
-  assert.equal(getGameJudgeLineY(500, 0.5, 50), 375);
-  assert.equal(getGameJudgeDistancePx(500, 0.5, 50), 125);
-  assert.equal(getGameLaneCoverHeightPx(500, 0.5, 50, 500), 62.5);
+  assert.equal(getGameJudgeLineY(500, 0.5), 250);
+  assert.equal(getGameJudgeDistancePx(500, 0.5, 50), 50);
+  assert.equal(getGameLaneCoverHeightPx(500, 0.5, 50, 500), 25);
   assert.deepEqual(
     getGameLaneCoverBounds(500, 0.5, 50, 500),
     {
-      topY: 250,
-      bottomY: 313,
-      heightPx: 63,
-      rawBottomY: 312.5,
+      topY: 200,
+      bottomY: 225,
+      heightPx: 25,
+      rawBottomY: 225,
     },
   );
-  assert.equal(getGameJudgeLinePositionRatioFromPointer(250, 500, 50), 0);
-  assert.equal(getGameJudgeLinePositionRatioFromPointer(375, 500, 50), 0.5);
+  assert.equal(getGameJudgeLinePositionRatioFromPointer(250, 500), 0.5);
+  assert.equal(getGameJudgeLinePositionRatioFromPointer(375, 500), 0.75);
   assert.equal(getGameJudgeLinePositionRatioFromPointer(500, 500, 50), 1);
 });
 
-test("viewer model snaps fractional game lane geometry to integer pixel bounds", () => {
-  const geometry = getGameLaneGeometry(321, 0.5, 33.3);
+test("viewer model clips actual lane height to the space above the judge line", () => {
+  const geometry = getGameLaneGeometry(321, 0.5, 300);
 
   assert.deepEqual(geometry, {
     viewportHeight: 321,
-    laneTopY: 107,
+    laneTopY: 0,
     laneBottomY: 321,
-    laneHeightPx: 214,
-    judgeLineY: 214,
-    judgeDistancePx: 107,
+    laneHeightPx: 160.5,
+    configuredLaneHeightPx: 300,
+    judgeLineY: 160.5,
+    judgeDistancePx: 160.5,
+  });
+  assert.equal(geometry.laneTopY, 0);
+  assert.equal(geometry.judgeLineY - geometry.laneTopY, geometry.laneHeightPx);
+});
+
+test("viewer model snaps the active game lane top to an integer pixel", () => {
+  const geometry = getGameLaneGeometry(321, 0.5, 50);
+
+  assert.deepEqual(geometry, {
+    viewportHeight: 321,
+    laneTopY: 110,
+    laneBottomY: 321,
+    laneHeightPx: 50.5,
+    configuredLaneHeightPx: 50,
+    judgeLineY: 160.5,
+    judgeDistancePx: 50.5,
   });
   assert.equal(Number.isInteger(geometry.laneTopY), true);
-  assert.equal(Number.isInteger(geometry.laneHeightPx), true);
-  assert.equal(geometry.laneTopY + geometry.laneHeightPx, geometry.laneBottomY);
+  assert.deepEqual(
+    getGameLaneCoverBounds(321, 0.5, 50, 500),
+    {
+      topY: 110,
+      bottomY: 135,
+      heightPx: 25,
+      rawBottomY: 135.25,
+    },
+  );
 });
 
 test("viewer model resolves HS-FIX BPMs from record summary and parsed score fallbacks", () => {
@@ -318,7 +343,7 @@ test("viewer model caches game timing derived metrics by normalized config", () 
   const model = createScoreViewerModel(createGameTimingDensityScore({ dense: true }));
   const first = getGameTimingDerivedMetrics(model, {
     durationMs: 500,
-    laneHeightPercent: 0,
+    laneHeightPx: 300,
     laneCoverPermille: 0,
     laneCoverVisible: true,
     hsFixMode: "main",
@@ -326,7 +351,7 @@ test("viewer model caches game timing derived metrics by normalized config", () 
   const second = getGameTimingDerivedMetrics(model, createDefaultGameTimingConfig());
   const third = getGameTimingDerivedMetrics(model, {
     durationMs: 750,
-    laneHeightPercent: 0,
+    laneHeightPx: 300,
     laneCoverPermille: 0,
     laneCoverVisible: true,
     hsFixMode: "main",
@@ -345,7 +370,7 @@ test("viewer model keeps duration and green number semantics when lane cover vis
   const model = createScoreViewerModel(createGameTimingDensityScore({ dense: true }));
   const visibleConfig = {
     durationMs: 500,
-    laneHeightPercent: 0,
+    laneHeightPx: 300,
     laneCoverPermille: 250,
     laneCoverVisible: true,
     hsFixMode: "main",

@@ -253,8 +253,8 @@ export function createScoreViewerRenderer(canvas) {
     const normalizedGameTimingConfig = normalizeGameTimingConfig(gameTimingConfig);
     const laneGeometry = getGameLaneGeometry(
       height,
-      getJudgeLineRatioFromGeometry(height, judgeLineY, normalizedGameTimingConfig.laneHeightPercent),
-      normalizedGameTimingConfig.laneHeightPercent,
+      getJudgeLineRatioFromGeometry(height, judgeLineY),
+      normalizedGameTimingConfig.laneHeightPx,
     );
     const projection = collectGameProjection(model, selectedTimeSec, height, {
       gameTimingConfig: normalizedGameTimingConfig,
@@ -663,9 +663,8 @@ export function collectGameProjection(
     getJudgeLineRatioFromGeometry(
       viewportHeight,
       resolvedLaneGeometry.judgeLineY,
-      normalizedGameTimingConfig.laneHeightPercent,
     ),
-    normalizedGameTimingConfig.laneHeightPercent,
+    normalizedGameTimingConfig.laneHeightPx,
     normalizedGameTimingConfig.laneCoverPermille,
   );
   const currentGreenNumber = normalizedGameTimingConfig.laneCoverVisible
@@ -1624,20 +1623,12 @@ function gameTrackPositionToViewportY(eventTrackPosition, selectedTrackPosition,
   return judgeLineY - (eventTrackPosition - selectedTrackPosition) * pixelsPerBeat;
 }
 
-function getJudgeLineRatioFromGeometry(viewportHeight, judgeLineY, laneHeightPercent) {
-  const laneGeometry = getGameLaneGeometry(
-    viewportHeight,
-    DEFAULT_JUDGE_LINE_POSITION_RATIO,
-    laneHeightPercent,
-  );
-  if (!(laneGeometry.laneHeightPx > 0)) {
+function getJudgeLineRatioFromGeometry(viewportHeight, judgeLineY) {
+  const normalizedViewportHeight = Math.max(Number.isFinite(viewportHeight) ? viewportHeight : 0, 0);
+  if (!(normalizedViewportHeight > 0)) {
     return DEFAULT_JUDGE_LINE_POSITION_RATIO;
   }
-  return clamp(
-    (judgeLineY - laneGeometry.laneTopY) / laneGeometry.laneHeightPx,
-    0,
-    1,
-  );
+  return clamp(judgeLineY / normalizedViewportHeight, 0, 1);
 }
 
 function normalizeGameProjectionOptions(viewportHeight, options, legacyJudgeLineY) {
@@ -1651,22 +1642,21 @@ function normalizeGameProjectionOptions(viewportHeight, options, legacyJudgeLine
       laneGeometry: options.laneGeometry,
     };
   }
-  const judgeLineY = Number.isFinite(legacyJudgeLineY)
-    ? legacyJudgeLineY
-    : getGameJudgeLineY(
-      viewportHeight,
-      DEFAULT_JUDGE_LINE_POSITION_RATIO,
-      normalizedGameTimingConfig.laneHeightPercent,
-    );
-  return {
-    gameTimingConfig: normalizedGameTimingConfig,
-    laneGeometry: getGameLaneGeometry(
-      viewportHeight,
-      getJudgeLineRatioFromGeometry(viewportHeight, judgeLineY, normalizedGameTimingConfig.laneHeightPercent),
-      normalizedGameTimingConfig.laneHeightPercent,
-    ),
-  };
-}
+    const judgeLineY = Number.isFinite(legacyJudgeLineY)
+      ? legacyJudgeLineY
+      : getGameJudgeLineY(
+        viewportHeight,
+        DEFAULT_JUDGE_LINE_POSITION_RATIO,
+      );
+    return {
+      gameTimingConfig: normalizedGameTimingConfig,
+      laneGeometry: getGameLaneGeometry(
+        viewportHeight,
+        getJudgeLineRatioFromGeometry(viewportHeight, judgeLineY),
+        normalizedGameTimingConfig.laneHeightPx,
+      ),
+    };
+  }
 
 function isViewportYVisible(y, viewportTopY, viewportBottomY, margin = getNoteHeadHeight() + 24) {
   return y >= viewportTopY - margin && y <= viewportBottomY + margin;

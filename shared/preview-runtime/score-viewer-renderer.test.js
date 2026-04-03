@@ -749,7 +749,7 @@ test("renderer clips game-mode lanes by lane height and draws lane cover labels"
     judgeLineY: 240,
     gameTimingConfig: {
       durationMs: 500,
-      laneHeightPercent: 50,
+      laneHeightPx: 80,
       laneCoverPermille: 500,
       laneCoverVisible: true,
       hsFixMode: "main",
@@ -795,9 +795,10 @@ test("renderer snaps game lane cover bounds to integer pixels before drawing", (
   renderer.resize(241, 321);
   renderer.render(model, 2.25, {
     viewerMode: "game",
+    judgeLineY: 241,
     gameTimingConfig: {
       durationMs: 500,
-      laneHeightPercent: 33.3,
+      laneHeightPx: 81,
       laneCoverPermille: 500,
       laneCoverVisible: true,
       hsFixMode: "main",
@@ -809,7 +810,41 @@ test("renderer snaps game lane cover bounds to integer pixels before drawing", (
       .filter((call) => call.fillStyle === "#2A2A2A")
       .map(({ y, height }) => ({ y, height })),
     [
-      { y: 107, height: 27 },
+      { y: 160, height: 41 },
+    ],
+  );
+});
+
+test("renderer snaps the game lane cover top to the same integer lane top", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameZeroScrollFreezeScore(), {
+    bpmSummary: {
+      mainBpm: 150,
+      minBpm: 120,
+      maxBpm: 180,
+    },
+  });
+
+  renderer.resize(241, 321);
+  renderer.render(model, 2.25, {
+    viewerMode: "game",
+    judgeLineY: 160.5,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPx: 50,
+      laneCoverPermille: 500,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.fillStyle === "#2A2A2A")
+      .map(({ y, height }) => ({ y, height })),
+    [
+      { y: 110, height: 25 },
     ],
   );
 });
@@ -832,7 +867,7 @@ test("renderer adapts game lane cover width when separator width changes", () =>
       judgeLineY: 240,
       gameTimingConfig: {
         durationMs: 500,
-        laneHeightPercent: 50,
+        laneHeightPx: 80,
         laneCoverPermille: 500,
         laneCoverVisible: true,
         hsFixMode: "main",
@@ -860,7 +895,7 @@ test("renderer skips lane cover drawing and label calculations when cover is hid
   const projection = collectGameProjection(model, 2.25, 320, {
     gameTimingConfig: {
       durationMs: 500,
-      laneHeightPercent: 50,
+      laneHeightPx: 80,
       laneCoverPermille: 500,
       laneCoverVisible: false,
       hsFixMode: "main",
@@ -876,7 +911,7 @@ test("renderer skips lane cover drawing and label calculations when cover is hid
     judgeLineY: 240,
     gameTimingConfig: {
       durationMs: 500,
-      laneHeightPercent: 50,
+      laneHeightPx: 80,
       laneCoverPermille: 500,
       laneCoverVisible: false,
       hsFixMode: "main",
@@ -908,7 +943,7 @@ test("renderer hides game-mode note heads once they are above the active lane to
     judgeLineY: 240,
     gameTimingConfig: {
       durationMs: 500,
-      laneHeightPercent: 50,
+      laneHeightPx: 80,
       laneCoverPermille: 0,
       laneCoverVisible: true,
       hsFixMode: "main",
@@ -933,7 +968,7 @@ test("renderer clamps visible game-mode long bodies to the active lane top", () 
     judgeLineY: 240,
     gameTimingConfig: {
       durationMs: 500,
-      laneHeightPercent: 50,
+      laneHeightPx: 80,
       laneCoverPermille: 0,
       laneCoverVisible: true,
       hsFixMode: "main",
@@ -961,7 +996,7 @@ test("renderer suppresses out-of-lane game-mode BPM markers and measure labels",
     judgeLineY: 240,
     gameTimingConfig: {
       durationMs: 500,
-      laneHeightPercent: 50,
+      laneHeightPx: 80,
       laneCoverPermille: 0,
       laneCoverVisible: true,
       hsFixMode: "main",

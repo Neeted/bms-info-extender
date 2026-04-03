@@ -4,7 +4,7 @@ import {
   DEFAULT_GAME_DURATION_MS,
   DEFAULT_GAME_LANE_COVER_PERMILLE,
   DEFAULT_GAME_LANE_COVER_VISIBLE,
-  DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+  DEFAULT_GAME_LANE_HEIGHT_PX,
   DEFAULT_GAME_HS_FIX_MODE,
   DEFAULT_INVISIBLE_NOTE_VISIBILITY,
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
@@ -18,7 +18,7 @@ import {
   normalizeGameHsFixMode,
   normalizeGameLaneCoverPermille,
   normalizeGameLaneCoverVisible,
-  normalizeGameLaneHeightPercent,
+  normalizeGameLaneHeightPx,
   normalizeGameTimingConfig,
   normalizeViewerMode,
   normalizeInvisibleNoteVisibility,
@@ -55,7 +55,7 @@ export const SPACING_SCALE_STORAGE_KEYS = Object.freeze({
   game: "bms-info-extender.spacingScale.game",
 });
 export const GAME_DURATION_MS_STORAGE_KEY = "bms-info-extender.game.durationMs";
-export const GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY = "bms-info-extender.game.laneHeightPercent";
+export const GAME_LANE_HEIGHT_PX_STORAGE_KEY = "bms-info-extender.game.laneHeightPx";
 export const GAME_LANE_COVER_PERMILLE_STORAGE_KEY = "bms-info-extender.game.laneCoverPermille";
 export const GAME_LANE_COVER_VISIBLE_STORAGE_KEY = "bms-info-extender.game.laneCoverVisible";
 export const GAME_HS_FIX_MODE_STORAGE_KEY = "bms-info-extender.game.hsFixMode";
@@ -74,7 +74,7 @@ export { DEFAULT_JUDGE_LINE_POSITION_RATIO };
 export { DEFAULT_GRAPH_INTERACTION_MODE };
 export {
   DEFAULT_GAME_DURATION_MS,
-  DEFAULT_GAME_LANE_HEIGHT_PERCENT,
+  DEFAULT_GAME_LANE_HEIGHT_PX,
   DEFAULT_GAME_LANE_COVER_PERMILLE,
   DEFAULT_GAME_LANE_COVER_VISIBLE,
   DEFAULT_GAME_HS_FIX_MODE,
@@ -182,18 +182,18 @@ export function createPreviewPreferenceStorage({ read = () => null, write = () =
         // Ignore storage failures and keep runtime state only.
       }
     },
-    getPersistedGameLaneHeightPercent() {
+    getPersistedGameLaneHeightPx() {
       try {
-        return normalizeGameLaneHeightPercent(
-          Number(read(GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY, DEFAULT_GAME_LANE_HEIGHT_PERCENT)),
+        return normalizeGameLaneHeightPx(
+          Number(read(GAME_LANE_HEIGHT_PX_STORAGE_KEY, DEFAULT_GAME_LANE_HEIGHT_PX)),
         );
       } catch (_error) {
-        return DEFAULT_GAME_LANE_HEIGHT_PERCENT;
+        return DEFAULT_GAME_LANE_HEIGHT_PX;
       }
     },
-    setPersistedGameLaneHeightPercent(value) {
+    setPersistedGameLaneHeightPx(value) {
       try {
-        write(GAME_LANE_HEIGHT_PERCENT_STORAGE_KEY, normalizeGameLaneHeightPercent(value));
+        write(GAME_LANE_HEIGHT_PX_STORAGE_KEY, normalizeGameLaneHeightPx(value));
       } catch (_error) {
         // Ignore storage failures and keep runtime state only.
       }
@@ -1307,8 +1307,8 @@ export function createBmsInfoPreview({
   setPersistedSpacingScale = () => {},
   getPersistedGameDurationMs = () => DEFAULT_GAME_DURATION_MS,
   setPersistedGameDurationMs = () => {},
-  getPersistedGameLaneHeightPercent = () => DEFAULT_GAME_LANE_HEIGHT_PERCENT,
-  setPersistedGameLaneHeightPercent = () => {},
+  getPersistedGameLaneHeightPx = () => DEFAULT_GAME_LANE_HEIGHT_PX,
+  setPersistedGameLaneHeightPx = () => {},
   getPersistedGameLaneCoverPermille = () => DEFAULT_GAME_LANE_COVER_PERMILLE,
   setPersistedGameLaneCoverPermille = () => {},
   getPersistedGameLaneCoverVisible = () => DEFAULT_GAME_LANE_COVER_VISIBLE,
@@ -1421,7 +1421,7 @@ export function createBmsInfoPreview({
     spacingScaleByMode: getInitialSpacingScaleByMode(getPersistedSpacingScale),
     gameTimingConfig: getInitialGameTimingConfig({
       getPersistedGameDurationMs,
-      getPersistedGameLaneHeightPercent,
+      getPersistedGameLaneHeightPx,
       getPersistedGameLaneCoverPermille,
       getPersistedGameLaneCoverVisible,
       getPersistedGameHsFixMode,
@@ -2022,7 +2022,7 @@ export function createBmsInfoPreview({
     state.gameTimingConfig = normalizedGameTimingConfig;
     try {
       setPersistedGameDurationMs(normalizedGameTimingConfig.durationMs);
-      setPersistedGameLaneHeightPercent(normalizedGameTimingConfig.laneHeightPercent);
+      setPersistedGameLaneHeightPx(normalizedGameTimingConfig.laneHeightPx);
       setPersistedGameLaneCoverPermille(normalizedGameTimingConfig.laneCoverPermille);
       setPersistedGameLaneCoverVisible(normalizedGameTimingConfig.laneCoverVisible);
       setPersistedGameHsFixMode(normalizedGameTimingConfig.hsFixMode);
@@ -2625,14 +2625,14 @@ export function getInitialSpacingScaleByMode(getPersistedSpacingScale) {
 
 export function getInitialGameTimingConfig({
   getPersistedGameDurationMs,
-  getPersistedGameLaneHeightPercent,
+  getPersistedGameLaneHeightPx,
   getPersistedGameLaneCoverPermille,
   getPersistedGameLaneCoverVisible,
   getPersistedGameHsFixMode,
 } = {}) {
   return normalizeGameTimingConfig({
     durationMs: getPersistedGameDurationMs?.(),
-    laneHeightPercent: getPersistedGameLaneHeightPercent?.(),
+    laneHeightPx: getPersistedGameLaneHeightPx?.(),
     laneCoverPermille: getPersistedGameLaneCoverPermille?.(),
     laneCoverVisible: getPersistedGameLaneCoverVisible?.(),
     hsFixMode: getPersistedGameHsFixMode?.(),
@@ -2809,7 +2809,7 @@ function buildViewerModel(parsedScore, normalizedRecord, viewerMode) {
 
 function areGameTimingConfigsEqual(left, right) {
   return Math.abs((left?.durationMs ?? DEFAULT_GAME_DURATION_MS) - (right?.durationMs ?? DEFAULT_GAME_DURATION_MS)) < 0.000001
-    && Math.abs((left?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT) - (right?.laneHeightPercent ?? DEFAULT_GAME_LANE_HEIGHT_PERCENT)) < 0.000001
+    && Math.abs((left?.laneHeightPx ?? DEFAULT_GAME_LANE_HEIGHT_PX) - (right?.laneHeightPx ?? DEFAULT_GAME_LANE_HEIGHT_PX)) < 0.000001
     && Math.abs((left?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE) - (right?.laneCoverPermille ?? DEFAULT_GAME_LANE_COVER_PERMILLE)) < 0.000001
     && (left?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE) === (right?.laneCoverVisible ?? DEFAULT_GAME_LANE_COVER_VISIBLE)
     && (left?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE) === (right?.hsFixMode ?? DEFAULT_GAME_HS_FIX_MODE);

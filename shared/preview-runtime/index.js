@@ -397,86 +397,6 @@ export const BMSDATA_CSS = `
   .bd-table-scroll { overflow: auto; flex: 1 1 auto; scrollbar-color: var(--bd-hdbk) white; scrollbar-width: thin; }
   .bd-table-list ul { padding: 0.1rem 0.2rem; margin: 0; }
   .bd-table-list li { margin-bottom: 0.2rem; line-height: 1rem; font-size: 0.875rem; white-space: nowrap; list-style-type: none; }
-  #bd-graph { position: relative; padding: 0px; border-width: 0px; background-color: #000; overflow-x: auto; line-height: 0; scrollbar-color: var(--bd-hdbk) black; scrollbar-width: thin; }
-  #bd-graph-canvas { background-color: #000; }
-  #bd-graph-tooltip { line-height: 1.25; position: fixed; background: rgba(32, 32, 64, 0.88); color: #fff; padding: 4px 8px; font-size: 0.8125rem; pointer-events: none; border-radius: 6px; display: none; z-index: 10; white-space: nowrap; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22); }
-  .bd-graph-toolbar { position: absolute; top: 4px; left: 4px; display: inline-flex; align-items: center; gap: 2px; z-index: 3; background-color: unset;}
-  .bd-scoreviewer-pin { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: rgba(32, 32, 64, 0.5); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-sizing: border-box; width: auto; }
-  .bd-scoreviewer-pin * { background: transparent; color: #fff; font-family: "Inconsolata", "Noto Sans JP"; }
-  .bd-scoreviewer-pin input { width: auto; flex: 0 0 auto; min-height: auto; margin: 0; padding: 0; border: none; background: transparent; accent-color: #ffffff; }
-  .bd-scoreviewer-pin span { display: inline-block; line-height: 1.25; white-space: nowrap; }
-  .bd-graph-toolbar-button { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; border: unset; border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; box-shadow: none; }
-  .bd-graph-toolbar-button:hover { background: rgba(255, 255, 255, 0.24); }
-  .bd-graph-toolbar-button:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
-  .bd-graph-settings-popup { position: fixed; left: 12px; bottom: 12px; z-index: 2147482999; display: grid; gap: 6px; min-width: 220px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.88); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); box-sizing: border-box; }
-  .bd-graph-settings-popup[hidden] { display: none; }
-  .bd-graph-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .bd-graph-settings-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
-  .bd-graph-settings-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; }
-  .bd-graph-settings-group { display: grid; gap: 4px; min-width: 0; }
-  .bd-graph-settings-label { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
-  .bd-graph-settings-select { width: 100%; min-width: 0; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; box-sizing: border-box; }
-  .score-viewer-detail-settings-toggle { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin-left: auto; padding: 0; border: unset; border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; box-shadow: none; }
-  .score-viewer-detail-settings-toggle:hover { background: rgba(255, 255, 255, 0.24); }
-  .score-viewer-detail-settings-toggle:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
-  .score-viewer-detail-settings-popup { position: fixed; z-index: 2147483001; display: grid; gap: 6px; width: min(240px, calc(100vw - 24px)); min-width: 0; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.88); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); box-sizing: border-box; pointer-events: auto; overflow-x: hidden; overflow-y: auto; contain: layout paint style; }
-  .score-viewer-detail-settings-popup[hidden] { display: none; }
-  .score-viewer-detail-settings-popup > * { min-width: 0; }
-  .score-viewer-detail-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .score-viewer-detail-settings-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
-  .score-viewer-detail-settings-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.7rem; line-height: 1; cursor: pointer; }
-  .score-viewer-detail-settings-close:hover { background: rgba(255, 255, 255, 0.24); }
-  .score-viewer-detail-settings-close:focus-visible { outline: 1px solid rgba(145, 210, 255, 0.95); outline-offset: 1px; }
-  .score-viewer-detail-settings-pair-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: start; }
-  .score-viewer-detail-settings-pair-cell { display: grid; gap: 4px; min-width: 0; }
-  .score-viewer-detail-settings-input { display: block; width: 100%; min-width: 0; max-width: 100%; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; margin: 0; box-sizing: border-box; flex: none; appearance: textfield; -webkit-appearance: textfield; font: inherit; }
-  .score-viewer-settings-panel.is-popup { max-height: none; overflow: visible; opacity: 1; pointer-events: auto; transition: none; }
-  .score-viewer-shell * { box-sizing: content-box; }
-  .score-viewer-shell { --score-viewer-width: 520px; position: fixed; top: 0; right: 0; width: var(--score-viewer-width); height: 100dvh; background: #000; border-left: 1px solid rgba(112, 112, 132, 0.4); box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38); overflow: hidden; z-index: 2147483000; opacity: 0; pointer-events: none; transform: translateX(100%); transition: transform 120ms ease, opacity 120ms ease; isolation: isolate; contain: layout paint style; }
-  .score-viewer-shell.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
-  .score-viewer-shell.is-drag-handle-hovered, .score-viewer-shell.is-drag-handle-dragging { cursor: ns-resize; }
-  .score-viewer-scroll-host { position: absolute; inset: 0; overflow-x: hidden; overflow-y: hidden; scrollbar-gutter: stable; contain: layout paint; }
-  .score-viewer-scroll-host.is-scrollable { overflow-y: auto; cursor: grab; touch-action: none; }
-  .score-viewer-scroll-host.is-scrollable.is-dragging { cursor: grabbing; }
-  .score-viewer-scroll-host.is-drag-handle-hovered, .score-viewer-scroll-host.is-drag-handle-dragging { cursor: ns-resize; }
-  .score-viewer-spacer { width: 1px; opacity: 0; }
-  .score-viewer-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  .score-viewer-marker-overlay, .score-viewer-marker-labels { position: absolute; inset: 0; pointer-events: none; contain: layout paint; }
-  .score-viewer-marker-label { position: absolute; top: 0; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1; white-space: nowrap; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.72); }
-  .score-viewer-marker-label.is-left { transform: translate(-100%, -50%); text-align: right; }
-  .score-viewer-marker-label.is-right { transform: translate(0, -50%); text-align: left; }
-  .score-viewer-bottom-bar { position: absolute; left: 12px; bottom: 12px; z-index: 3; pointer-events: none; contain: layout paint; }
-  .score-viewer-status-panel { display: grid; gap: 4px; min-width: 180px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(160, 160, 196, 0.22); background: rgba(32, 32, 64, 0.8); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24); pointer-events: auto; contain: layout paint style; }
-  .score-viewer-metrics-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
-  .score-viewer-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .score-viewer-status-row.is-time { justify-content: flex-start; gap: 8px; }
-  .score-viewer-status-metric { min-width: 0; font-variant-numeric: tabular-nums; }
-  .score-viewer-settings-panel { display: grid; gap: 4px; max-height: 0; overflow: hidden; opacity: 0; pointer-events: none; transition: opacity 120ms ease, max-height 120ms ease; }
-  .score-viewer-settings-group { display: grid; gap: 4px; }
-  .score-viewer-status-panel:hover .score-viewer-settings-panel, .score-viewer-status-panel:focus-within .score-viewer-settings-panel { max-height: 320px; opacity: 1; pointer-events: auto; }
-  .score-viewer-spacing-row { padding-top: 2px; }
-  .score-viewer-spacing-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
-  .score-viewer-spacing-value { margin-left: auto; display: inline-flex; align-items: baseline; gap: 0; color: #fff; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
-  .score-viewer-spacing-value-secondary { color: #00FF00; }
-  .score-viewer-mode-row { display: grid; gap: 4px; align-items: stretch; }
-  .score-viewer-mode-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 255, 255, 0.82); }
-  .score-viewer-mode-controls { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; }
-  .score-viewer-mode-select { width: 100%; min-width: 0; min-height: auto; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 4px; background: rgba(16, 16, 28, 0.95); color: #fff; font-family: "Inconsolata", "Noto Sans JP"; font-size: 0.75rem; line-height: 1.25; box-sizing: border-box; }
-  .score-viewer-mode-select:disabled { opacity: 0.55; cursor: not-allowed; }
-  .score-viewer-checkbox-row { justify-content: space-between; gap: 10px; }
-  .score-viewer-checkbox-input { width: auto; min-height: auto; margin: 0; padding: 0; accent-color: #ffffff; }
-  .score-viewer-playback-button { display: inline-flex; align-items: center; justify-content: center; width: 16px; min-width: 16px; height: 16px; min-height: 16px; padding: 0; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: none; font-size: 0.464rem; line-height: 1; pointer-events: auto; cursor: pointer; }
-  .score-viewer-playback-button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .score-viewer-playback-time { font-variant-numeric: tabular-nums; }
-  .score-viewer-spacing-input { width: 100%; min-height: auto; margin: 0; padding: 0; background: transparent; border: none; accent-color: #ffffff; pointer-events: auto; }
-  .score-viewer-drag-line { position: absolute; left: 0; right: 0; display: flex; align-items: center; transform: translateY(-50%); pointer-events: none; z-index: 2; }
-  .score-viewer-drag-line::after { content: ""; width: 100%; height: 1px; background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.48) 48%, rgba(255, 255, 255, 0.06) 100%); box-shadow: 0 0 16px rgba(255, 255, 255, 0.08); }
-  .score-viewer-drag-line.is-draggable::after, .score-viewer-drag-line.is-dragging::after { height: 2px; background: linear-gradient(90deg, rgba(145, 210, 255, 0.18) 0%, rgba(145, 210, 255, 0.95) 48%, rgba(145, 210, 255, 0.18) 100%); box-shadow: 0 0 22px rgba(145, 210, 255, 0.2); }
-  .score-viewer-lane-height-handle::after { background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.3) 48%, rgba(255, 255, 255, 0.04) 100%); }
-  .score-viewer-lane-cover-handle::after { background: linear-gradient(90deg, rgba(137, 255, 178, 0.06) 0%, rgba(137, 255, 178, 0.42) 48%, rgba(137, 255, 178, 0.06) 100%); }
-  .score-viewer-judge-line { position: absolute; left: 0; right: 0; top: var(--score-viewer-judge-line-top, calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%)); display: flex; align-items: center; transform: translateY(-100%); pointer-events: none; }
-  .score-viewer-judge-line::after { content: ""; width: 100%; height: ${SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX}px; background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%); box-shadow: 0 0 20px rgba(187, 71, 49, 0.2); }
-  .score-viewer-judge-line.is-draggable::after, .score-viewer-judge-line.is-dragging::after { background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%); box-shadow: 0 0 28px rgba(255, 120, 88, 0.34); }
   .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
   .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }
   .bd-lanenote[lane="2"] { background: #5074fe; color: #fff; }
@@ -514,6 +434,683 @@ export const BMSDATA_CSS = `
   .bd-lanenote[lane="p6"] { background: #99ff67; color: #000; }
   .bd-lanenote[lane="p7"] { background: #fff500; color: #000; }
   .bd-lanenote[lane="p8"] { background: #c4c4c4; color: #000; }
+`;
+
+const ISOLATED_UI_FONT_FAMILY = '"Inconsolata", "Noto Sans JP"';
+const ISOLATED_UI_HOST_CLASS = "bmsie-surface-host";
+const GRAPH_SURFACE_HOST_CLASS = "bmsie-graph-surface-host";
+const OVERLAY_SURFACE_HOST_CLASS = "bmsie-overlay-surface-host";
+export const PREVIEW_OVERLAY_HOST_ID = "bd-preview-overlay-host";
+
+export const ISOLATED_UI_BASE_CSS = `
+  :host,
+  :host *,
+  :host *::before,
+  :host *::after,
+  .bmsie-surface-root,
+  .bmsie-surface-root *,
+  .bmsie-surface-root *::before,
+  .bmsie-surface-root *::after {
+    box-sizing: border-box;
+  }
+
+  .bmsie-surface-root {
+    all: initial;
+    position: relative;
+    display: block;
+    min-inline-size: 0;
+    color: #fff;
+    font-family: ${ISOLATED_UI_FONT_FAMILY};
+    font-size: 16px;
+    line-height: 1.25;
+    box-sizing: border-box;
+  }
+
+  .bmsie-ui-button {
+    all: unset;
+    box-sizing: border-box;
+    display: inline-flex;
+    min-inline-size: 0;
+    align-items: center;
+    justify-content: center;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    text-align: center;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .bmsie-ui-input,
+  .bmsie-ui-select {
+    all: unset;
+    box-sizing: border-box;
+    display: block;
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    padding: 1px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 4px;
+    background: rgba(16, 16, 28, 0.95);
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+  }
+
+  .bmsie-ui-input[type="number"] {
+    appearance: textfield;
+    -webkit-appearance: textfield;
+  }
+
+  .bmsie-ui-select {
+    appearance: auto;
+    -webkit-appearance: menulist;
+    padding: 1px;
+  }
+
+  .bmsie-ui-checkbox {
+    all: unset;
+    box-sizing: border-box;
+    display: inline-block;
+    inline-size: 12px;
+    min-inline-size: 12px;
+    block-size: 12px;
+    min-block-size: 12px;
+    margin: 0;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    accent-color: #ffffff;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    cursor: pointer;
+  }
+
+  .bmsie-ui-range {
+    all: unset;
+    box-sizing: border-box;
+    display: block;
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    accent-color: #ffffff;
+    appearance: auto;
+    -webkit-appearance: auto;
+    cursor: pointer;
+  }
+`;
+
+export const GRAPH_SURFACE_CSS = `
+  :host {
+    all: initial;
+    position: relative;
+    display: block;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: #000;
+    scrollbar-color: var(--bd-hdbk, #669) black;
+    scrollbar-width: thin;
+    contain: layout paint style;
+    color: #fff;
+    font-family: ${ISOLATED_UI_FONT_FAMILY};
+    font-size: 16px;
+    line-height: 1.25;
+    box-sizing: border-box;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ${ISOLATED_UI_BASE_CSS}
+
+  .bmsie-graph-surface {
+    position: relative;
+    display: inline-block;
+    min-inline-size: 100%;
+    line-height: 0;
+    background: #000;
+  }
+
+  .bd-graph-canvas {
+    display: block;
+    background: #000;
+  }
+
+  .bd-graph-toolbar {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .bd-graph-toolbar-button {
+    inline-size: 18px;
+    min-inline-size: 18px;
+    block-size: 18px;
+    min-block-size: 18px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    font-size: 0.8125rem;
+    line-height: 1;
+    box-shadow: none;
+  }
+
+  .bd-graph-toolbar-button:hover {
+    background: rgba(255, 255, 255, 0.24);
+  }
+
+  .bd-graph-toolbar-button:focus-visible {
+    outline: 1px solid rgba(145, 210, 255, 0.95);
+    outline-offset: 1px;
+  }
+
+  .bd-scoreviewer-pin {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px;
+    border-radius: 6px;
+    background: rgba(32, 32, 64, 0.5);
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.25;
+    white-space: nowrap;
+  }
+
+  .bd-scoreviewer-pin span {
+    display: inline-block;
+    white-space: nowrap;
+  }
+`;
+
+export const OVERLAY_SURFACE_CSS = `
+  :host {
+    all: initial;
+    position: fixed;
+    inset: 0;
+    z-index: 2147482998;
+    pointer-events: none;
+    color: #fff;
+    font-family: ${ISOLATED_UI_FONT_FAMILY};
+    font-size: 16px;
+    line-height: 1.25;
+    box-sizing: border-box;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ${ISOLATED_UI_BASE_CSS}
+
+  .bmsie-overlay-surface {
+    position: relative;
+    inline-size: 100%;
+    block-size: 100%;
+    pointer-events: none;
+  }
+
+  .bd-graph-settings-popup {
+    position: fixed;
+    left: 12px;
+    bottom: 12px;
+    z-index: 2147482999;
+    display: grid;
+    gap: 6px;
+    min-width: 220px;
+    padding: 8px 10px;
+    border: 1px solid rgba(160, 160, 196, 0.22);
+    border-radius: 10px;
+    background: rgba(32, 32, 64, 0.88);
+    color: #fff;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    pointer-events: auto;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+  }
+
+  .bd-graph-settings-popup[hidden] {
+    display: none;
+  }
+
+  .bd-graph-tooltip {
+    position: fixed;
+    z-index: 2147483002;
+    display: none;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(32, 32, 64, 0.88);
+    color: #fff;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  }
+
+  .bd-graph-settings-header,
+  .score-viewer-detail-settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .bd-graph-settings-title,
+  .score-viewer-detail-settings-title,
+  .score-viewer-spacing-title,
+  .score-viewer-mode-title,
+  .bd-graph-settings-label {
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .bd-graph-settings-group,
+  .score-viewer-settings-group,
+  .score-viewer-detail-settings-pair-cell {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .bd-graph-settings-close,
+  .score-viewer-detail-settings-close,
+  .score-viewer-detail-settings-toggle {
+    inline-size: 18px;
+    min-inline-size: 18px;
+    block-size: 18px;
+    min-block-size: 18px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    line-height: 1;
+  }
+
+  .bd-graph-settings-close,
+  .score-viewer-detail-settings-close {
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    font-size: 0.7rem;
+  }
+
+  .bd-graph-settings-close:hover,
+  .score-viewer-detail-settings-close:hover,
+  .score-viewer-detail-settings-toggle:hover {
+    background: rgba(255, 255, 255, 0.24);
+  }
+
+  .bd-graph-settings-close:focus-visible,
+  .score-viewer-detail-settings-close:focus-visible,
+  .score-viewer-detail-settings-toggle:focus-visible {
+    outline: 1px solid rgba(145, 210, 255, 0.95);
+    outline-offset: 1px;
+  }
+
+  .bd-graph-settings-select,
+  .score-viewer-mode-select,
+  .score-viewer-detail-settings-input {
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+
+  .score-viewer-detail-settings-popup {
+    position: fixed;
+    z-index: 2147483001;
+    display: grid;
+    gap: 6px;
+    width: min(240px, calc(100vw - 24px));
+    min-width: 0;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 8px 10px;
+    border: 1px solid rgba(160, 160, 196, 0.22);
+    border-radius: 10px;
+    background: rgba(32, 32, 64, 0.88);
+    color: #fff;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    pointer-events: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+    contain: layout paint style;
+  }
+
+  .score-viewer-detail-settings-popup[hidden] {
+    display: none;
+  }
+
+  .score-viewer-detail-settings-popup > * {
+    min-width: 0;
+  }
+
+  .score-viewer-detail-settings-pair-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-items: start;
+  }
+
+  .score-viewer-shell {
+    --score-viewer-width: 520px;
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: var(--score-viewer-width);
+    height: 100dvh;
+    background: #000;
+    border-left: 1px solid rgba(112, 112, 132, 0.4);
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.38);
+    overflow: hidden;
+    z-index: 2147483000;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(100%);
+    transition: transform 120ms ease, opacity 120ms ease;
+    isolation: isolate;
+    contain: layout paint style;
+  }
+
+  .score-viewer-shell.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
+  }
+
+  .score-viewer-shell.is-drag-handle-hovered,
+  .score-viewer-shell.is-drag-handle-dragging {
+    cursor: ns-resize;
+  }
+
+  .score-viewer-scroll-host {
+    position: absolute;
+    inset: 0;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    scrollbar-gutter: stable;
+    contain: layout paint;
+  }
+
+  .score-viewer-scroll-host.is-scrollable {
+    overflow-y: auto;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .score-viewer-scroll-host.is-scrollable.is-dragging {
+    cursor: grabbing;
+  }
+
+  .score-viewer-scroll-host.is-drag-handle-hovered,
+  .score-viewer-scroll-host.is-drag-handle-dragging {
+    cursor: ns-resize;
+  }
+
+  .score-viewer-spacer {
+    width: 1px;
+    opacity: 0;
+  }
+
+  .score-viewer-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .score-viewer-marker-overlay,
+  .score-viewer-marker-labels {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    contain: layout paint;
+  }
+
+  .score-viewer-marker-label {
+    position: absolute;
+    top: 0;
+    font-size: 0.75rem;
+    line-height: 1;
+    white-space: nowrap;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.72);
+  }
+
+  .score-viewer-marker-label.is-left {
+    transform: translate(-100%, -50%);
+    text-align: right;
+  }
+
+  .score-viewer-marker-label.is-right {
+    transform: translate(0, -50%);
+    text-align: left;
+  }
+
+  .score-viewer-bottom-bar {
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    z-index: 3;
+    pointer-events: none;
+    contain: layout paint;
+  }
+
+  .score-viewer-status-panel {
+    position: relative;
+    display: grid;
+    gap: 4px;
+    min-width: 180px;
+    padding: 8px 10px 8px 10px;
+    border: 1px solid rgba(160, 160, 196, 0.22);
+    border-radius: 10px;
+    background: rgba(32, 32, 64, 0.8);
+    color: #fff;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    pointer-events: auto;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+    contain: layout paint style;
+  }
+
+  .score-viewer-metrics-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .score-viewer-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .score-viewer-status-row.is-time {
+    justify-content: flex-start;
+    gap: 8px;
+    padding-right: 24px;
+  }
+
+  .score-viewer-status-metric,
+  .score-viewer-mode-controls {
+    min-width: 0;
+  }
+
+  .score-viewer-status-metric,
+  .score-viewer-playback-time,
+  .score-viewer-spacing-value {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .score-viewer-settings-panel {
+    display: grid;
+    gap: 4px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease, max-height 120ms ease;
+  }
+
+  .score-viewer-settings-panel.is-popup {
+    max-height: none;
+    overflow: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transition: none;
+  }
+
+  .score-viewer-status-panel:hover .score-viewer-settings-panel,
+  .score-viewer-status-panel:focus-within .score-viewer-settings-panel {
+    max-height: 320px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .score-viewer-spacing-row {
+    padding-top: 2px;
+  }
+
+  .score-viewer-spacing-value {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0;
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+
+  .score-viewer-spacing-value-secondary {
+    color: #00FF00;
+  }
+
+  .score-viewer-mode-row {
+    display: grid;
+    gap: 4px;
+    align-items: stretch;
+  }
+
+  .score-viewer-mode-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 5fr);
+    gap: 6px;
+    width: 100%;
+  }
+
+  .score-viewer-mode-cell {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .score-viewer-mode-select:disabled,
+  .score-viewer-playback-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .score-viewer-checkbox-row {
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .score-viewer-playback-button {
+    inline-size: 16px;
+    min-inline-size: 16px;
+    block-size: 16px;
+    min-block-size: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    font-size: 0.464rem;
+    line-height: 1;
+    pointer-events: auto;
+    box-shadow: none;
+  }
+
+  .score-viewer-detail-settings-toggle {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    z-index: 1;
+    pointer-events: auto;
+  }
+
+  .score-viewer-spacing-input {
+    pointer-events: auto;
+  }
+
+  .score-viewer-drag-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    transform: translateY(-50%);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .score-viewer-drag-line::after {
+    content: "";
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.48) 48%, rgba(255, 255, 255, 0.06) 100%);
+    box-shadow: 0 0 16px rgba(255, 255, 255, 0.08);
+  }
+
+  .score-viewer-drag-line.is-draggable::after,
+  .score-viewer-drag-line.is-dragging::after {
+    height: 2px;
+    background: linear-gradient(90deg, rgba(145, 210, 255, 0.18) 0%, rgba(145, 210, 255, 0.95) 48%, rgba(145, 210, 255, 0.18) 100%);
+    box-shadow: 0 0 22px rgba(145, 210, 255, 0.2);
+  }
+
+  .score-viewer-lane-height-handle::after {
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.3) 48%, rgba(255, 255, 255, 0.04) 100%);
+  }
+
+  .score-viewer-lane-cover-handle::after {
+    background: linear-gradient(90deg, rgba(137, 255, 178, 0.06) 0%, rgba(137, 255, 178, 0.42) 48%, rgba(137, 255, 178, 0.06) 100%);
+  }
+
+  .score-viewer-judge-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: var(--score-viewer-judge-line-top, calc(var(--score-viewer-judge-line-ratio, 0.5) * 100%));
+    display: flex;
+    align-items: center;
+    transform: translateY(-100%);
+    pointer-events: none;
+  }
+
+  .score-viewer-judge-line::after {
+    content: "";
+    width: 100%;
+    height: ${SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX}px;
+    background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%);
+    box-shadow: 0 0 20px rgba(187, 71, 49, 0.2);
+  }
+
+  .score-viewer-judge-line.is-draggable::after,
+  .score-viewer-judge-line.is-dragging::after {
+    background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%);
+    box-shadow: 0 0 28px rgba(255, 120, 88, 0.34);
+  }
 `;
 
 export const BMSDATA_TEMPLATE_HTML = `
@@ -579,17 +1176,7 @@ export const BMSDATA_TEMPLATE_HTML = `
         </div>
       </div>
     </div>
-    <div id="bd-graph">
-      <div class="bd-graph-toolbar">
-        <button id="bd-graph-settings-toggle" class="bd-graph-toolbar-button" type="button" aria-label="Open graph settings">⚙</button>
-        <label class="bd-scoreviewer-pin">
-          <input id="bd-scoreviewer-pin-input" type="checkbox">
-          <span>PIN THE VIEWER</span>
-        </label>
-      </div>
-      <div id="bd-graph-tooltip"></div>
-      <canvas id="bd-graph-canvas"></canvas>
-    </div>
+    <div id="bd-graph"></div>
   </div>
 `;
 
@@ -747,14 +1334,37 @@ export function createBmsInfoPreview({
   onRuntimeError = () => {},
 }) {
   const graphHost = container.querySelector("#bd-graph");
-  const graphCanvas = container.querySelector("#bd-graph-canvas");
-  const graphTooltip = container.querySelector("#bd-graph-tooltip");
-  const pinInput = container.querySelector("#bd-scoreviewer-pin-input");
-  const graphSettingsToggle = container.querySelector("#bd-graph-settings-toggle");
-
-  if (!graphHost || !graphCanvas || !graphTooltip || !pinInput || !graphSettingsToggle) {
-    throw new Error("BMS preview graph elements are missing.");
+  if (!graphHost) {
+    throw new Error("BMS preview graph host element is missing.");
   }
+
+  const graphSurface = createIsolatedSurface({
+    documentRef,
+    host: graphHost,
+    cssText: GRAPH_SURFACE_CSS,
+    hostClassName: GRAPH_SURFACE_HOST_CLASS,
+    rootClassName: "bmsie-graph-surface",
+  });
+  const overlaySurface = createIsolatedSurface({
+    documentRef,
+    hostId: PREVIEW_OVERLAY_HOST_ID,
+    mountTo: documentRef.body,
+    cssText: OVERLAY_SURFACE_CSS,
+    hostClassName: OVERLAY_SURFACE_HOST_CLASS,
+    rootClassName: "bmsie-overlay-surface",
+  });
+  const graphElements = createGraphSurfaceElements(documentRef, graphHost);
+  graphSurface.mount.append(graphElements.root);
+  const {
+    scrollHost: graphScrollHost,
+    canvas: graphCanvas,
+    pinInput,
+    settingsToggle: graphSettingsToggle,
+  } = graphElements;
+  const graphTooltip = documentRef.createElement("div");
+  graphTooltip.id = "bd-graph-tooltip";
+  graphTooltip.className = "bd-graph-tooltip";
+  overlaySurface.mount.append(graphTooltip);
 
   const graphSettingsPopup = documentRef.createElement("div");
   graphSettingsPopup.id = "bd-graph-settings-popup";
@@ -764,10 +1374,10 @@ export function createBmsInfoPreview({
   graphSettingsHeader.className = "bd-graph-settings-header";
   const graphSettingsTitle = documentRef.createElement("span");
   graphSettingsTitle.className = "bd-graph-settings-title";
-  graphSettingsTitle.textContent = "Settings";
+  graphSettingsTitle.textContent = "Graph Settings";
   const graphSettingsClose = documentRef.createElement("button");
   graphSettingsClose.id = "bd-graph-settings-close";
-  graphSettingsClose.className = "bd-graph-settings-close";
+  graphSettingsClose.className = "bd-graph-settings-close bmsie-ui-button";
   graphSettingsClose.type = "button";
   graphSettingsClose.setAttribute("aria-label", "Close graph settings");
   graphSettingsClose.textContent = "x";
@@ -781,7 +1391,7 @@ export function createBmsInfoPreview({
   graphInteractionLabel.textContent = "Line Control";
   const graphInteractionSelect = documentRef.createElement("select");
   graphInteractionSelect.id = "bd-graph-interaction-select";
-  graphInteractionSelect.className = "bd-graph-settings-select";
+  graphInteractionSelect.className = "bd-graph-settings-select bmsie-ui-select";
   graphInteractionSelect.append(
     createPopupOption(documentRef, "hover", "Hover Follow"),
     createPopupOption(documentRef, "drag", "Click & Drag"),
@@ -789,11 +1399,11 @@ export function createBmsInfoPreview({
   graphInteractionSelect.value = initialGraphInteractionMode;
   graphSettingsGroup.append(graphInteractionLabel, graphInteractionSelect);
   graphSettingsPopup.append(graphSettingsHeader, graphSettingsGroup);
-  documentRef.body.appendChild(graphSettingsPopup);
+  overlaySurface.mount.append(graphSettingsPopup);
 
   const shell = documentRef.createElement("div");
   shell.className = "score-viewer-shell";
-  documentRef.body.appendChild(shell);
+  overlaySurface.mount.append(shell);
 
   const parsedScoreCache = new Map();
   const loadPromiseCache = new Map();
@@ -891,7 +1501,7 @@ export function createBmsInfoPreview({
   viewerDetailSettingsTitle.className = "score-viewer-detail-settings-title";
   viewerDetailSettingsTitle.textContent = "Viewer Details";
   const viewerDetailSettingsClose = documentRef.createElement("button");
-  viewerDetailSettingsClose.className = "score-viewer-detail-settings-close";
+  viewerDetailSettingsClose.className = "score-viewer-detail-settings-close bmsie-ui-button";
   viewerDetailSettingsClose.type = "button";
   viewerDetailSettingsClose.setAttribute("aria-label", "Close viewer detail settings");
   viewerDetailSettingsClose.textContent = "x";
@@ -961,10 +1571,10 @@ export function createBmsInfoPreview({
     viewerDetailSettingsGroup.append(control.label, control.input);
   }
   viewerDetailSettingsPopup.append(viewerDetailSettingsHeader, viewerDetailSettingsGroup);
-  documentRef.body.appendChild(viewerDetailSettingsPopup);
+  overlaySurface.mount.append(viewerDetailSettingsPopup);
 
   const graphController = createBmsInfoGraph({
-    scrollHost: graphHost,
+    scrollHost: graphScrollHost,
     canvas: graphCanvas,
     tooltip: graphTooltip,
     pinInput,
@@ -1699,7 +2309,8 @@ export function createBmsInfoPreview({
       window.removeEventListener("resize", positionViewerDetailSettingsPopup);
     }
     viewerDetailSettingsPopup.remove();
-    shell.remove();
+    clearIsolatedSurface(graphSurface);
+    overlaySurface.host.remove();
   }
 
   function positionViewerDetailSettingsPopup() {
@@ -1737,8 +2348,10 @@ export function createBmsInfoPreview({
     if (!state.isViewerDetailSettingsOpen) {
       return;
     }
-    const target = event.target ?? null;
-    if (isDescendantOf(target, viewerDetailSettingsPopup) || isDescendantOf(target, detailSettingsToggle)) {
+    if (
+      eventPathIncludes(event, viewerDetailSettingsPopup)
+      || eventPathIncludes(event, detailSettingsToggle)
+    ) {
       return;
     }
     setViewerDetailSettingsOpen(false);
@@ -1832,6 +2445,117 @@ function isDescendantOf(node, ancestor) {
       return true;
     }
     current = current.parentNode ?? null;
+  }
+  return false;
+}
+
+function createIsolatedSurface({
+  documentRef,
+  host = null,
+  hostId = "",
+  mountTo = null,
+  cssText = "",
+  hostClassName = "",
+  rootClassName = "",
+}) {
+  const surfaceHost = host ?? documentRef.createElement("div");
+  surfaceHost.classList?.add?.(ISOLATED_UI_HOST_CLASS);
+  if (hostClassName) {
+    surfaceHost.classList?.add?.(hostClassName);
+  }
+  if (hostId) {
+    surfaceHost.id = hostId;
+  }
+  if (!host) {
+    mountTo?.appendChild?.(surfaceHost);
+  }
+
+  let root = surfaceHost.shadowRoot;
+  if (!root) {
+    if (typeof surfaceHost.attachShadow !== "function") {
+      throw new Error("Shadow DOM is required for isolated preview surfaces");
+    }
+    root = surfaceHost.attachShadow({ mode: "open" });
+  }
+
+  if (typeof root.replaceChildren === "function") {
+    root.replaceChildren();
+  }
+
+  const styleElement = documentRef.createElement("style");
+  styleElement.textContent = cssText;
+  const mount = documentRef.createElement("div");
+  mount.className = `bmsie-surface-root${rootClassName ? ` ${rootClassName}` : ""}`;
+  root.append(styleElement, mount);
+
+  return {
+    host: surfaceHost,
+    root,
+    mount,
+  };
+}
+
+function clearIsolatedSurface(surface) {
+  if (typeof surface?.root?.replaceChildren === "function") {
+    surface.root.replaceChildren();
+  }
+}
+
+function createGraphSurfaceElements(documentRef, scrollHost) {
+  const root = documentRef.createElement("div");
+  root.className = "bmsie-graph-surface";
+
+  const toolbar = documentRef.createElement("div");
+  toolbar.className = "bd-graph-toolbar";
+
+  const settingsToggle = documentRef.createElement("button");
+  settingsToggle.id = "bd-graph-settings-toggle";
+  settingsToggle.className = "bd-graph-toolbar-button bmsie-ui-button";
+  settingsToggle.type = "button";
+  settingsToggle.setAttribute("aria-label", "Open graph settings");
+  settingsToggle.textContent = "⚙";
+
+  const pinLabel = documentRef.createElement("label");
+  pinLabel.className = "bd-scoreviewer-pin";
+  const pinInput = documentRef.createElement("input");
+  pinInput.id = "bd-scoreviewer-pin-input";
+  pinInput.className = "bmsie-ui-checkbox";
+  pinInput.type = "checkbox";
+  const pinText = documentRef.createElement("span");
+  pinText.textContent = "PIN THE VIEWER";
+  pinLabel.append(pinInput, pinText);
+
+  const canvas = documentRef.createElement("canvas");
+  canvas.id = "bd-graph-canvas";
+  canvas.className = "bd-graph-canvas";
+
+  toolbar.append(settingsToggle, pinLabel);
+  root.append(toolbar, canvas);
+
+  return {
+    root,
+    scrollHost,
+    canvas,
+    pinInput,
+    settingsToggle,
+  };
+}
+
+function getEventPath(event) {
+  if (typeof event?.composedPath === "function") {
+    return event.composedPath();
+  }
+  return event?.target ? [event.target] : [];
+}
+
+function eventPathIncludes(event, ancestor) {
+  if (!ancestor) {
+    return false;
+  }
+  for (const pathEntry of getEventPath(event)) {
+    if (pathEntry === ancestor || isDescendantOf(pathEntry, ancestor)) {
+      return true;
+    }
   }
   return false;
 }
@@ -1992,25 +2716,12 @@ function createViewerDetailNumberField(documentRef, {
   labelElement.textContent = label;
   const inputElement = documentRef.createElement("input");
   inputElement.id = id;
-  inputElement.className = "bd-graph-settings-select";
-  inputElement.classList.add("score-viewer-detail-settings-input");
+  inputElement.className = "bd-graph-settings-select score-viewer-detail-settings-input bmsie-ui-input";
   inputElement.type = "number";
   inputElement.min = String(min);
   inputElement.max = String(max);
   inputElement.step = "1";
   inputElement.value = String(value);
-  inputElement.style.display = "block";
-  inputElement.style.width = "100%";
-  inputElement.style.minWidth = "0";
-  inputElement.style.maxWidth = "100%";
-  inputElement.style.inlineSize = "100%";
-  inputElement.style.minInlineSize = "0";
-  inputElement.style.maxInlineSize = "100%";
-  inputElement.style.margin = "0";
-  inputElement.style.boxSizing = "border-box";
-  inputElement.style.flex = "none";
-  inputElement.style.appearance = "textfield";
-  inputElement.style.font = "inherit";
   return {
     key,
     max,

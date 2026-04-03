@@ -22,7 +22,7 @@ import {
   shouldSyncPlaybackScrollPosition,
 } from "./score-viewer-controller.js";
 import { createScoreViewerModel } from "./score-viewer-model.js";
-import { BMSDATA_CSS } from "./index.js";
+import { GRAPH_SURFACE_CSS, OVERLAY_SURFACE_CSS } from "./index.js";
 
 test("normalizeWheelDeltaY keeps pixel deltas unchanged and normalizes line/page modes", () => {
   assert.equal(normalizeWheelDeltaY(24, 0, 480), 24);
@@ -178,7 +178,7 @@ test("controller groups spacing and mode controls into a settings panel", () => 
 
     assert.ok(statusPanel);
     assert.ok(settingsPanel);
-    assert.equal(statusPanel.children.length, 3);
+    assert.equal(statusPanel.children.length, 4);
     assert.ok(findElementByClass(statusPanel, "score-viewer-metrics-row"));
     assert.ok(findElementByClass(settingsPanel, "score-viewer-spacing-section"));
     assert.ok(findElementByClass(settingsPanel, "score-viewer-game-settings-section"));
@@ -212,6 +212,33 @@ test("controller adds a gear button next to the playback row for detail settings
     assert.ok(detailSettingsToggle);
     assert.equal(detailSettingsToggle.textContent, "⚙");
     assert.equal(detailSettingsToggle["aria-label"], "Open viewer detail settings");
+    assert.equal(detailSettingsToggle.parentNode, findElementByClass(root, "score-viewer-status-panel"));
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller renders MODE and INVISIBLE NOTES as labeled side-by-side cells", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const controller = createScoreViewerController({ root });
+    const modeControls = findElementByClass(root, "score-viewer-mode-controls");
+    const modeCells = findElementsByClass(root, "score-viewer-mode-cell");
+    const invisibleSelect = findElementByClass(root, "score-viewer-invisible-note-select");
+
+    assert.ok(modeControls);
+    assert.equal(modeCells.length, 2);
+    assert.equal(modeCells[0].children[0]?.textContent, "Mode");
+    assert.equal(modeCells[1].children[0]?.textContent, "Invisible Notes");
+    assert.ok(invisibleSelect);
+    assert.equal(invisibleSelect.children[0]?.textContent, "Hide");
+    assert.equal(invisibleSelect.children[1]?.textContent, "Show");
 
     controller.destroy();
   } finally {
@@ -220,14 +247,48 @@ test("controller adds a gear button next to the playback row for detail settings
 });
 
 test("embedded CSS hides settings panel until hover or focus-within", () => {
-  assert.match(BMSDATA_CSS, /\.score-viewer-settings-group \{[^}]*display: grid;[^}]*gap: 4px;/);
-  assert.match(BMSDATA_CSS, /\.score-viewer-settings-panel \{[^}]*max-height: 0;[^}]*opacity: 0;[^}]*pointer-events: none;/);
-  assert.match(BMSDATA_CSS, /\.score-viewer-status-panel:hover \.score-viewer-settings-panel, \.score-viewer-status-panel:focus-within \.score-viewer-settings-panel \{[^}]*max-height: 320px;[^}]*opacity: 1;[^}]*pointer-events: auto;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bd-graph-settings-group,\s*\.score-viewer-settings-group,\s*\.score-viewer-detail-settings-pair-cell \{[^}]*display: grid;[^}]*gap: 4px;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-settings-panel \{[^}]*max-height: 0;[^}]*opacity: 0;[^}]*pointer-events: none;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-status-panel:hover \.score-viewer-settings-panel,\s*\.score-viewer-status-panel:focus-within \.score-viewer-settings-panel \{[^}]*max-height: 320px;[^}]*opacity: 1;[^}]*pointer-events: auto;/);
+});
+
+test("embedded CSS resets each shadow surface from :host and restores border-box sizing", () => {
+  assert.match(GRAPH_SURFACE_CSS, /:host \{[^}]*all: initial;/);
+  assert.match(GRAPH_SURFACE_CSS, /:host \{[^}]*font-family:[^}]*box-sizing: border-box;/);
+  assert.match(OVERLAY_SURFACE_CSS, /:host \{[^}]*all: initial;/);
+  assert.match(OVERLAY_SURFACE_CSS, /:host \{[^}]*font-family:[^}]*box-sizing: border-box;/);
+  assert.match(OVERLAY_SURFACE_CSS, /:host,\s*:host \*,\s*:host \*::before,\s*:host \*::after,\s*\.bmsie-surface-root,\s*\.bmsie-surface-root \*,\s*\.bmsie-surface-root \*::before,\s*\.bmsie-surface-root \*::after \{[^}]*box-sizing: border-box;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-surface-root \{[^}]*all: initial;[^}]*display: block;[^}]*font-family:[^}]*font-size:[^}]*line-height:[^}]*box-sizing: border-box;/);
+});
+
+test("embedded CSS restores sizing and inherited typography for isolated UI primitives", () => {
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-button \{[^}]*all: unset;[^}]*box-sizing: border-box;[^}]*display: inline-flex;[^}]*min-inline-size: 0;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-button \{[^}]*color: inherit;[^}]*font: inherit;[^}]*line-height: inherit;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-input,\s*\.bmsie-ui-select \{[^}]*all: unset;[^}]*box-sizing: border-box;[^}]*display: block;[^}]*inline-size: 100%;[^}]*min-inline-size: 0;[^}]*max-inline-size: 100%;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-input,\s*\.bmsie-ui-select \{[^}]*color: inherit;[^}]*font: inherit;[^}]*line-height: inherit;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-checkbox \{[^}]*all: unset;[^}]*box-sizing: border-box;[^}]*display: inline-block;[^}]*min-inline-size: 14px;[^}]*min-block-size: 14px;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-checkbox \{[^}]*color: inherit;[^}]*font: inherit;[^}]*line-height: inherit;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-range \{[^}]*all: unset;[^}]*box-sizing: border-box;[^}]*display: block;[^}]*inline-size: 100%;[^}]*min-inline-size: 0;[^}]*max-inline-size: 100%;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-range \{[^}]*color: inherit;[^}]*font: inherit;[^}]*line-height: inherit;/);
+});
+
+test("embedded CSS keeps detail inputs and graph settings selects constrained to their grid cells", () => {
+  assert.match(OVERLAY_SURFACE_CSS, /\.bd-graph-settings-select,\s*\.score-viewer-mode-select,\s*\.score-viewer-detail-settings-input \{[^}]*inline-size: 100%;[^}]*min-inline-size: 0;[^}]*max-inline-size: 100%;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-detail-settings-pair-row \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*gap: 8px;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-mode-controls \{[^}]*grid-template-columns: minmax\(0, 2fr\) minmax\(0, 3fr\);[^}]*gap: 6px;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-mode-cell \{[^}]*display: grid;[^}]*min-width: 0;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-detail-settings-popup \{[^}]*width: min\(240px, calc\(100vw - 24px\)\);[^}]*min-width: 0;[^}]*max-width: calc\(100vw - 24px\);/);
+});
+
+test("embedded CSS pins the gear button to the top-right corner of the status panel", () => {
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-status-panel \{[^}]*position: relative;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-status-row\.is-time \{[^}]*padding-right: 24px;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-detail-settings-toggle \{[^}]*position: absolute;[^}]*top: 8px;[^}]*right: 10px;/);
 });
 
 test("embedded CSS anchors the judge line by its bottom edge with a fixed thickness", () => {
-  assert.match(BMSDATA_CSS, /\.score-viewer-judge-line \{[^}]*top: var\(--score-viewer-judge-line-top, calc\(var\(--score-viewer-judge-line-ratio, 0\.5\) \* 100%\)\);[^}]*transform: translateY\(-100%\);/);
-  assert.match(BMSDATA_CSS, /\.score-viewer-judge-line::after \{[^}]*height: 2px;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-judge-line \{[^}]*top: var\(--score-viewer-judge-line-top, calc\(var\(--score-viewer-judge-line-ratio, 0\.5\) \* 100%\)\);[^}]*transform: translateY\(-100%\);/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-judge-line::after \{[^}]*height: 2px;/);
 });
 
 test("controller blurs focused settings controls on status panel mouseleave", () => {
@@ -246,6 +307,39 @@ test("controller blurs focused settings controls on status panel mouseleave", ()
 
     dispatchEvent(statusPanel, "mouseleave");
 
+    assert.equal(environment.document.activeElement, null);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller blurs shadow-root focused settings controls on status panel mouseleave", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const shadowHost = environment.document.createElement("div");
+    const shadowRoot = shadowHost.attachShadow({ mode: "open" });
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+    shadowRoot.appendChild(root);
+
+    const controller = createScoreViewerController({ root });
+    const statusPanel = findElementByClass(root, "score-viewer-status-panel");
+    const spacingInput = findElementByClass(root, "score-viewer-spacing-input");
+
+    assert.ok(statusPanel);
+    assert.ok(spacingInput);
+
+    spacingInput.focus();
+
+    assert.equal(shadowRoot.activeElement, spacingInput);
+    assert.equal(environment.document.activeElement, shadowHost);
+
+    dispatchEvent(statusPanel, "mouseleave");
+
+    assert.equal(shadowRoot.activeElement, null);
     assert.equal(environment.document.activeElement, null);
 
     controller.destroy();
@@ -794,6 +888,20 @@ function findElementByClass(root, className) {
   return null;
 }
 
+function findElementsByClass(root, className, results = []) {
+  if (!root) {
+    return results;
+  }
+  const classNames = String(root.className ?? "").split(/\s+/).filter(Boolean);
+  if (root.classList?.contains(className) || classNames.includes(className)) {
+    results.push(root);
+  }
+  for (const child of root.children ?? []) {
+    findElementsByClass(child, className, results);
+  }
+  return results;
+}
+
 function findElementByPredicate(root, predicate) {
   if (!root) {
     return null;
@@ -882,6 +990,7 @@ class ControllerMockElement {
     this.clientHeight = 360;
     this.scrollTop = 0;
     this._pointerCaptures = new Set();
+    this.shadowRoot = null;
   }
 
   appendChild(child) {
@@ -919,6 +1028,19 @@ class ControllerMockElement {
     this[name] = String(value);
   }
 
+  attachShadow() {
+    const shadowRoot = new ControllerMockShadowRoot(this.ownerDocument, this);
+    this.shadowRoot = shadowRoot;
+    return shadowRoot;
+  }
+
+  getRootNode() {
+    if (this.parentNode && typeof this.parentNode.getRootNode === "function") {
+      return this.parentNode.getRootNode();
+    }
+    return this.ownerDocument;
+  }
+
   getBoundingClientRect() {
     return { top: 0, left: 0, height: this.clientHeight, width: this.clientWidth };
   }
@@ -936,19 +1058,47 @@ class ControllerMockElement {
   }
 
   focus() {
-    if (this.ownerDocument.activeElement === this) {
+    const rootNode = this.getRootNode();
+    if (rootNode?.activeElement === this) {
       return;
     }
-    if (this.ownerDocument.activeElement && typeof this.ownerDocument.activeElement.blur === "function") {
-      this.ownerDocument.activeElement.blur();
+    const previousActiveElement = rootNode?.activeElement ?? this.ownerDocument.activeElement;
+    if (previousActiveElement && typeof previousActiveElement.blur === "function") {
+      previousActiveElement.blur();
     }
-    this.ownerDocument.activeElement = this;
+    if (rootNode && "activeElement" in rootNode) {
+      rootNode.activeElement = this;
+    }
+    this.ownerDocument.activeElement = rootNode?.host ?? this;
   }
 
   blur() {
-    if (this.ownerDocument.activeElement === this) {
+    const rootNode = this.getRootNode();
+    if (rootNode?.activeElement === this) {
+      rootNode.activeElement = null;
+    }
+    if (this.ownerDocument.activeElement === this || this.ownerDocument.activeElement === rootNode?.host) {
       this.ownerDocument.activeElement = null;
     }
+  }
+}
+
+class ControllerMockShadowRoot {
+  constructor(ownerDocument, host) {
+    this.ownerDocument = ownerDocument;
+    this.host = host;
+    this.children = [];
+    this.activeElement = null;
+  }
+
+  appendChild(child) {
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  }
+
+  getRootNode() {
+    return this;
   }
 }
 

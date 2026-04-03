@@ -100,8 +100,8 @@ export function createScoreViewerController({
   const playbackRow = document.createElement("div");
   playbackRow.className = "score-viewer-status-row is-time";
 
-  const playbackButton = document.createElement("button");
-  playbackButton.className = "score-viewer-playback-button";
+    const playbackButton = document.createElement("button");
+    playbackButton.className = "score-viewer-playback-button bmsie-ui-button";
   playbackButton.type = "button";
   playbackButton.setAttribute("aria-label", "Play score viewer");
   playbackButton.textContent = "▶";
@@ -109,13 +109,13 @@ export function createScoreViewerController({
   const playbackTime = document.createElement("span");
   playbackTime.className = "score-viewer-playback-time";
 
-  const detailSettingsToggle = document.createElement("button");
-  detailSettingsToggle.className = "score-viewer-detail-settings-toggle";
+    const detailSettingsToggle = document.createElement("button");
+    detailSettingsToggle.className = "score-viewer-detail-settings-toggle bmsie-ui-button";
   detailSettingsToggle.type = "button";
   detailSettingsToggle.setAttribute("aria-label", "Open viewer detail settings");
   detailSettingsToggle.textContent = "⚙";
 
-  playbackRow.append(playbackButton, playbackTime, detailSettingsToggle);
+  playbackRow.append(playbackButton, playbackTime);
 
   const measureRow = document.createElement("div");
   measureRow.className = "score-viewer-status-row score-viewer-status-metric";
@@ -143,8 +143,8 @@ export function createScoreViewerController({
   spacingValue.append(spacingValuePrimary, spacingValueSecondary);
   spacingRow.append(spacingTitle, spacingValue);
 
-  const spacingInput = document.createElement("input");
-  spacingInput.className = "score-viewer-spacing-input";
+    const spacingInput = document.createElement("input");
+    spacingInput.className = "score-viewer-spacing-input bmsie-ui-range";
   spacingInput.type = "range";
   spacingInput.min = String(MIN_SPACING_SCALE);
   spacingInput.max = String(MAX_SPACING_SCALE);
@@ -162,8 +162,8 @@ export function createScoreViewerController({
 
   const laneHeightRow = createSettingRow("Height", "score-viewer-lane-height-row");
   laneHeightRow.row.classList.add("score-viewer-game-setting");
-  const laneHeightInput = document.createElement("input");
-  laneHeightInput.className = "score-viewer-spacing-input score-viewer-lane-height-input";
+    const laneHeightInput = document.createElement("input");
+    laneHeightInput.className = "score-viewer-spacing-input score-viewer-lane-height-input bmsie-ui-range";
   laneHeightInput.type = "range";
   laneHeightInput.min = "0";
   laneHeightInput.max = "100";
@@ -173,8 +173,8 @@ export function createScoreViewerController({
 
   const laneCoverRow = createSettingRow("Cover", "score-viewer-lane-cover-row");
   laneCoverRow.row.classList.add("score-viewer-game-setting");
-  const laneCoverInput = document.createElement("input");
-  laneCoverInput.className = "score-viewer-spacing-input score-viewer-lane-cover-input";
+    const laneCoverInput = document.createElement("input");
+    laneCoverInput.className = "score-viewer-spacing-input score-viewer-lane-cover-input bmsie-ui-range";
   laneCoverInput.type = "range";
   laneCoverInput.min = "0";
   laneCoverInput.max = "1000";
@@ -188,8 +188,8 @@ export function createScoreViewerController({
   const laneCoverVisibleLabel = document.createElement("span");
   laneCoverVisibleLabel.className = "score-viewer-mode-title";
   laneCoverVisibleLabel.textContent = "Cover Visible";
-  const laneCoverVisibleControl = document.createElement("input");
-  laneCoverVisibleControl.className = "score-viewer-checkbox-input";
+    const laneCoverVisibleControl = document.createElement("input");
+    laneCoverVisibleControl.className = "score-viewer-checkbox-input bmsie-ui-checkbox";
   laneCoverVisibleControl.type = "checkbox";
   laneCoverVisibleControl.checked = DEFAULT_GAME_LANE_COVER_VISIBLE;
   laneCoverVisibleRow.append(laneCoverVisibleLabel, laneCoverVisibleControl);
@@ -200,8 +200,8 @@ export function createScoreViewerController({
   const hsFixTitle = document.createElement("span");
   hsFixTitle.className = "score-viewer-mode-title";
   hsFixTitle.textContent = "HS-FIX";
-  const hsFixSelect = document.createElement("select");
-  hsFixSelect.className = "score-viewer-mode-select score-viewer-hs-fix-select";
+    const hsFixSelect = document.createElement("select");
+    hsFixSelect.className = "score-viewer-mode-select score-viewer-hs-fix-select bmsie-ui-select";
   hsFixSelect.append(
     createModeOption("start", "START BPM"),
     createModeOption("max", "MAX BPM"),
@@ -212,33 +212,42 @@ export function createScoreViewerController({
   hsFixRow.append(hsFixTitle, hsFixSelect);
 
   const modeRow = document.createElement("div");
-  modeRow.className = "score-viewer-status-row score-viewer-mode-row";
+  modeRow.className = "score-viewer-mode-row";
 
+  const modeControls = document.createElement("div");
+  modeControls.className = "score-viewer-mode-controls";
+  const modeCell = document.createElement("div");
+  modeCell.className = "score-viewer-mode-cell";
   const modeTitle = document.createElement("span");
   modeTitle.className = "score-viewer-mode-title";
   modeTitle.textContent = "Mode";
 
-  const modeControls = document.createElement("div");
-  modeControls.className = "score-viewer-mode-controls";
-
-  const modeSelect = document.createElement("select");
-  modeSelect.className = "score-viewer-mode-select";
+    const modeSelect = document.createElement("select");
+    modeSelect.className = "score-viewer-mode-select bmsie-ui-select";
   modeSelect.append(
     createModeOption("time", "Time"),
     createModeOption("editor", "Editor"),
     createModeOption("game", "Game"),
     createModeOption("lunatic", "Lunatic"),
   );
+  modeCell.append(modeTitle, modeSelect);
 
-  const invisibleNoteVisibilitySelect = document.createElement("select");
-  invisibleNoteVisibilitySelect.className = "score-viewer-mode-select score-viewer-invisible-note-select";
+  const invisibleNotesCell = document.createElement("div");
+  invisibleNotesCell.className = "score-viewer-mode-cell";
+  const invisibleNoteVisibilityTitle = document.createElement("span");
+  invisibleNoteVisibilityTitle.className = "score-viewer-mode-title";
+  invisibleNoteVisibilityTitle.textContent = "Invisible Notes";
+
+    const invisibleNoteVisibilitySelect = document.createElement("select");
+    invisibleNoteVisibilitySelect.className = "score-viewer-mode-select score-viewer-invisible-note-select bmsie-ui-select";
   invisibleNoteVisibilitySelect.append(
-    createModeOption("hide", "INVISIBLE Hide"),
-    createModeOption("show", "INVISIBLE Show"),
+    createModeOption("hide", "Hide"),
+    createModeOption("show", "Show"),
   );
+  invisibleNotesCell.append(invisibleNoteVisibilityTitle, invisibleNoteVisibilitySelect);
 
-  modeControls.append(modeSelect, invisibleNoteVisibilitySelect);
-  modeRow.append(modeTitle, modeControls);
+  modeControls.append(modeCell, invisibleNotesCell);
+  modeRow.append(modeControls);
 
   spacingSection.append(
     spacingRow,
@@ -256,7 +265,7 @@ export function createScoreViewerController({
     modeRow,
   );
   settingsPanel.append(spacingSection, gameSettingsSection, modeSection);
-  statusPanel.append(playbackRow, metricsRow, settingsPanel);
+  statusPanel.append(playbackRow, detailSettingsToggle, metricsRow, settingsPanel);
   bottomBar.append(statusPanel);
 
   const judgeLine = document.createElement("div");
@@ -1513,7 +1522,9 @@ export function createScoreViewerController({
   }
 
   function blurFocusedStatusPanelControl() {
-    const activeElement = root.ownerDocument?.activeElement;
+    const activeElement = getDeepActiveElement(
+      typeof root.getRootNode === "function" ? root.getRootNode() : root.ownerDocument,
+    ) ?? getDeepActiveElement(root.ownerDocument);
     if (!activeElement || typeof activeElement.blur !== "function") {
       return;
     }
@@ -1542,6 +1553,14 @@ function createSettingRow(title, className) {
   valueElement.className = "score-viewer-spacing-value";
   row.append(titleElement, valueElement);
   return { row, title: titleElement, value: valueElement };
+}
+
+function getDeepActiveElement(rootNode) {
+  let activeElement = rootNode?.activeElement ?? null;
+  while (activeElement?.shadowRoot?.activeElement) {
+    activeElement = activeElement.shadowRoot.activeElement;
+  }
+  return activeElement;
 }
 
 export function normalizeWheelDeltaY(deltaY, deltaMode, viewportHeight, lineHeightPx = DEFAULT_WHEEL_LINE_HEIGHT_PX) {

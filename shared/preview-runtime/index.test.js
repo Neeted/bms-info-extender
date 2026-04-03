@@ -15,6 +15,7 @@ import {
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
   DEFAULT_SPACING_SCALE,
   DEFAULT_GRAPH_INTERACTION_MODE,
+  PREVIEW_OVERLAY_HOST_ID,
   GAME_DURATION_MS_STORAGE_KEY,
   GAME_HS_FIX_MODE_STORAGE_KEY,
   GAME_LANE_COVER_PERMILLE_STORAGE_KEY,
@@ -434,9 +435,13 @@ test("graph settings popup toggles and persists interaction mode", async () => {
     });
     await environment.settle();
 
+    assert.ok(elements.overlayHost);
+    assert.ok(elements.container.querySelector("#bd-graph").shadowRoot);
+    assert.ok(elements.overlayHost.shadowRoot);
     assert.equal(preview.getState().graphInteractionMode, "drag");
     assert.equal(elements.graphSettingsPopup.hidden, true);
     assert.equal(elements.graphInteractionSelect.value, "drag");
+    assert.ok(String(elements.graphInteractionSelect.className).includes("bmsie-ui-select"));
 
     elements.graphSettingsToggle.dispatchEvent({ type: "click" });
     await environment.settle();
@@ -479,7 +484,7 @@ test("viewer detail settings popup opens beside the status panel, reflects defau
     assert.ok(detailSettingsToggle);
     assert.ok(detailSettingsClose);
     assert.equal(detailSettingsPopup.hidden, true);
-    assert.equal(detailSettingsPopup.parentNode, environment.document.body);
+    assert.equal(detailSettingsPopup.parentNode?.parentNode?.host?.id, PREVIEW_OVERLAY_HOST_ID);
 
     const noteWidthInput = findElementById(environment.document.body, "bd-viewer-note-width-input");
     const scratchWidthInput = findElementById(environment.document.body, "bd-viewer-scratch-width-input");
@@ -494,6 +499,8 @@ test("viewer detail settings popup opens beside the status panel, reflects defau
     assert.equal(barLineHeightInput?.value, "1");
     assert.equal(markerHeightInput?.value, "1");
     assert.equal(separatorWidthInput?.value, "1");
+    assert.ok(String(noteWidthInput?.className ?? "").includes("bmsie-ui-input"));
+    assert.ok(String(scratchWidthInput?.className ?? "").includes("bmsie-ui-input"));
 
     detailSettingsPopup.getBoundingClientRect = () => ({ width: 240, height: 180 });
     statusPanel.getBoundingClientRect = () => ({ left: 220, top: 96, bottom: 180 });
@@ -536,6 +543,62 @@ test("viewer detail settings popup opens beside the status panel, reflects defau
     preview.destroy();
     await environment.settle();
     assert.equal(findElementById(environment.document.body, "bd-viewer-detail-settings-popup"), null);
+  } finally {
+    environment.restore();
+  }
+});
+
+test("preview mounts interactive surfaces into shadow roots by default", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { elements } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createParsedScore(),
+    });
+    await environment.settle();
+
+    const graphHost = elements.container.querySelector("#bd-graph");
+    assert.ok(graphHost.shadowRoot);
+      assert.ok(elements.overlayHost?.shadowRoot);
+      assert.ok(elements.graphCanvas);
+      assert.ok(elements.graphTooltip);
+      assert.ok(elements.graphSettingsToggle);
+      assert.ok(elements.viewerDetailSettingsPopup);
+      assert.equal(elements.graphTooltip?.parentNode?.parentNode?.host?.id, PREVIEW_OVERLAY_HOST_ID);
+      assert.equal(elements.viewerDetailSettingsPopup?.parentNode?.parentNode?.host?.id, PREVIEW_OVERLAY_HOST_ID);
+    } finally {
+      environment.restore();
+    }
+  });
+
+test("graph tooltip is rendered in the overlay surface and follows viewport pointer coordinates", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview, elements } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("e".repeat(64)));
+    await environment.settle();
+
+    assert.ok(elements.graphTooltip);
+    assert.equal(elements.graphTooltip.parentNode?.parentNode?.host?.id, PREVIEW_OVERLAY_HOST_ID);
+
+    elements.graphCanvas.dispatchEvent({ type: "mousemove", clientX: 120, clientY: 34 });
+    await environment.settle();
+
+    assert.equal(elements.graphTooltip.style.left, "130px");
+    assert.equal(elements.graphTooltip.style.top, "44px");
+    assert.equal(elements.graphTooltip.style.display, "block");
+
+    elements.graphCanvas.dispatchEvent({ type: "mouseleave" });
+    await environment.settle();
+
+    assert.equal(elements.graphTooltip.style.display, "none");
+
+    preview.destroy();
+    await environment.settle();
   } finally {
     environment.restore();
   }
@@ -782,6 +845,10 @@ function createPreviewHarness(documentRef, {
     loadParsedScore,
     ...preferences,
   });
+  elements.overlayHost = findElementById(documentRef.body, PREVIEW_OVERLAY_HOST_ID);
+  elements.graphCanvas = findElementById(elements.container, "bd-graph-canvas");
+  elements.graphTooltip = findElementById(documentRef.body, "bd-graph-tooltip");
+  elements.graphSettingsToggle = findElementById(elements.container, "bd-graph-settings-toggle");
   elements.graphSettingsPopup = findElementById(documentRef.body, "bd-graph-settings-popup");
   elements.graphSettingsClose = findElementById(documentRef.body, "bd-graph-settings-close");
   elements.graphInteractionSelect = findElementById(documentRef.body, "bd-graph-interaction-select");
@@ -819,32 +886,18 @@ function createPreviewContainerElements(documentRef) {
     "bd-lanenotes-div",
     "bd-tables-ul",
     "bd-graph",
-    "bd-graph-settings-toggle",
-    "bd-scoreviewer-pin-input",
-    "bd-graph-tooltip",
-    "bd-graph-canvas",
   ];
   for (const id of ids) {
     let element;
-    if (id === "bd-graph-canvas") {
-      element = new MockCanvasElement(documentRef);
-      element.width = 640;
-      element.height = 180;
-    } else {
-      element = documentRef.createElement(id === "bd-scoreviewer-pin-input" ? "input" : "div");
-    }
+    element = documentRef.createElement("div");
     element.id = id;
     container.registerElement(id, element);
   }
   container.querySelector("#bd-graph").clientWidth = 320;
   container.querySelector("#bd-graph").clientHeight = 180;
   container.querySelector("#bd-graph").scrollWidth = 900;
-  container.querySelector("#bd-graph-canvas").getBoundingClientRect = () => ({ left: 0, top: 0 });
   return {
     container,
-    graphCanvas: container.querySelector("#bd-graph-canvas"),
-    graphSettingsToggle: container.querySelector("#bd-graph-settings-toggle"),
-    pinInput: container.querySelector("#bd-scoreviewer-pin-input"),
   };
 }
 
@@ -854,6 +907,10 @@ function findElementById(root, id) {
   }
   if (root.id === id) {
     return root;
+  }
+  const shadowMatch = findElementById(root.shadowRoot ?? null, id);
+  if (shadowMatch) {
+    return shadowMatch;
   }
   for (const child of root.children ?? []) {
     const match = findElementById(child, id);
@@ -871,6 +928,10 @@ function findElementByClass(root, className) {
   const classNames = String(root.className ?? "").split(/\s+/).filter(Boolean);
   if (root.classList?.contains?.(className) || classNames.includes(className)) {
     return root;
+  }
+  const shadowMatch = findElementByClass(root.shadowRoot ?? null, className);
+  if (shadowMatch) {
+    return shadowMatch;
   }
   for (const child of root.children ?? []) {
     const match = findElementByClass(child, className);
@@ -1063,6 +1124,7 @@ class MockElement {
     this.checked = false;
     this.href = "";
     this.id = "";
+    this.shadowRoot = null;
     this.clientWidth = 640;
     this.clientHeight = 360;
     this.scrollWidth = 640;
@@ -1101,6 +1163,11 @@ class MockElement {
     const nextChildren = this.parentNode.children.filter((child) => child !== this);
     this.parentNode.children = nextChildren;
     this.parentNode = null;
+  }
+
+  attachShadow() {
+    this.shadowRoot = new MockShadowRoot(this.ownerDocument, this);
+    return this.shadowRoot;
   }
 
   setAttribute(name, value) {
@@ -1151,6 +1218,34 @@ class MockElement {
   }
 }
 
+class MockShadowRoot {
+  constructor(ownerDocument, host) {
+    this.ownerDocument = ownerDocument;
+    this.host = host;
+    this.children = [];
+    this.parentNode = host;
+  }
+
+  appendChild(child) {
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  }
+
+  append(...children) {
+    for (const child of children) {
+      this.appendChild(child);
+    }
+  }
+
+  replaceChildren(...children) {
+    this.children = [];
+    for (const child of children) {
+      this.appendChild(child);
+    }
+  }
+}
+
 class MockContainerElement extends MockElement {
   constructor(ownerDocument) {
     super("div", ownerDocument);
@@ -1161,6 +1256,7 @@ class MockContainerElement extends MockElement {
   registerElement(id, element) {
     element.id = id;
     element.parentNode = this;
+    this.children.push(element);
     this._elementsById.set(id, element);
   }
 

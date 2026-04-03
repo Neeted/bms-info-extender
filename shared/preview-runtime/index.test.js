@@ -27,6 +27,7 @@ import {
   VIEWER_NOTE_HEIGHT_STORAGE_KEY,
   VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY,
   VIEWER_MARKER_HEIGHT_STORAGE_KEY,
+  VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY,
   VIEWER_SEPARATOR_WIDTH_STORAGE_KEY,
   INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
   JUDGE_LINE_POSITION_RATIO_STORAGE_KEY,
@@ -137,6 +138,7 @@ test("renderer config defaults and restores valid persisted values", () => {
   assert.equal(VIEWER_NOTE_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.noteHeight");
   assert.equal(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.barLineHeight");
   assert.equal(VIEWER_MARKER_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.markerHeight");
+  assert.equal(VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY, "bms-info-extender.viewer.judgeLineHeight");
   assert.equal(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY, "bms-info-extender.viewer.separatorWidth");
   assert.deepEqual(getInitialRendererConfig(), {
     noteWidth: 15,
@@ -144,6 +146,7 @@ test("renderer config defaults and restores valid persisted values", () => {
     noteHeight: 4,
     barLineHeight: 1,
     markerHeight: 1,
+    judgeLineHeight: 2,
     separatorWidth: 1,
   });
   assert.deepEqual(getInitialRendererConfig({
@@ -152,6 +155,7 @@ test("renderer config defaults and restores valid persisted values", () => {
     getPersistedViewerNoteHeight: () => 6,
     getPersistedViewerBarLineHeight: () => 3,
     getPersistedViewerMarkerHeight: () => 2,
+    getPersistedViewerJudgeLineHeight: () => 5,
     getPersistedViewerSeparatorWidth: () => 4,
   }), {
     noteWidth: 20,
@@ -159,6 +163,7 @@ test("renderer config defaults and restores valid persisted values", () => {
     noteHeight: 6,
     barLineHeight: 3,
     markerHeight: 2,
+    judgeLineHeight: 5,
     separatorWidth: 4,
   });
 });
@@ -206,6 +211,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   preferences.setPersistedViewerNoteHeight(6);
   preferences.setPersistedViewerBarLineHeight(3);
   preferences.setPersistedViewerMarkerHeight(2);
+  preferences.setPersistedViewerJudgeLineHeight(5);
   preferences.setPersistedViewerSeparatorWidth(4);
 
   assert.equal(store.get(VIEWER_MODE_STORAGE_KEY), "lunatic");
@@ -225,6 +231,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(store.get(VIEWER_NOTE_HEIGHT_STORAGE_KEY), 6);
   assert.equal(store.get(VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY), 3);
   assert.equal(store.get(VIEWER_MARKER_HEIGHT_STORAGE_KEY), 2);
+  assert.equal(store.get(VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY), 5);
   assert.equal(store.get(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY), 4);
   assert.equal(preferences.getPersistedViewerMode(), "lunatic");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "show");
@@ -492,6 +499,7 @@ test("viewer detail settings popup opens beside the status panel, reflects defau
     const noteHeightInput = findElementById(environment.document.body, "bd-viewer-note-height-input");
     const barLineHeightInput = findElementById(environment.document.body, "bd-viewer-bar-line-height-input");
     const markerHeightInput = findElementById(environment.document.body, "bd-viewer-marker-height-input");
+    const judgeLineHeightInput = findElementById(environment.document.body, "bd-viewer-judge-line-height-input");
     const separatorWidthInput = findElementById(environment.document.body, "bd-viewer-separator-width-input");
 
     assert.equal(noteWidthInput?.value, "15");
@@ -499,6 +507,7 @@ test("viewer detail settings popup opens beside the status panel, reflects defau
     assert.equal(noteHeightInput?.value, "4");
     assert.equal(barLineHeightInput?.value, "1");
     assert.equal(markerHeightInput?.value, "1");
+    assert.equal(judgeLineHeightInput?.value, "2");
     assert.equal(separatorWidthInput?.value, "1");
     assert.ok(String(noteWidthInput?.className ?? "").includes("bmsie-ui-input"));
     assert.ok(String(scratchWidthInput?.className ?? "").includes("bmsie-ui-input"));
@@ -627,11 +636,13 @@ test("viewer detail settings popup adjusts renderer config by wheel with clamp a
     const detailSettingsToggle = findElementByClass(environment.document.body, "score-viewer-detail-settings-toggle");
     const noteWidthInput = findElementById(environment.document.body, "bd-viewer-note-width-input");
     const scratchWidthInput = findElementById(environment.document.body, "bd-viewer-scratch-width-input");
+    const judgeLineHeightInput = findElementById(environment.document.body, "bd-viewer-judge-line-height-input");
     const separatorWidthInput = findElementById(environment.document.body, "bd-viewer-separator-width-input");
 
     assert.ok(detailSettingsToggle);
     assert.ok(noteWidthInput);
     assert.ok(scratchWidthInput);
+    assert.ok(judgeLineHeightInput);
     assert.ok(separatorWidthInput);
 
     detailSettingsToggle.dispatchEvent({ type: "click" });
@@ -654,6 +665,12 @@ test("viewer detail settings popup adjusts renderer config by wheel with clamp a
     assert.equal(scratchWidthInput.value, "31");
     assert.equal(preview.getState().rendererConfig.scratchWidth, 31);
     assert.equal(store.get(VIEWER_SCRATCH_WIDTH_STORAGE_KEY), 31);
+
+    judgeLineHeightInput.dispatchEvent({ type: "wheel", deltaY: -1 });
+    await environment.settle();
+    assert.equal(judgeLineHeightInput.value, "3");
+    assert.equal(preview.getState().rendererConfig.judgeLineHeight, 3);
+    assert.equal(store.get(VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY), 3);
 
     scratchWidthInput.value = "64";
     scratchWidthInput.dispatchEvent({ type: "wheel", deltaY: -1 });

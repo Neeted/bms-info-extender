@@ -1496,12 +1496,14 @@ var MINE_COLOR = "#880000";
 var INVISIBLE_NOTE_COLOR = "#FFFF00";
 var NOTE_HEAD_HEIGHT = 4;
 var TEMPO_MARKER_HEIGHT = 1;
+var JUDGE_LINE_HEIGHT = 2;
 var TEMPO_MARKER_WIDTH = 8;
 var TEMPO_LABEL_GAP = 8;
 var TEMPO_LABEL_MIN_GAP = 12;
 var TEMPO_LABEL_FONT = '12px "Inconsolata", "Noto Sans JP"';
 var MEASURE_LABEL_COLOR = "#FFFFFF";
 var JUDGE_LINE_SIDE_OVERHANG = 48;
+var JUDGE_LINE_COLOR = "#ff0000";
 var BEAT_LANE_COLORS = /* @__PURE__ */ new Map([
   ["0", "#e04a4a"],
   ["1", "#bebebe"],
@@ -1549,6 +1551,7 @@ var DEFAULT_RENDERER_CONFIG = Object.freeze({
   noteHeight: NOTE_HEAD_HEIGHT,
   barLineHeight: BAR_LINE_HEIGHT,
   markerHeight: TEMPO_MARKER_HEIGHT,
+  judgeLineHeight: JUDGE_LINE_HEIGHT,
   separatorWidth: SEPARATOR_WIDTH
 });
 var currentRendererConfig = DEFAULT_RENDERER_CONFIG;
@@ -1648,6 +1651,7 @@ function createScoreViewerRenderer(canvas) {
       pixelsPerSecond,
       judgeLineY
     );
+    drawJudgeLineTimeMode(context, lanes, judgeLineY);
     drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond, judgeLineY);
     drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond, judgeLineY);
     if (showInvisibleNotes) {
@@ -1673,6 +1677,7 @@ function createScoreViewerRenderer(canvas) {
       pixelsPerBeat,
       judgeLineY
     );
+    drawJudgeLineEditorMode(context, lanes, judgeLineY);
     drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
     drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
     if (showInvisibleNotes) {
@@ -1701,6 +1706,7 @@ function createScoreViewerRenderer(canvas) {
       drawBarLinesGameMode(context, lanes, projection);
       drawMeasureLabelsGameMode(context, model.barLines, lanes, projection);
       drawTempoMarkersGameMode(context, lanes, projection);
+      drawJudgeLineGameMode(context, lanes, projection);
       drawLongBodiesGameMode(context, model, lanes, projection);
       drawNoteHeadsGameMode(context, model, lanes, projection);
       if (showInvisibleNotes) {
@@ -1754,13 +1760,14 @@ function normalizeRendererConfig(rendererConfig = {}) {
     noteHeight: normalizeRendererDimension(rendererConfig?.noteHeight, NOTE_HEAD_HEIGHT),
     barLineHeight: normalizeRendererDimension(rendererConfig?.barLineHeight, BAR_LINE_HEIGHT),
     markerHeight: normalizeRendererDimension(rendererConfig?.markerHeight, TEMPO_MARKER_HEIGHT),
+    judgeLineHeight: normalizeRendererDimension(rendererConfig?.judgeLineHeight, JUDGE_LINE_HEIGHT),
     separatorWidth: normalizeRendererDimension(rendererConfig?.separatorWidth, SEPARATOR_WIDTH)
   };
 }
 function areRendererConfigsEqual(left, right) {
   const normalizedLeft = normalizeRendererConfig(left);
   const normalizedRight = normalizeRendererConfig(right);
-  return normalizedLeft.noteWidth === normalizedRight.noteWidth && normalizedLeft.scratchWidth === normalizedRight.scratchWidth && normalizedLeft.noteHeight === normalizedRight.noteHeight && normalizedLeft.barLineHeight === normalizedRight.barLineHeight && normalizedLeft.markerHeight === normalizedRight.markerHeight && normalizedLeft.separatorWidth === normalizedRight.separatorWidth;
+  return normalizedLeft.noteWidth === normalizedRight.noteWidth && normalizedLeft.scratchWidth === normalizedRight.scratchWidth && normalizedLeft.noteHeight === normalizedRight.noteHeight && normalizedLeft.barLineHeight === normalizedRight.barLineHeight && normalizedLeft.markerHeight === normalizedRight.markerHeight && normalizedLeft.judgeLineHeight === normalizedRight.judgeLineHeight && normalizedLeft.separatorWidth === normalizedRight.separatorWidth;
 }
 function normalizeRendererDimension(value, defaultValue) {
   if (!Number.isFinite(value)) {
@@ -1785,6 +1792,9 @@ function getBarLineHeight() {
 }
 function getTempoMarkerHeight() {
   return currentRendererConfig.markerHeight;
+}
+function getJudgeLineHeight() {
+  return currentRendererConfig.judgeLineHeight;
 }
 function getLaneNoteWidth(isScratch = false) {
   return isScratch ? getScratchWidth() : getNoteWidth();
@@ -1852,6 +1862,9 @@ function drawMeasureLabelsTimeMode(context, barLines, lanes, selectedTimeSec, st
     });
   }
   drawMeasureLabels(context, candidates);
+}
+function drawJudgeLineTimeMode(context, lanes, judgeLineY) {
+  drawJudgeLineAcrossLanes(context, lanes, judgeLineY);
 }
 function drawTempoMarkersTimeMode(context, bpmChanges, stops, warps, scrollChanges, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
@@ -1973,6 +1986,9 @@ function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTim
     context.fillRect(getLaneContentLeftX(lane), topY, contentWidth, bodyHeight);
   }
   context.restore();
+}
+function drawJudgeLineEditorMode(context, lanes, judgeLineY) {
+  drawJudgeLineAcrossLanes(context, lanes, judgeLineY);
 }
 function drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
   context.save();
@@ -2324,6 +2340,36 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
   drawSpacedTempoMarkerLabels(context, bpmCandidates);
   drawSpacedTempoMarkerLabels(context, stopCandidates);
   drawSpacedTempoMarkerLabels(context, scrollCandidates);
+}
+function drawJudgeLineGameMode(context, lanes, projection) {
+  drawJudgeLineAcrossLanes(context, lanes, projection.judgeLineY, {
+    topY: projection.renderTopY,
+    bottomY: projection.renderBottomY
+  });
+}
+function drawJudgeLineAcrossLanes(context, lanes, judgeLineY, viewportBounds = null) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  const judgeLineHeight = getJudgeLineHeight();
+  if (!leftLane || !rightLane || !(judgeLineHeight > 0)) {
+    return;
+  }
+  const bottomY = Math.round(judgeLineY);
+  const topY = bottomY - judgeLineHeight;
+  const clippedTopY = Math.max(topY, viewportBounds?.topY ?? Number.NEGATIVE_INFINITY);
+  const clippedBottomY = Math.min(bottomY, viewportBounds?.bottomY ?? Number.POSITIVE_INFINITY);
+  const clippedHeight = Math.max(clippedBottomY - clippedTopY, 0);
+  if (!(clippedHeight > 0)) {
+    return;
+  }
+  context.save();
+  context.fillStyle = JUDGE_LINE_COLOR;
+  context.fillRect(
+    leftLane.x,
+    clippedTopY,
+    getLaneRightEdgeWithSeparator(rightLane) - leftLane.x,
+    clippedHeight
+  );
+  context.restore();
 }
 function getProjectedGameLongBodyStartY(note, projection) {
   const projectedStartY = projection.pointYByIndex.get(note.gameTimelineIndex);
@@ -5349,6 +5395,7 @@ var VIEWER_SCRATCH_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.scratchWidth";
 var VIEWER_NOTE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.noteHeight";
 var VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.barLineHeight";
 var VIEWER_MARKER_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.markerHeight";
+var VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.judgeLineHeight";
 var VIEWER_SEPARATOR_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.separatorWidth";
 var DEFAULT_SPACING_SCALE2 = 1;
 var SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX = 2;
@@ -5596,6 +5643,21 @@ function createPreviewPreferenceStorage({ read = () => null, write = () => {
     setPersistedViewerMarkerHeight(value) {
       try {
         write(VIEWER_MARKER_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ markerHeight: value }).markerHeight);
+      } catch (_error) {
+      }
+    },
+    getPersistedViewerJudgeLineHeight() {
+      try {
+        return normalizeRendererConfig({
+          judgeLineHeight: read(VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.judgeLineHeight)
+        }).judgeLineHeight;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.judgeLineHeight;
+      }
+    },
+    setPersistedViewerJudgeLineHeight(value) {
+      try {
+        write(VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ judgeLineHeight: value }).judgeLineHeight);
       } catch (_error) {
       }
     },
@@ -6350,12 +6412,14 @@ var OVERLAY_SURFACE_CSS = `
     height: ${SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX}px;
     background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%);
     box-shadow: 0 0 20px rgba(187, 71, 49, 0.2);
+    opacity: 0;
   }
 
   .score-viewer-judge-line.is-draggable::after,
   .score-viewer-judge-line.is-dragging::after {
     background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%);
     box-shadow: 0 0 28px rgba(255, 120, 88, 0.34);
+    opacity: 1;
   }
 `;
 var BMSDATA_TEMPLATE_HTML = `
@@ -6569,6 +6633,9 @@ function createBmsInfoPreview({
   getPersistedViewerMarkerHeight = () => DEFAULT_RENDERER_CONFIG.markerHeight,
   setPersistedViewerMarkerHeight = () => {
   },
+  getPersistedViewerJudgeLineHeight = () => DEFAULT_RENDERER_CONFIG.judgeLineHeight,
+  setPersistedViewerJudgeLineHeight = () => {
+  },
   getPersistedViewerSeparatorWidth = () => DEFAULT_RENDERER_CONFIG.separatorWidth,
   setPersistedViewerSeparatorWidth = () => {
   },
@@ -6676,6 +6743,7 @@ function createBmsInfoPreview({
       getPersistedViewerNoteHeight,
       getPersistedViewerBarLineHeight,
       getPersistedViewerMarkerHeight,
+      getPersistedViewerJudgeLineHeight,
       getPersistedViewerSeparatorWidth
     }),
     graphInteractionMode: initialGraphInteractionMode,
@@ -6793,6 +6861,14 @@ function createBmsInfoPreview({
       min: 0,
       max: 16,
       value: state2.rendererConfig.markerHeight
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-judge-line-height-input",
+      key: "judgeLineHeight",
+      label: "Judge Line Height",
+      min: 0,
+      max: 16,
+      value: state2.rendererConfig.judgeLineHeight
     }),
     createViewerDetailNumberField(documentRef, {
       id: "bd-viewer-separator-width-input",
@@ -7266,6 +7342,7 @@ function createBmsInfoPreview({
       setPersistedViewerNoteHeight(normalizedRendererConfig.noteHeight);
       setPersistedViewerBarLineHeight(normalizedRendererConfig.barLineHeight);
       setPersistedViewerMarkerHeight(normalizedRendererConfig.markerHeight);
+      setPersistedViewerJudgeLineHeight(normalizedRendererConfig.judgeLineHeight);
       setPersistedViewerSeparatorWidth(normalizedRendererConfig.separatorWidth);
     } catch (error) {
       console.warn("Failed to persist renderer config:", error);
@@ -7798,6 +7875,7 @@ function getInitialRendererConfig({
   getPersistedViewerNoteHeight,
   getPersistedViewerBarLineHeight,
   getPersistedViewerMarkerHeight,
+  getPersistedViewerJudgeLineHeight,
   getPersistedViewerSeparatorWidth
 } = {}) {
   try {
@@ -7807,6 +7885,7 @@ function getInitialRendererConfig({
       noteHeight: getPersistedViewerNoteHeight?.(),
       barLineHeight: getPersistedViewerBarLineHeight?.(),
       markerHeight: getPersistedViewerMarkerHeight?.(),
+      judgeLineHeight: getPersistedViewerJudgeLineHeight?.(),
       separatorWidth: getPersistedViewerSeparatorWidth?.()
     });
   } catch (error) {

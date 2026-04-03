@@ -39,12 +39,14 @@ const MINE_COLOR = "#880000";
 const INVISIBLE_NOTE_COLOR = "#FFFF00";
 export const NOTE_HEAD_HEIGHT = 4;
 export const TEMPO_MARKER_HEIGHT = 1;
+export const JUDGE_LINE_HEIGHT = 2;
 const TEMPO_MARKER_WIDTH = 8;
 const TEMPO_LABEL_GAP = 8;
 const TEMPO_LABEL_MIN_GAP = 12;
 const TEMPO_LABEL_FONT = '12px "Inconsolata", "Noto Sans JP"';
 const MEASURE_LABEL_COLOR = "#FFFFFF";
 const JUDGE_LINE_SIDE_OVERHANG = 48;
+const JUDGE_LINE_COLOR = "#ff0000";
 
 const BEAT_LANE_COLORS = new Map([
   ["0", "#e04a4a"],
@@ -95,6 +97,7 @@ export const DEFAULT_RENDERER_CONFIG = Object.freeze({
   noteHeight: NOTE_HEAD_HEIGHT,
   barLineHeight: BAR_LINE_HEIGHT,
   markerHeight: TEMPO_MARKER_HEIGHT,
+  judgeLineHeight: JUDGE_LINE_HEIGHT,
   separatorWidth: SEPARATOR_WIDTH,
 });
 
@@ -209,6 +212,7 @@ export function createScoreViewerRenderer(canvas) {
       pixelsPerSecond,
       judgeLineY,
     );
+    drawJudgeLineTimeMode(context, lanes, judgeLineY);
     drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond, judgeLineY);
     drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, height, pixelsPerSecond, judgeLineY);
     if (showInvisibleNotes) {
@@ -236,6 +240,7 @@ export function createScoreViewerRenderer(canvas) {
       pixelsPerBeat,
       judgeLineY,
     );
+    drawJudgeLineEditorMode(context, lanes, judgeLineY);
     drawLongBodiesEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
     drawNoteHeadsEditorMode(context, model, lanes, editorFrameState, pixelsPerBeat, judgeLineY);
     if (showInvisibleNotes) {
@@ -267,6 +272,7 @@ export function createScoreViewerRenderer(canvas) {
       drawBarLinesGameMode(context, lanes, projection);
       drawMeasureLabelsGameMode(context, model.barLines, lanes, projection);
       drawTempoMarkersGameMode(context, lanes, projection);
+      drawJudgeLineGameMode(context, lanes, projection);
       drawLongBodiesGameMode(context, model, lanes, projection);
       drawNoteHeadsGameMode(context, model, lanes, projection);
       if (showInvisibleNotes) {
@@ -333,6 +339,7 @@ export function normalizeRendererConfig(rendererConfig = {}) {
     noteHeight: normalizeRendererDimension(rendererConfig?.noteHeight, NOTE_HEAD_HEIGHT),
     barLineHeight: normalizeRendererDimension(rendererConfig?.barLineHeight, BAR_LINE_HEIGHT),
     markerHeight: normalizeRendererDimension(rendererConfig?.markerHeight, TEMPO_MARKER_HEIGHT),
+    judgeLineHeight: normalizeRendererDimension(rendererConfig?.judgeLineHeight, JUDGE_LINE_HEIGHT),
     separatorWidth: normalizeRendererDimension(rendererConfig?.separatorWidth, SEPARATOR_WIDTH),
   };
 }
@@ -345,6 +352,7 @@ export function areRendererConfigsEqual(left, right) {
     && normalizedLeft.noteHeight === normalizedRight.noteHeight
     && normalizedLeft.barLineHeight === normalizedRight.barLineHeight
     && normalizedLeft.markerHeight === normalizedRight.markerHeight
+    && normalizedLeft.judgeLineHeight === normalizedRight.judgeLineHeight
     && normalizedLeft.separatorWidth === normalizedRight.separatorWidth;
 }
 
@@ -377,6 +385,10 @@ function getBarLineHeight() {
 
 function getTempoMarkerHeight() {
   return currentRendererConfig.markerHeight;
+}
+
+function getJudgeLineHeight() {
+  return currentRendererConfig.judgeLineHeight;
 }
 
 function getLaneNoteWidth(isScratch = false) {
@@ -458,6 +470,10 @@ function drawMeasureLabelsTimeMode(context, barLines, lanes, selectedTimeSec, st
     });
   }
   drawMeasureLabels(context, candidates);
+}
+
+function drawJudgeLineTimeMode(context, lanes, judgeLineY) {
+  drawJudgeLineAcrossLanes(context, lanes, judgeLineY);
 }
 
 function drawTempoMarkersTimeMode(
@@ -599,6 +615,10 @@ function drawLongBodiesTimeMode(context, model, lanes, selectedTimeSec, startTim
     context.fillRect(getLaneContentLeftX(lane), topY, contentWidth, bodyHeight);
   }
   context.restore();
+}
+
+function drawJudgeLineEditorMode(context, lanes, judgeLineY) {
+  drawJudgeLineAcrossLanes(context, lanes, judgeLineY);
 }
 
 function drawNoteHeadsTimeMode(context, model, lanes, selectedTimeSec, startTimeSec, endTimeSec, viewportHeight, pixelsPerSecond, judgeLineY) {
@@ -987,6 +1007,38 @@ function drawTempoMarkersGameMode(context, lanes, projection) {
   drawSpacedTempoMarkerLabels(context, bpmCandidates);
   drawSpacedTempoMarkerLabels(context, stopCandidates);
   drawSpacedTempoMarkerLabels(context, scrollCandidates);
+}
+
+function drawJudgeLineGameMode(context, lanes, projection) {
+  drawJudgeLineAcrossLanes(context, lanes, projection.judgeLineY, {
+    topY: projection.renderTopY,
+    bottomY: projection.renderBottomY,
+  });
+}
+
+function drawJudgeLineAcrossLanes(context, lanes, judgeLineY, viewportBounds = null) {
+  const { leftLane, rightLane } = getVisualLaneEdges(lanes);
+  const judgeLineHeight = getJudgeLineHeight();
+  if (!leftLane || !rightLane || !(judgeLineHeight > 0)) {
+    return;
+  }
+  const bottomY = Math.round(judgeLineY);
+  const topY = bottomY - judgeLineHeight;
+  const clippedTopY = Math.max(topY, viewportBounds?.topY ?? Number.NEGATIVE_INFINITY);
+  const clippedBottomY = Math.min(bottomY, viewportBounds?.bottomY ?? Number.POSITIVE_INFINITY);
+  const clippedHeight = Math.max(clippedBottomY - clippedTopY, 0);
+  if (!(clippedHeight > 0)) {
+    return;
+  }
+  context.save();
+  context.fillStyle = JUDGE_LINE_COLOR;
+  context.fillRect(
+    leftLane.x,
+    clippedTopY,
+    getLaneRightEdgeWithSeparator(rightLane) - leftLane.x,
+    clippedHeight,
+  );
+  context.restore();
 }
 
 function getProjectedGameLongBodyStartY(note, projection) {

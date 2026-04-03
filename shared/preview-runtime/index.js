@@ -65,6 +65,7 @@ export const VIEWER_SCRATCH_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.scratc
 export const VIEWER_NOTE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.noteHeight";
 export const VIEWER_BAR_LINE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.barLineHeight";
 export const VIEWER_MARKER_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.markerHeight";
+export const VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.judgeLineHeight";
 export const VIEWER_SEPARATOR_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.separatorWidth";
 export const DEFAULT_SPACING_SCALE = 1.0;
 const SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX = 2;
@@ -339,6 +340,22 @@ export function createPreviewPreferenceStorage({ read = () => null, write = () =
     setPersistedViewerMarkerHeight(value) {
       try {
         write(VIEWER_MARKER_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ markerHeight: value }).markerHeight);
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedViewerJudgeLineHeight() {
+      try {
+        return normalizeRendererConfig({
+          judgeLineHeight: read(VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY, DEFAULT_RENDERER_CONFIG.judgeLineHeight),
+        }).judgeLineHeight;
+      } catch (_error) {
+        return DEFAULT_RENDERER_CONFIG.judgeLineHeight;
+      }
+    },
+    setPersistedViewerJudgeLineHeight(value) {
+      try {
+        write(VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY, normalizeRendererConfig({ judgeLineHeight: value }).judgeLineHeight);
       } catch (_error) {
         // Ignore storage failures and keep runtime state only.
       }
@@ -1106,12 +1123,14 @@ export const OVERLAY_SURFACE_CSS = `
     height: ${SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX}px;
     background: linear-gradient(90deg, rgba(187, 71, 49, 0.18) 0%, rgba(187, 71, 49, 0.94) 48%, rgba(187, 71, 49, 0.18) 100%);
     box-shadow: 0 0 20px rgba(187, 71, 49, 0.2);
+    opacity: 0;
   }
 
   .score-viewer-judge-line.is-draggable::after,
   .score-viewer-judge-line.is-dragging::after {
     background: linear-gradient(90deg, rgba(255, 132, 94, 0.28) 0%, rgba(255, 120, 88, 1) 48%, rgba(255, 132, 94, 0.28) 100%);
     box-shadow: 0 0 28px rgba(255, 120, 88, 0.34);
+    opacity: 1;
   }
 `;
 
@@ -1327,6 +1346,8 @@ export function createBmsInfoPreview({
   setPersistedViewerBarLineHeight = () => {},
   getPersistedViewerMarkerHeight = () => DEFAULT_RENDERER_CONFIG.markerHeight,
   setPersistedViewerMarkerHeight = () => {},
+  getPersistedViewerJudgeLineHeight = () => DEFAULT_RENDERER_CONFIG.judgeLineHeight,
+  setPersistedViewerJudgeLineHeight = () => {},
   getPersistedViewerSeparatorWidth = () => DEFAULT_RENDERER_CONFIG.separatorWidth,
   setPersistedViewerSeparatorWidth = () => {},
   onSelectedTimeChange = () => {},
@@ -1432,6 +1453,7 @@ export function createBmsInfoPreview({
       getPersistedViewerNoteHeight,
       getPersistedViewerBarLineHeight,
       getPersistedViewerMarkerHeight,
+      getPersistedViewerJudgeLineHeight,
       getPersistedViewerSeparatorWidth,
     }),
     graphInteractionMode: initialGraphInteractionMode,
@@ -1552,6 +1574,14 @@ export function createBmsInfoPreview({
       min: 0,
       max: 16,
       value: state.rendererConfig.markerHeight,
+    }),
+    createViewerDetailNumberField(documentRef, {
+      id: "bd-viewer-judge-line-height-input",
+      key: "judgeLineHeight",
+      label: "Judge Line Height",
+      min: 0,
+      max: 16,
+      value: state.rendererConfig.judgeLineHeight,
     }),
     createViewerDetailNumberField(documentRef, {
       id: "bd-viewer-separator-width-input",
@@ -2070,6 +2100,7 @@ export function createBmsInfoPreview({
       setPersistedViewerNoteHeight(normalizedRendererConfig.noteHeight);
       setPersistedViewerBarLineHeight(normalizedRendererConfig.barLineHeight);
       setPersistedViewerMarkerHeight(normalizedRendererConfig.markerHeight);
+      setPersistedViewerJudgeLineHeight(normalizedRendererConfig.judgeLineHeight);
       setPersistedViewerSeparatorWidth(normalizedRendererConfig.separatorWidth);
     } catch (error) {
       console.warn("Failed to persist renderer config:", error);
@@ -2654,6 +2685,7 @@ export function getInitialRendererConfig({
   getPersistedViewerNoteHeight,
   getPersistedViewerBarLineHeight,
   getPersistedViewerMarkerHeight,
+  getPersistedViewerJudgeLineHeight,
   getPersistedViewerSeparatorWidth,
 } = {}) {
   try {
@@ -2663,6 +2695,7 @@ export function getInitialRendererConfig({
       noteHeight: getPersistedViewerNoteHeight?.(),
       barLineHeight: getPersistedViewerBarLineHeight?.(),
       markerHeight: getPersistedViewerMarkerHeight?.(),
+      judgeLineHeight: getPersistedViewerJudgeLineHeight?.(),
       separatorWidth: getPersistedViewerSeparatorWidth?.(),
     });
   } catch (error) {

@@ -95,7 +95,7 @@ test("renderer keeps existing default geometry when rendererConfig is omitted", 
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.fillStyle !== "#000000")
+      .filter((call) => call.fillStyle === "#bebebe")
       .map(({ x, y, width, height }) => ({ x, y, width, height })),
     [{ x: 80, y: 156, width: 15, height: 4 }],
   );
@@ -113,6 +113,7 @@ test("rendererConfig reflects custom note, separator, note head, bar line, and m
     noteHeight: 6,
     barLineHeight: 3,
     markerHeight: 2,
+    judgeLineHeight: 5,
   };
 
   renderer.resize(240, 320);
@@ -132,6 +133,10 @@ test("rendererConfig reflects custom note, separator, note head, bar line, and m
     context.fillRectCalls.some((call) => call.fillStyle === "#00ff00" && call.width === 8 && call.height === 2),
     true,
   );
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#ff7858" && call.height === 5),
+    true,
+  );
   assert.equal(estimateViewerWidth("7k", 8, rendererConfig), 284);
 });
 
@@ -145,6 +150,7 @@ test("rendererConfig normalizes zero values safely", () => {
     noteHeight: 0,
     barLineHeight: 0,
     markerHeight: 0,
+    judgeLineHeight: 0,
   };
 
   renderer.resize(240, 320);
@@ -180,9 +186,96 @@ test("renderer uses scratchWidth for scratch lanes independently from normal not
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.fillStyle !== "#000000")
+      .filter((call) => call.fillStyle === "#e04a4a")
       .map(({ x, y, width, height }) => ({ x, y, width, height })),
     [{ x: 57, y: 156, width: 34, height: 4 }],
+  );
+});
+
+test("renderer draws the judge line on an integer bottom edge", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(240, 321);
+  renderer.render(model, 1, {
+    viewerMode: "time",
+    judgeLineY: 160.5,
+    rendererConfig: { judgeLineHeight: 3 },
+  });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.fillStyle === "#ff7858")
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 48, y: 158, width: 144, height: 3 }],
+  );
+});
+
+test("renderer skips judge line drawing when the configured height is zero", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, {
+    viewerMode: "time",
+    rendererConfig: { judgeLineHeight: 0 },
+  });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#ff7858"),
+    false,
+  );
+});
+
+test("renderer draws the judge line after markers and before notes", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createTempoMarkerAlignmentScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, {
+    viewerMode: "time",
+    rendererConfig: { judgeLineHeight: 2 },
+  });
+
+  const orderedFillStyles = context.operations
+    .filter((operation) => operation.type === "fillRect")
+    .map((operation) => operation.fillStyle);
+  const markerIndex = orderedFillStyles.indexOf("#00ff00");
+  const judgeLineIndex = orderedFillStyles.indexOf("#ff7858");
+  const noteIndex = orderedFillStyles.indexOf("#bebebe");
+
+  assert.ok(markerIndex >= 0);
+  assert.ok(judgeLineIndex > markerIndex);
+  assert.ok(noteIndex > judgeLineIndex);
+});
+
+test("renderer draws the game judge line only across the active lane area", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameZeroScrollFreezeScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.25, {
+    viewerMode: "game",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPx: 80,
+      laneCoverPermille: 0,
+      laneCoverVisible: false,
+      hsFixMode: "main",
+    },
+    rendererConfig: { judgeLineHeight: 3 },
+  });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.fillStyle === "#ff7858")
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 48, y: 237, width: 144, height: 3 }],
   );
 });
 
@@ -201,7 +294,7 @@ test("renderer treats configured scratch lanes as wide lanes across beat modes",
     renderer.render(model, 1, { viewerMode: "time" });
 
     assert.equal(
-      context.fillRectCalls.some((call) => call.fillStyle !== "#000000" && call.width === 30 && call.height === 4),
+      context.fillRectCalls.some((call) => call.fillStyle === "#e04a4a" && call.width === 30 && call.height === 4),
       true,
       `${mode} scratch lane should use scratchWidth`,
     );
@@ -1579,6 +1672,7 @@ class MockRenderingContext2D {
     this.font = "";
     this.textBaseline = "alphabetic";
     this.textAlign = "start";
+    this.operations = [];
     this.fillRectCalls = [];
     this.strokeRectCalls = [];
     this.strokeCalls = [];
@@ -1593,6 +1687,7 @@ class MockRenderingContext2D {
   }
 
   reset() {
+    this.operations = [];
     this.fillRectCalls = [];
     this.strokeRectCalls = [];
     this.strokeCalls = [];
@@ -1619,7 +1714,9 @@ class MockRenderingContext2D {
     if (!clippedRect) {
       return;
     }
-    this.fillRectCalls.push({ ...clippedRect, fillStyle: this.fillStyle });
+    const operation = { ...clippedRect, fillStyle: this.fillStyle };
+    this.fillRectCalls.push(operation);
+    this.operations.push({ type: "fillRect", ...operation });
   }
 
   strokeRect(x, y, width, height) {
@@ -1634,7 +1731,7 @@ class MockRenderingContext2D {
     if (!isPointInsideClip(x, y, this._clipRect)) {
       return;
     }
-    this.fillTextCalls.push({
+    const operation = {
       text,
       x,
       y,
@@ -1642,7 +1739,9 @@ class MockRenderingContext2D {
       font: this.font,
       textBaseline: this.textBaseline,
       textAlign: this.textAlign,
-    });
+    };
+    this.fillTextCalls.push(operation);
+    this.operations.push({ type: "fillText", ...operation });
   }
 
   setTransform() {}
@@ -1660,7 +1759,9 @@ class MockRenderingContext2D {
   }
 
   stroke() {
-    this.strokeCalls.push({ strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
+    const operation = { strokeStyle: this.strokeStyle, lineWidth: this.lineWidth };
+    this.strokeCalls.push(operation);
+    this.operations.push({ type: "stroke", ...operation });
   }
 
   rect(x, y, width, height) {

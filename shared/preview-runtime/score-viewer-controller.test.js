@@ -288,7 +288,8 @@ test("embedded CSS pins the gear button to the top-right corner of the status pa
 
 test("embedded CSS anchors the judge line by its bottom edge with a fixed thickness", () => {
   assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-judge-line \{[^}]*top: var\(--score-viewer-judge-line-top, calc\(var\(--score-viewer-judge-line-ratio, 0\.5\) \* 100%\)\);[^}]*transform: translateY\(-100%\);/);
-  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-judge-line::after \{[^}]*height: 2px;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-judge-line::after \{[^}]*height: 2px;[^}]*opacity: 0;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-judge-line\.is-draggable::after,[^}]*\.score-viewer-judge-line\.is-dragging::after \{[^}]*opacity: 1;/);
 });
 
 test("controller blurs focused settings controls on status panel mouseleave", () => {

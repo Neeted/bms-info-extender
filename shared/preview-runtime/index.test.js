@@ -32,6 +32,7 @@ import {
   JUDGE_LINE_POSITION_RATIO_STORAGE_KEY,
   SPACING_SCALE_STORAGE_KEYS,
   VIEWER_MODE_STORAGE_KEY,
+  OVERLAY_SURFACE_CSS,
   expandPreviewRenderMask,
   getInitialGraphInteractionMode,
   getInitialSpacingScale,
@@ -570,6 +571,11 @@ test("preview mounts interactive surfaces into shadow roots by default", async (
       environment.restore();
     }
   });
+
+test("overlay CSS keeps lane drag handles hidden until hover or dragging", () => {
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-drag-line::after \{[^}]*opacity: 0;[^}]*\}/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-drag-line\.is-draggable::after,\s*\.score-viewer-drag-line\.is-dragging::after \{[^}]*opacity: 1;[^}]*\}/);
+});
 
 test("graph tooltip is rendered in the overlay surface and follows viewport pointer coordinates", async () => {
   const environment = installPreviewTestEnvironment();

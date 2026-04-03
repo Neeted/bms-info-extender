@@ -92,13 +92,17 @@ function normalizeGameTimingConfig(config = {}) {
 function getGameLaneGeometry(viewportHeight, judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO, laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT) {
   const normalizedViewportHeight = Math.max(Number.isFinite(viewportHeight) ? viewportHeight : 0, 0);
   const normalizedLaneHeightPercent = normalizeGameLaneHeightPercent(laneHeightPercent);
-  const laneTopY = normalizedViewportHeight * normalizedLaneHeightPercent / 100;
-  const laneHeightPx = Math.max(normalizedViewportHeight - laneTopY, 0);
+  const laneBottomY = normalizedViewportHeight;
+  const laneHeightPx = Math.max(
+    Math.round(normalizedViewportHeight * (100 - normalizedLaneHeightPercent) / 100),
+    0
+  );
+  const laneTopY = laneBottomY - laneHeightPx;
   const judgeLineY = laneTopY + laneHeightPx * normalizeJudgeLinePositionRatio(judgeLinePositionRatio);
   return {
     viewportHeight: normalizedViewportHeight,
     laneTopY,
-    laneBottomY: normalizedViewportHeight,
+    laneBottomY,
     laneHeightPx,
     judgeLineY,
     judgeDistancePx: Math.max(judgeLineY - laneTopY, 0)
@@ -454,6 +458,29 @@ function getGameLaneCoverHeightPx(viewportHeight, judgeLinePositionRatio = DEFAU
     judgeLinePositionRatio,
     laneHeightPercent
   ) * getGameLaneCoverRatio(laneCoverPermille);
+}
+function getGameLaneCoverBounds(viewportHeight, judgeLinePositionRatio = DEFAULT_JUDGE_LINE_POSITION_RATIO, laneHeightPercent = DEFAULT_GAME_LANE_HEIGHT_PERCENT, laneCoverPermille = DEFAULT_GAME_LANE_COVER_PERMILLE) {
+  const laneGeometry = getGameLaneGeometry(
+    viewportHeight,
+    judgeLinePositionRatio,
+    laneHeightPercent
+  );
+  const rawBottomY = Math.min(
+    laneGeometry.laneTopY + getGameLaneCoverHeightPx(
+      viewportHeight,
+      judgeLinePositionRatio,
+      laneHeightPercent,
+      laneCoverPermille
+    ),
+    laneGeometry.judgeLineY
+  );
+  const bottomY = clamp(Math.round(rawBottomY), laneGeometry.laneTopY, laneGeometry.laneBottomY);
+  return {
+    topY: laneGeometry.laneTopY,
+    bottomY,
+    heightPx: Math.max(bottomY - laneGeometry.laneTopY, 0),
+    rawBottomY
+  };
 }
 function hasViewerSelectionChanged(model, viewerMode, previousTimeSec, nextTimeSec, previousBeat = void 0, nextBeat = void 0) {
   const resolvedMode = resolveViewerModeForModel(model, viewerMode);
@@ -2001,6 +2028,16 @@ function collectGameProjection(model, selectedTimeSec, viewportHeight, options =
     { includeGreenNumberRange: normalizedGameTimingConfig.laneCoverVisible }
   );
   const currentTimingState = getGameTimingStateAtTimeSec(model, selectedTimeSec);
+  const laneCoverBounds = getGameLaneCoverBounds(
+    viewportHeight,
+    getJudgeLineRatioFromGeometry(
+      viewportHeight,
+      resolvedLaneGeometry.judgeLineY,
+      normalizedGameTimingConfig.laneHeightPercent
+    ),
+    normalizedGameTimingConfig.laneHeightPercent,
+    normalizedGameTimingConfig.laneCoverPermille
+  );
   const currentGreenNumber = normalizedGameTimingConfig.laneCoverVisible ? Math.round(getGameCurrentDurationForTimingState(currentTimingState, derivedMetrics) * GAME_GREEN_NUMBER_RATIO) : null;
   const projection = {
     selectedTimeSec,
@@ -2013,16 +2050,9 @@ function collectGameProjection(model, selectedTimeSec, viewportHeight, options =
     judgeLineY: resolvedLaneGeometry.judgeLineY,
     judgeDistancePx: resolvedLaneGeometry.judgeDistancePx,
     laneCoverVisible: normalizedGameTimingConfig.laneCoverVisible,
-    laneCoverHeightPx: getGameLaneCoverHeightPx(
-      viewportHeight,
-      getJudgeLineRatioFromGeometry(
-        viewportHeight,
-        resolvedLaneGeometry.judgeLineY,
-        normalizedGameTimingConfig.laneHeightPercent
-      ),
-      normalizedGameTimingConfig.laneHeightPercent,
-      normalizedGameTimingConfig.laneCoverPermille
-    ),
+    laneCoverTopY: laneCoverBounds.topY,
+    laneCoverBottomY: laneCoverBounds.bottomY,
+    laneCoverHeightPx: laneCoverBounds.heightPx,
     currentGreenNumber,
     greenNumberRange: normalizedGameTimingConfig.laneCoverVisible ? derivedMetrics.greenNumberRange : null,
     hsFixBaseBpm: derivedMetrics.hsFixBaseBpm,
@@ -2348,9 +2378,9 @@ function drawLaneCoverGameMode(context, laneLayout, projection) {
   if (!(coverWidth > 0)) {
     return;
   }
-  const coverTopY = projection.laneTopY;
-  const coverBottomY = Math.min(projection.laneTopY + projection.laneCoverHeightPx, projection.judgeLineY);
-  const coverHeight = Math.max(coverBottomY - coverTopY, 0);
+  const coverTopY = projection.laneCoverTopY;
+  const coverBottomY = projection.laneCoverBottomY;
+  const coverHeight = Math.max(projection.laneCoverHeightPx, 0);
   if (!(coverHeight > 0)) {
     return;
   }
@@ -3847,19 +3877,17 @@ function createScoreViewerController({
     setStylePropertyIfChanged(root, "--score-viewer-judge-line-ratio", String(state2.judgeLinePositionRatio), "judgeLineRatioCss");
     setStylePropertyIfChanged(root, "--score-viewer-judge-line-top", `${currentJudgeLineY}px`, "judgeLineTopCss");
     if (isGameMode && currentGameLaneGeometry) {
+      const laneCoverBounds = getGameLaneCoverBounds(
+        viewportHeight,
+        state2.judgeLinePositionRatio,
+        state2.gameTimingConfig.laneHeightPercent,
+        state2.gameTimingConfig.laneCoverPermille
+      );
       setStyleValueIfChanged(laneHeightHandle, "top", `${currentGameLaneGeometry.laneTopY}px`, "laneHeightHandleTopCss");
       setStyleValueIfChanged(
         laneCoverHandle,
         "top",
-        `${Math.min(
-          currentGameLaneGeometry.laneTopY + getGameLaneCoverHeightPx(
-            viewportHeight,
-            state2.judgeLinePositionRatio,
-            state2.gameTimingConfig.laneHeightPercent,
-            state2.gameTimingConfig.laneCoverPermille
-          ),
-          currentGameLaneGeometry.judgeLineY
-        )}px`,
+        `${laneCoverBounds.bottomY}px`,
         "laneCoverHandleTopCss"
       );
     }
@@ -4299,19 +4327,16 @@ function createScoreViewerController({
       return false;
     }
     const rootRect = root.getBoundingClientRect();
-    const laneGeometry = getCurrentGameLaneGeometry(rootRect.height);
+    const laneCoverBounds = getGameLaneCoverBounds(
+      rootRect.height,
+      state2.judgeLinePositionRatio,
+      state2.gameTimingConfig.laneHeightPercent,
+      state2.gameTimingConfig.laneCoverPermille
+    );
     return isJudgeLineHit({
       pointerClientY: event.clientY,
       rootTop: rootRect.top,
-      judgeLineY: Math.min(
-        laneGeometry.laneTopY + getGameLaneCoverHeightPx(
-          rootRect.height,
-          state2.judgeLinePositionRatio,
-          state2.gameTimingConfig.laneHeightPercent,
-          state2.gameTimingConfig.laneCoverPermille
-        ),
-        laneGeometry.judgeLineY
-      )
+      judgeLineY: laneCoverBounds.bottomY
     });
   }
   function updateDragHandleFromPointer(handleType, event, { notify = false } = {}) {
@@ -6312,12 +6337,14 @@ var OVERLAY_SURFACE_CSS = `
     content: "";
     width: 100%;
     height: 1px;
+    opacity: 0;
     background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.48) 48%, rgba(255, 255, 255, 0.06) 100%);
     box-shadow: 0 0 16px rgba(255, 255, 255, 0.08);
   }
 
   .score-viewer-drag-line.is-draggable::after,
   .score-viewer-drag-line.is-dragging::after {
+    opacity: 1;
     height: 2px;
     background: linear-gradient(90deg, rgba(145, 210, 255, 0.18) 0%, rgba(145, 210, 255, 0.95) 48%, rgba(145, 210, 255, 0.18) 100%);
     box-shadow: 0 0 22px rgba(145, 210, 255, 0.2);

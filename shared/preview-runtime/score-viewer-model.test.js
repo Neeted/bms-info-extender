@@ -26,6 +26,7 @@ import {
   getGameCurrentGreenNumber,
   getGameGreenNumberRange,
   getGameHsFixBaseBpm,
+  getGameLaneCoverBounds,
   getGameJudgeDistancePx,
   getGameJudgeLinePositionRatioFromPointer,
   getGameJudgeLineY,
@@ -176,9 +177,34 @@ test("viewer model derives game lane geometry and judge line ratios within the a
   assert.equal(getGameJudgeLineY(500, 0.5, 50), 375);
   assert.equal(getGameJudgeDistancePx(500, 0.5, 50), 125);
   assert.equal(getGameLaneCoverHeightPx(500, 0.5, 50, 500), 62.5);
+  assert.deepEqual(
+    getGameLaneCoverBounds(500, 0.5, 50, 500),
+    {
+      topY: 250,
+      bottomY: 313,
+      heightPx: 63,
+      rawBottomY: 312.5,
+    },
+  );
   assert.equal(getGameJudgeLinePositionRatioFromPointer(250, 500, 50), 0);
   assert.equal(getGameJudgeLinePositionRatioFromPointer(375, 500, 50), 0.5);
   assert.equal(getGameJudgeLinePositionRatioFromPointer(500, 500, 50), 1);
+});
+
+test("viewer model snaps fractional game lane geometry to integer pixel bounds", () => {
+  const geometry = getGameLaneGeometry(321, 0.5, 33.3);
+
+  assert.deepEqual(geometry, {
+    viewportHeight: 321,
+    laneTopY: 107,
+    laneBottomY: 321,
+    laneHeightPx: 214,
+    judgeLineY: 214,
+    judgeDistancePx: 107,
+  });
+  assert.equal(Number.isInteger(geometry.laneTopY), true);
+  assert.equal(Number.isInteger(geometry.laneHeightPx), true);
+  assert.equal(geometry.laneTopY + geometry.laneHeightPx, geometry.laneBottomY);
 });
 
 test("viewer model resolves HS-FIX BPMs from record summary and parsed score fallbacks", () => {

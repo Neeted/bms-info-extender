@@ -781,6 +781,39 @@ test("renderer clips game-mode lanes by lane height and draws lane cover labels"
   ]);
 });
 
+test("renderer snaps game lane cover bounds to integer pixels before drawing", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameZeroScrollFreezeScore(), {
+    bpmSummary: {
+      mainBpm: 150,
+      minBpm: 120,
+      maxBpm: 180,
+    },
+  });
+
+  renderer.resize(241, 321);
+  renderer.render(model, 2.25, {
+    viewerMode: "game",
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPercent: 33.3,
+      laneCoverPermille: 500,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.fillStyle === "#2A2A2A")
+      .map(({ y, height }) => ({ y, height })),
+    [
+      { y: 107, height: 27 },
+    ],
+  );
+});
+
 test("renderer adapts game lane cover width when separator width changes", () => {
   const renderCoverWidth = (separatorWidth) => {
     const { canvas, context } = createMockCanvas();

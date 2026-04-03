@@ -266,7 +266,7 @@ test("embedded CSS restores sizing and inherited typography for isolated UI prim
   assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-button \{[^}]*color: inherit;[^}]*font: inherit;[^}]*line-height: inherit;/);
   assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-input,\s*\.bmsie-ui-select \{[^}]*all: unset;[^}]*box-sizing: border-box;[^}]*display: block;[^}]*inline-size: 100%;[^}]*min-inline-size: 0;[^}]*max-inline-size: 100%;/);
   assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-input,\s*\.bmsie-ui-select \{[^}]*color: inherit;[^}]*font: inherit;[^}]*line-height: inherit;/);
-  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-checkbox \{[^}]*all: unset;[^}]*box-sizing: border-box;[^}]*display: inline-block;[^}]*min-inline-size: 14px;[^}]*min-block-size: 14px;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-checkbox \{[^}]*all: unset;[^}]*box-sizing: border-box;[^}]*display: inline-block;[^}]*min-inline-size: 12px;[^}]*min-block-size: 12px;/);
   assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-checkbox \{[^}]*color: inherit;[^}]*font: inherit;[^}]*line-height: inherit;/);
   assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-range \{[^}]*all: unset;[^}]*box-sizing: border-box;[^}]*display: block;[^}]*inline-size: 100%;[^}]*min-inline-size: 0;[^}]*max-inline-size: 100%;/);
   assert.match(OVERLAY_SURFACE_CSS, /\.bmsie-ui-range \{[^}]*color: inherit;[^}]*font: inherit;[^}]*line-height: inherit;/);
@@ -275,7 +275,7 @@ test("embedded CSS restores sizing and inherited typography for isolated UI prim
 test("embedded CSS keeps detail inputs and graph settings selects constrained to their grid cells", () => {
   assert.match(OVERLAY_SURFACE_CSS, /\.bd-graph-settings-select,\s*\.score-viewer-mode-select,\s*\.score-viewer-detail-settings-input \{[^}]*inline-size: 100%;[^}]*min-inline-size: 0;[^}]*max-inline-size: 100%;/);
   assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-detail-settings-pair-row \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*gap: 8px;/);
-  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-mode-controls \{[^}]*grid-template-columns: minmax\(0, 2fr\) minmax\(0, 3fr\);[^}]*gap: 6px;/);
+  assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-mode-controls \{[^}]*grid-template-columns: minmax\(0, 4fr\) minmax\(0, 5fr\);[^}]*gap: 6px;/);
   assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-mode-cell \{[^}]*display: grid;[^}]*min-width: 0;/);
   assert.match(OVERLAY_SURFACE_CSS, /\.score-viewer-detail-settings-popup \{[^}]*width: min\(240px, calc\(100vw - 24px\)\);[^}]*min-width: 0;[^}]*max-width: calc\(100vw - 24px\);/);
 });
@@ -783,6 +783,36 @@ test("controller updates lane height and lane cover by pointer drag in game mode
 
     assert.equal(gameTimingConfigChanges.at(-1)?.laneCoverPermille, 750);
     assert.equal(laneCoverHandle.style.top, "450px");
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller aligns lane-cover handle with the renderer's rounded cover bottom", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 321;
+
+    const controller = createScoreViewerController({ root });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+    controller.setViewerMode("game");
+    controller.setGameTimingConfig({
+      laneHeightPercent: 33.3,
+      laneCoverPermille: 500,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    });
+
+    const laneHeightHandle = findElementByClass(root, "score-viewer-lane-height-handle");
+    const laneCoverHandle = findElementByClass(root, "score-viewer-lane-cover-handle");
+
+    assert.equal(laneHeightHandle.style.top, "107px");
+    assert.equal(laneCoverHandle.style.top, "161px");
 
     controller.destroy();
   } finally {

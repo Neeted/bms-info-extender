@@ -18,7 +18,7 @@ import {
   getEditorContentHeightPx,
   getEditorScrollTopForBeat,
   getEditorScrollTopForTimeSec,
-  getGameLaneCoverHeightPx,
+  getGameLaneCoverBounds,
   getGameLaneCoverPermilleFromPointer,
   getGameJudgeLinePositionRatioFromPointer,
   getGameJudgeLineY,
@@ -896,19 +896,17 @@ export function createScoreViewerController({
     setStylePropertyIfChanged(root, "--score-viewer-judge-line-ratio", String(state.judgeLinePositionRatio), "judgeLineRatioCss");
     setStylePropertyIfChanged(root, "--score-viewer-judge-line-top", `${currentJudgeLineY}px`, "judgeLineTopCss");
     if (isGameMode && currentGameLaneGeometry) {
+      const laneCoverBounds = getGameLaneCoverBounds(
+        viewportHeight,
+        state.judgeLinePositionRatio,
+        state.gameTimingConfig.laneHeightPercent,
+        state.gameTimingConfig.laneCoverPermille,
+      );
       setStyleValueIfChanged(laneHeightHandle, "top", `${currentGameLaneGeometry.laneTopY}px`, "laneHeightHandleTopCss");
       setStyleValueIfChanged(
         laneCoverHandle,
         "top",
-        `${Math.min(
-          currentGameLaneGeometry.laneTopY + getGameLaneCoverHeightPx(
-            viewportHeight,
-            state.judgeLinePositionRatio,
-            state.gameTimingConfig.laneHeightPercent,
-            state.gameTimingConfig.laneCoverPermille,
-          ),
-          currentGameLaneGeometry.judgeLineY,
-        )}px`,
+        `${laneCoverBounds.bottomY}px`,
         "laneCoverHandleTopCss",
       );
     }
@@ -1402,22 +1400,19 @@ export function createScoreViewerController({
     if (!isGameViewerMode(getResolvedViewerMode()) || !state.gameTimingConfig.laneCoverVisible) {
       return false;
     }
-    const rootRect = root.getBoundingClientRect();
-    const laneGeometry = getCurrentGameLaneGeometry(rootRect.height);
-    return isJudgeLineHit({
-      pointerClientY: event.clientY,
-      rootTop: rootRect.top,
-      judgeLineY: Math.min(
-        laneGeometry.laneTopY + getGameLaneCoverHeightPx(
-          rootRect.height,
-          state.judgeLinePositionRatio,
-          state.gameTimingConfig.laneHeightPercent,
-          state.gameTimingConfig.laneCoverPermille,
-        ),
-        laneGeometry.judgeLineY,
-      ),
-    });
-  }
+      const rootRect = root.getBoundingClientRect();
+      const laneCoverBounds = getGameLaneCoverBounds(
+        rootRect.height,
+        state.judgeLinePositionRatio,
+        state.gameTimingConfig.laneHeightPercent,
+        state.gameTimingConfig.laneCoverPermille,
+      );
+      return isJudgeLineHit({
+        pointerClientY: event.clientY,
+        rootTop: rootRect.top,
+        judgeLineY: laneCoverBounds.bottomY,
+      });
+    }
 
   function updateDragHandleFromPointer(handleType, event, { notify = false } = {}) {
     if (handleType === "judge-line") {

@@ -7,8 +7,8 @@ import {
   DEFAULT_VIEWER_PIXELS_PER_SECOND,
   getBeatAtTimeSec,
   getGameCurrentDurationForTimingState,
+  getGameLaneCoverBounds,
   getGameJudgeLineY,
-  getGameLaneCoverHeightPx,
   getGameLaneGeometry,
   getGameTimingDerivedMetrics,
   getGameTimingStateAtTimeSec,
@@ -658,6 +658,16 @@ export function collectGameProjection(
     { includeGreenNumberRange: normalizedGameTimingConfig.laneCoverVisible },
   );
   const currentTimingState = getGameTimingStateAtTimeSec(model, selectedTimeSec);
+  const laneCoverBounds = getGameLaneCoverBounds(
+    viewportHeight,
+    getJudgeLineRatioFromGeometry(
+      viewportHeight,
+      resolvedLaneGeometry.judgeLineY,
+      normalizedGameTimingConfig.laneHeightPercent,
+    ),
+    normalizedGameTimingConfig.laneHeightPercent,
+    normalizedGameTimingConfig.laneCoverPermille,
+  );
   const currentGreenNumber = normalizedGameTimingConfig.laneCoverVisible
     ? Math.round(getGameCurrentDurationForTimingState(currentTimingState, derivedMetrics) * GAME_GREEN_NUMBER_RATIO)
     : null;
@@ -672,16 +682,9 @@ export function collectGameProjection(
     judgeLineY: resolvedLaneGeometry.judgeLineY,
     judgeDistancePx: resolvedLaneGeometry.judgeDistancePx,
     laneCoverVisible: normalizedGameTimingConfig.laneCoverVisible,
-    laneCoverHeightPx: getGameLaneCoverHeightPx(
-      viewportHeight,
-      getJudgeLineRatioFromGeometry(
-        viewportHeight,
-        resolvedLaneGeometry.judgeLineY,
-        normalizedGameTimingConfig.laneHeightPercent,
-      ),
-      normalizedGameTimingConfig.laneHeightPercent,
-      normalizedGameTimingConfig.laneCoverPermille,
-    ),
+    laneCoverTopY: laneCoverBounds.topY,
+    laneCoverBottomY: laneCoverBounds.bottomY,
+    laneCoverHeightPx: laneCoverBounds.heightPx,
     currentGreenNumber,
     greenNumberRange: normalizedGameTimingConfig.laneCoverVisible
       ? derivedMetrics.greenNumberRange
@@ -1036,9 +1039,9 @@ function drawLaneCoverGameMode(context, laneLayout, projection) {
   if (!(coverWidth > 0)) {
     return;
   }
-  const coverTopY = projection.laneTopY;
-  const coverBottomY = Math.min(projection.laneTopY + projection.laneCoverHeightPx, projection.judgeLineY);
-  const coverHeight = Math.max(coverBottomY - coverTopY, 0);
+  const coverTopY = projection.laneCoverTopY;
+  const coverBottomY = projection.laneCoverBottomY;
+  const coverHeight = Math.max(projection.laneCoverHeightPx, 0);
   if (!(coverHeight > 0)) {
     return;
   }

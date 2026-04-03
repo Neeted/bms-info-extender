@@ -1068,12 +1068,14 @@ export const OVERLAY_SURFACE_CSS = `
     content: "";
     width: 100%;
     height: 1px;
+    opacity: 0;
     background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.48) 48%, rgba(255, 255, 255, 0.06) 100%);
     box-shadow: 0 0 16px rgba(255, 255, 255, 0.08);
   }
 
   .score-viewer-drag-line.is-draggable::after,
   .score-viewer-drag-line.is-dragging::after {
+    opacity: 1;
     height: 2px;
     background: linear-gradient(90deg, rgba(145, 210, 255, 0.18) 0%, rgba(145, 210, 255, 0.95) 48%, rgba(145, 210, 255, 0.18) 100%);
     box-shadow: 0 0 22px rgba(145, 210, 255, 0.2);

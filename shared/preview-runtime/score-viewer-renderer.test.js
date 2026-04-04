@@ -103,6 +103,60 @@ test("renderer keeps existing default geometry when rendererConfig is omitted", 
   assert.equal(estimateViewerWidth("7k", 8), estimateViewerWidth("7k", 8, {}));
 });
 
+test("estimateViewerWidth scales by column count while keeping single-column calls unchanged", () => {
+  assert.equal(estimateViewerWidth("7k", 8), 240);
+  assert.equal(estimateViewerWidth("7k", 8, undefined, 2), 480);
+  assert.equal(estimateViewerWidth("7k", 8, { noteWidth: 20, separatorWidth: 2 }, 2), 568);
+});
+
+test("renderer wraps time-mode notes into the next column from the bottom", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createWrappedColumnScore());
+
+  renderer.resize(480, 320);
+  renderer.render(model, 1, { viewerMode: "time", columnCount: 2 });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#bebebe" && call.x === 80 && call.y === 156 && call.width === 15 && call.height === 4),
+    false,
+  );
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#bebebe" && call.x === 320 && call.y === 156 && call.width === 15 && call.height === 4),
+    true,
+  );
+});
+
+test("renderer wraps editor-mode notes into the next column from the bottom", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createWrappedColumnScore());
+
+  renderer.resize(480, 320);
+  renderer.render(model, 1, { viewerMode: "editor", columnCount: 2 });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#bebebe" && call.x === 320 && call.y === 220 && call.width === 15 && call.height === 4),
+    true,
+  );
+});
+
+test("renderer draws the time-mode judge line only in the first column", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(480, 320);
+  renderer.render(model, 1, { viewerMode: "time", columnCount: 2 });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.fillStyle === "#ff0000")
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 48, y: 158, width: 144, height: 2 }],
+  );
+});
+
 test("rendererConfig reflects custom note, separator, note head, bar line, and marker sizes", () => {
   const { canvas, context } = createMockCanvas();
   const renderer = createScoreViewerRenderer(canvas);
@@ -1155,6 +1209,28 @@ function createInvisibleNoteScore() {
       { lane: 2, beat: 4, timeSec: 2, kind: "invisible" },
     ],
     comboEvents: [{ lane: 1, beat: 2, timeSec: 1, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createWrappedColumnScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 6, timeSec: 3, kind: "normal" },
+    ],
+    comboEvents: [{ lane: 1, beat: 6, timeSec: 3, kind: "normal" }],
     barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
     bpmChanges: [],
     stops: [],

@@ -77,6 +77,17 @@ test("judge line hit testing uses the configured 10px drag band", () => {
 
 test("pointer drag intent prioritizes the judge line over score scrolling within the hit band", () => {
   assert.equal(resolvePointerDragIntent({
+    canDragColumnResize: true,
+    canDragJudgeLine: true,
+    canDragLaneHeight: true,
+    canDragLaneCover: true,
+    canDragScroll: true,
+    isColumnResizeHit: true,
+    isJudgeLineHit: true,
+    isLaneHeightHit: true,
+    isLaneCoverHit: true,
+  }), "column-resize");
+  assert.equal(resolvePointerDragIntent({
     canDragJudgeLine: true,
     canDragLaneHeight: true,
     canDragLaneCover: true,
@@ -718,6 +729,100 @@ test("controller applies resize cursor classes on hover before dragging", () => 
     });
 
     assert.equal(root.classList.contains("is-drag-handle-hovered"), false);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller applies horizontal resize hover classes on the left edge in time mode", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const controller = createScoreViewerController({ root });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+    controller.setViewerMode("time");
+
+    const scrollHost = findElementByClass(root, "score-viewer-scroll-host");
+    const columnResizeHandle = findElementByClass(root, "score-viewer-column-resize-handle");
+
+    dispatchPointerEvent(scrollHost, "pointermove", {
+      pointerId: 111,
+      button: -1,
+      clientX: 5,
+      clientY: 360,
+    });
+
+    assert.equal(root.classList.contains("is-column-resize-hovered"), true);
+    assert.equal(columnResizeHandle.classList.contains("is-draggable"), true);
+
+    dispatchPointerEvent(scrollHost, "pointerleave", {
+      pointerId: 111,
+    });
+
+    assert.equal(root.classList.contains("is-column-resize-hovered"), false);
+
+    controller.destroy();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("controller updates column count by left-edge drag and restores per-mode widths", () => {
+  const environment = installControllerTestEnvironment();
+  try {
+    const root = environment.document.createElement("div");
+    root.clientWidth = 520;
+    root.clientHeight = 720;
+
+    const columnCountChanges = [];
+    const controller = createScoreViewerController({
+      root,
+      onColumnCountChange: (mode, count) => {
+        columnCountChanges.push({ mode, count });
+      },
+    });
+    controller.setModel(createControllerTestModel());
+    controller.setOpen(true);
+    controller.setViewerMode("time");
+
+    const scrollHost = findElementByClass(root, "score-viewer-scroll-host");
+    const columnResizeHandle = findElementByClass(root, "score-viewer-column-resize-handle");
+
+    dispatchPointerEvent(scrollHost, "pointerdown", {
+      pointerId: 112,
+      clientX: 5,
+      clientY: 360,
+    });
+    dispatchPointerEvent(scrollHost, "pointermove", {
+      pointerId: 112,
+      clientX: -245,
+      clientY: 360,
+    });
+    dispatchPointerEvent(scrollHost, "pointerup", {
+      pointerId: 112,
+      clientX: -245,
+      clientY: 360,
+    });
+
+    assert.deepEqual(columnCountChanges.at(-1), { mode: "time", count: 2 });
+    assert.equal(root.style["--score-viewer-width"], "480px");
+    assert.equal(columnResizeHandle.classList.contains("is-dragging"), false);
+
+    controller.setColumnCountByMode({ time: 2, editor: 3 });
+    controller.setViewerMode("editor");
+    assert.equal(root.style["--score-viewer-width"], "720px");
+
+    controller.setViewerMode("game");
+    assert.equal(root.style["--score-viewer-width"], "240px");
+
+    controller.setViewerMode("time");
+    assert.equal(root.style["--score-viewer-width"], "480px");
 
     controller.destroy();
   } finally {

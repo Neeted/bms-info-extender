@@ -105,6 +105,7 @@ export const PREVIEW_RENDER_DIRTY = {
   graphSettings: 1 << 12,
   rendererConfig: 1 << 13,
   viewerDetailSettings: 1 << 14,
+  columnCount: 1 << 15,
 };
 const PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 
@@ -411,6 +412,7 @@ export function expandPreviewRenderMask(renderMask = 0) {
       | PREVIEW_RENDER_DIRTY.invisible
       | PREVIEW_RENDER_DIRTY.judgeLinePosition
       | PREVIEW_RENDER_DIRTY.spacing
+      | PREVIEW_RENDER_DIRTY.columnCount
       | PREVIEW_RENDER_DIRTY.gameTimingConfig
       | PREVIEW_RENDER_DIRTY.rendererConfig;
   }
@@ -875,6 +877,11 @@ export const OVERLAY_SURFACE_CSS = `
     cursor: ns-resize;
   }
 
+  .score-viewer-shell.is-column-resize-hovered,
+  .score-viewer-shell.is-column-resize-dragging {
+    cursor: ew-resize;
+  }
+
   .score-viewer-scroll-host {
     position: absolute;
     inset: 0;
@@ -897,6 +904,11 @@ export const OVERLAY_SURFACE_CSS = `
   .score-viewer-scroll-host.is-drag-handle-hovered,
   .score-viewer-scroll-host.is-drag-handle-dragging {
     cursor: ns-resize;
+  }
+
+  .score-viewer-scroll-host.is-column-resize-hovered,
+  .score-viewer-scroll-host.is-column-resize-dragging {
+    cursor: ew-resize;
   }
 
   .score-viewer-spacer {
@@ -1129,6 +1141,35 @@ export const OVERLAY_SURFACE_CSS = `
 
   .score-viewer-lane-cover-handle::after {
     background: linear-gradient(90deg, rgba(137, 255, 178, 0.06) 0%, rgba(137, 255, 178, 0.42) 48%, rgba(137, 255, 178, 0.06) 100%);
+  }
+
+  .score-viewer-column-resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .score-viewer-column-resize-handle::after {
+    content: "";
+    position: absolute;
+    left: 1px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    opacity: 0;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.48) 50%, rgba(255, 255, 255, 0.06) 100%);
+    box-shadow: 0 0 16px rgba(255, 255, 255, 0.08);
+  }
+
+  .score-viewer-column-resize-handle.is-draggable::after,
+  .score-viewer-column-resize-handle.is-dragging::after {
+    opacity: 1;
+    background: linear-gradient(180deg, rgba(145, 210, 255, 0.18) 0%, rgba(145, 210, 255, 0.95) 50%, rgba(145, 210, 255, 0.18) 100%);
+    box-shadow: 0 0 22px rgba(145, 210, 255, 0.2);
   }
 
   .score-viewer-judge-line {
@@ -1467,6 +1508,7 @@ export function createBmsInfoPreview({
     invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
     judgeLinePositionRatio: getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio),
     spacingPxByMode: getInitialSpacingPxByMode(getPersistedSpacingPx),
+    columnCountByMode: { time: 1, editor: 1 },
     gameTimingConfig: getInitialGameTimingConfig({
       getPersistedGameDurationMs,
       getPersistedGameLaneHeightPx,
@@ -1526,6 +1568,9 @@ export function createBmsInfoPreview({
     },
     onSpacingPxChange: (mode, nextPx) => {
       setSpacingPx(mode, nextPx);
+    },
+    onColumnCountChange: (mode, nextCount) => {
+      setColumnCount(mode, nextCount);
     },
     onGameTimingConfigChange: (nextGameTimingConfig) => {
       setGameTimingConfig(nextGameTimingConfig);
@@ -1775,7 +1820,7 @@ export function createBmsInfoPreview({
 
     if (recordChanged) {
       renderBmsData(container, normalizedRecord);
-      shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(normalizedRecord.mode, state.rendererConfig)}px`);
+      shell.style.setProperty("--score-viewer-width", `${getActiveViewerWidth(state, normalizedRecord.mode)}px`);
       renderMask |= PREVIEW_RENDER_DIRTY.record;
     }
 
@@ -2090,6 +2135,25 @@ export function createBmsInfoPreview({
     scheduleRender(PREVIEW_RENDER_DIRTY.gameTimingConfig);
   }
 
+  function setColumnCount(mode, nextCount) {
+    const normalizedMode = mode === "editor" ? "editor" : "time";
+    const normalizedCount = Math.max(1, Math.round(Number.isFinite(nextCount) ? nextCount : 1));
+    if ((state.columnCountByMode[normalizedMode] ?? 1) === normalizedCount) {
+      return;
+    }
+    state.columnCountByMode = {
+      ...state.columnCountByMode,
+      [normalizedMode]: normalizedCount,
+    };
+    if (state.record) {
+      shell.style.setProperty(
+        "--score-viewer-width",
+        `${getActiveViewerWidth(state)}px`,
+      );
+    }
+    scheduleRender(PREVIEW_RENDER_DIRTY.columnCount);
+  }
+
   function setGraphInteractionMode(nextMode) {
     const normalizedMode = normalizeGraphInteractionMode(nextMode);
     if (state.graphInteractionMode === normalizedMode) {
@@ -2134,7 +2198,7 @@ export function createBmsInfoPreview({
       console.warn("Failed to persist renderer config:", error);
     }
     if (state.record) {
-      shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(state.record.mode, state.rendererConfig)}px`);
+      shell.style.setProperty("--score-viewer-width", `${getActiveViewerWidth(state)}px`);
     }
     scheduleRender(PREVIEW_RENDER_DIRTY.rendererConfig);
   }
@@ -2322,6 +2386,12 @@ export function createBmsInfoPreview({
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.spacing) {
       viewerController.setSpacingPxByMode(state.spacingPxByMode);
     }
+    if (expandedRenderMask & PREVIEW_RENDER_DIRTY.columnCount) {
+      viewerController.setColumnCountByMode(state.columnCountByMode);
+      if (state.record) {
+        shell.style.setProperty("--score-viewer-width", `${getActiveViewerWidth(state)}px`);
+      }
+    }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.gameTimingConfig) {
       viewerController.setGameTimingConfig(state.gameTimingConfig);
     }
@@ -2331,7 +2401,7 @@ export function createBmsInfoPreview({
         control.input.value = String(state.rendererConfig[control.key]);
       }
       if (state.record) {
-        shell.style.setProperty("--score-viewer-width", `${estimateViewerWidthFromNumericMode(state.record.mode, state.rendererConfig)}px`);
+        shell.style.setProperty("--score-viewer-width", `${getActiveViewerWidth(state)}px`);
       }
     }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.playback) {
@@ -2740,21 +2810,31 @@ export function getInitialSpacingPx(mode, getPersistedSpacingPx) {
   }
 }
 
-function estimateViewerWidthFromNumericMode(mode, rendererConfig = DEFAULT_RENDERER_CONFIG) {
+function estimateViewerWidthFromNumericMode(mode, rendererConfig = DEFAULT_RENDERER_CONFIG, columnCount = 1) {
   switch (Number(mode)) {
     case 5:
-      return estimateViewerWidth("5k", 6, rendererConfig);
+      return estimateViewerWidth("5k", 6, rendererConfig, columnCount);
     case 7:
-      return estimateViewerWidth("7k", 8, rendererConfig);
+      return estimateViewerWidth("7k", 8, rendererConfig, columnCount);
     case 9:
-      return estimateViewerWidth("popn-9k", 9, rendererConfig);
+      return estimateViewerWidth("popn-9k", 9, rendererConfig, columnCount);
     case 10:
-      return estimateViewerWidth("10k", 12, rendererConfig);
+      return estimateViewerWidth("10k", 12, rendererConfig, columnCount);
     case 14:
-      return estimateViewerWidth("14k", 16, rendererConfig);
+      return estimateViewerWidth("14k", 16, rendererConfig, columnCount);
     default:
-      return estimateViewerWidth(String(mode ?? ""), getDisplayLaneCount(mode), rendererConfig);
+      return estimateViewerWidth(String(mode ?? ""), getDisplayLaneCount(mode), rendererConfig, columnCount);
   }
+}
+
+function getActiveViewerWidth(state, mode = state.record?.mode) {
+  const resolvedViewerMode = getResolvedViewerMode(state);
+  const columnCount = resolvedViewerMode === "editor"
+    ? state.columnCountByMode.editor
+    : resolvedViewerMode === "time"
+      ? state.columnCountByMode.time
+      : 1;
+  return estimateViewerWidthFromNumericMode(mode, state.rendererConfig, columnCount);
 }
 
 function createPopupOption(documentRef, value, label) {

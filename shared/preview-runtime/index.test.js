@@ -172,6 +172,25 @@ test("renderer config defaults and restores valid persisted values", () => {
   });
 });
 
+test("preview column counts are session-only and start at one for each runtime", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const first = createPreviewHarness(environment.document);
+    await environment.settle();
+    assert.deepEqual(first.preview.getState().columnCountByMode, { time: 1, editor: 1 });
+    first.preview.destroy();
+    await environment.settle();
+
+    const second = createPreviewHarness(environment.document);
+    await environment.settle();
+    assert.deepEqual(second.preview.getState().columnCountByMode, { time: 1, editor: 1 });
+    second.preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
 test("preview preference storage shares persistence wiring for viewer mode, invisible notes, judge line position, and per-mode spacing", () => {
   const store = new Map();
   const preferences = createPreviewPreferenceStorage({

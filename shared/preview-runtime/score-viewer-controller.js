@@ -70,6 +70,7 @@ export const GAME_LANE_COVER_WHEEL_STEP = 1;
 const GAME_PLAYBACK_SCROLL_SYNC_VIEWPORT_RATIO = 0.4;
 const GAME_PLAYBACK_SCROLL_SYNC_MIN_PX = 120;
 export const JUDGE_LINE_DRAG_HIT_MARGIN_PX = 10;
+const COLUMN_RESIZE_DRAG_HIT_MARGIN_PX = 10;
 const GAME_GREEN_DISPLAY_COLOR = "#00FF00";
 
 export function createScoreViewerController({
@@ -80,6 +81,7 @@ export function createScoreViewerController({
   onInvisibleNoteVisibilityChange = () => {},
   onJudgeLinePositionChange = () => {},
   onSpacingPxChange = () => {},
+  onColumnCountChange = () => {},
   onGameTimingConfigChange = () => {},
   onRendererConfigChange = () => {},
 }) {
@@ -272,12 +274,14 @@ export function createScoreViewerController({
 
   const judgeLine = document.createElement("div");
   judgeLine.className = "score-viewer-judge-line";
+  const columnResizeHandle = document.createElement("div");
+  columnResizeHandle.className = "score-viewer-column-resize-handle";
   const laneHeightHandle = document.createElement("div");
   laneHeightHandle.className = "score-viewer-drag-line score-viewer-lane-height-handle";
   const laneCoverHandle = document.createElement("div");
   laneCoverHandle.className = "score-viewer-drag-line score-viewer-lane-cover-handle";
 
-  root.replaceChildren(scrollHost, canvas, bottomBar, laneHeightHandle, laneCoverHandle, judgeLine);
+  root.replaceChildren(scrollHost, canvas, bottomBar, columnResizeHandle, laneHeightHandle, laneCoverHandle, judgeLine);
 
   const renderer = createScoreViewerRenderer(canvas);
   const state = {
@@ -288,6 +292,7 @@ export function createScoreViewerController({
     isOpen: false,
     isPlaying: false,
     spacingPxByMode: createDefaultSpacingPxByMode(),
+    columnCountByMode: createDefaultColumnCountByMode(),
     gameTimingConfig: createDefaultGameTimingConfig(),
     rendererConfig: DEFAULT_RENDERER_CONFIG,
     viewerMode: DEFAULT_VIEWER_MODE,
@@ -299,6 +304,7 @@ export function createScoreViewerController({
     canvasHidden: null,
     bottomBarHidden: null,
     judgeLineHidden: null,
+    columnResizeHandleHidden: null,
     laneHeightHandleHidden: null,
     laneCoverHandleHidden: null,
     judgeLineRatioCss: null,
@@ -307,8 +313,14 @@ export function createScoreViewerController({
     laneCoverHandleTopCss: null,
     rootDragHandleHoveredClass: null,
     rootDragHandleDraggingClass: null,
+    rootColumnResizeHoveredClass: null,
+    rootColumnResizeDraggingClass: null,
     scrollHostDragHandleHoveredClass: null,
     scrollHostDragHandleDraggingClass: null,
+    scrollHostColumnResizeHoveredClass: null,
+    scrollHostColumnResizeDraggingClass: null,
+    columnResizeHandleDraggableClass: null,
+    columnResizeHandleDraggingClass: null,
     judgeLineDraggableClass: null,
     judgeLineDraggingClass: null,
     laneHeightHandleDraggableClass: null,
@@ -362,10 +374,12 @@ export function createScoreViewerController({
 
   scrollHost.addEventListener("pointerdown", (event) => {
     const dragIntent = resolvePointerDragIntent({
+      canDragColumnResize: canDragColumnResize(event),
       canDragJudgeLine: canDragJudgeLine(event),
       canDragLaneHeight: canDragGameTimingHandle(event),
       canDragLaneCover: canDragGameTimingHandle(event),
       canDragScroll: canDragScroll(event),
+      isColumnResizeHit: isPointerNearColumnResizeHandle(event),
       isJudgeLineHit: isPointerNearJudgeLine(event),
       isLaneHeightHit: isPointerNearLaneHeightHandle(event),
       isLaneCoverHit: isPointerNearLaneCoverHandle(event),
@@ -377,6 +391,12 @@ export function createScoreViewerController({
       dragState = {
         type: dragIntent,
         pointerId: event.pointerId,
+        ...(dragIntent === "column-resize"
+          ? {
+            startClientX: event.clientX,
+            startColumnCount: getColumnCountForMode(getResolvedViewerMode()),
+          }
+          : {}),
       };
       updateDragHandleFromPointer(dragIntent, event, { notify: true });
     } else {
@@ -864,6 +884,7 @@ export function createScoreViewerController({
     currentJudgeLineY,
   }) {
     const isGameMode = isGameViewerMode(resolvedViewerMode);
+    const supportsColumnResize = showScene && supportsColumnResizeForMode(resolvedViewerMode);
     const currentGameLaneGeometry = isGameMode
       ? getCurrentGameLaneGeometry(viewportHeight)
       : null;
@@ -888,6 +909,7 @@ export function createScoreViewerController({
     setHiddenIfChanged(canvas, !showScene, "canvasHidden");
     setHiddenIfChanged(bottomBar, !showScene, "bottomBarHidden");
     setHiddenIfChanged(judgeLine, !showScene, "judgeLineHidden");
+    setHiddenIfChanged(columnResizeHandle, !supportsColumnResize, "columnResizeHandleHidden");
     setHiddenIfChanged(laneHeightHandle, !showScene || !isGameMode, "laneHeightHandleHidden");
     setHiddenIfChanged(
       laneCoverHandle,
@@ -963,26 +985,62 @@ export function createScoreViewerController({
     toggleClassIfChanged(
       root,
       "is-drag-handle-hovered",
-      showScene && isActiveDragHandleType(state.hoveredDragHandle),
+      showScene && isVerticalDragHandleType(state.hoveredDragHandle),
       "rootDragHandleHoveredClass",
     );
     toggleClassIfChanged(
       root,
       "is-drag-handle-dragging",
-      isActiveDragHandleType(dragState?.type),
+      isVerticalDragHandleType(dragState?.type),
       "rootDragHandleDraggingClass",
+    );
+    toggleClassIfChanged(
+      root,
+      "is-column-resize-hovered",
+      showScene && state.hoveredDragHandle === "column-resize",
+      "rootColumnResizeHoveredClass",
+    );
+    toggleClassIfChanged(
+      root,
+      "is-column-resize-dragging",
+      dragState?.type === "column-resize",
+      "rootColumnResizeDraggingClass",
     );
     toggleClassIfChanged(
       scrollHost,
       "is-drag-handle-hovered",
-      showScene && isActiveDragHandleType(state.hoveredDragHandle),
+      showScene && isVerticalDragHandleType(state.hoveredDragHandle),
       "scrollHostDragHandleHoveredClass",
     );
     toggleClassIfChanged(
       scrollHost,
       "is-drag-handle-dragging",
-      isActiveDragHandleType(dragState?.type),
+      isVerticalDragHandleType(dragState?.type),
       "scrollHostDragHandleDraggingClass",
+    );
+    toggleClassIfChanged(
+      scrollHost,
+      "is-column-resize-hovered",
+      showScene && state.hoveredDragHandle === "column-resize",
+      "scrollHostColumnResizeHoveredClass",
+    );
+    toggleClassIfChanged(
+      scrollHost,
+      "is-column-resize-dragging",
+      dragState?.type === "column-resize",
+      "scrollHostColumnResizeDraggingClass",
+    );
+    toggleClassIfChanged(
+      columnResizeHandle,
+      "is-draggable",
+      showScene && state.hoveredDragHandle === "column-resize",
+      "columnResizeHandleDraggableClass",
+    );
+    toggleClassIfChanged(
+      columnResizeHandle,
+      "is-dragging",
+      dragState?.type === "column-resize",
+      "columnResizeHandleDraggingClass",
     );
     toggleClassIfChanged(
       judgeLine,
@@ -1036,6 +1094,7 @@ export function createScoreViewerController({
     setTextIfChanged(comboRow, `CB: ${cursor.comboCount}/${cursor.totalCombo}`, "comboText");
     renderer.render(showScene ? state.model : null, cursor.timeSec, {
       viewerMode: resolvedViewerMode,
+      columnCount: getActiveColumnCount(resolvedViewerMode),
       pixelsPerSecond: getPixelsPerSecond(),
       pixelsPerBeat: getPixelsPerBeat(),
       editorFrameState,
@@ -1078,6 +1137,7 @@ export function createScoreViewerController({
     setInvisibleNoteVisibility,
     setJudgeLinePositionRatio,
     setSpacingPxByMode,
+    setColumnCountByMode,
     setGameTimingConfig,
     setRendererConfig,
     setEmptyState,
@@ -1106,9 +1166,20 @@ export function createScoreViewerController({
     dragState = null;
     scrollHost.classList.remove("is-dragging");
     scrollHost.classList.remove("is-drag-handle-dragging");
+    scrollHost.classList.remove("is-column-resize-dragging");
+    columnResizeHandle.classList.remove("is-dragging");
     judgeLine.classList.remove("is-dragging");
     laneHeightHandle.classList.remove("is-dragging");
     laneCoverHandle.classList.remove("is-dragging");
+  }
+
+  function canDragColumnResize(event) {
+    return Boolean(
+      state.model
+        && state.isOpen
+        && supportsColumnResizeForMode(getResolvedViewerMode())
+        && isPrimaryPointer(event),
+    );
   }
 
   function canDragScroll(event) {
@@ -1146,9 +1217,15 @@ export function createScoreViewerController({
       root.style.removeProperty("--score-viewer-width");
       return;
     }
+    const resolvedViewerMode = getResolvedViewerMode();
     root.style.setProperty(
       "--score-viewer-width",
-      `${estimateViewerWidth(state.model.score.mode, state.model.score.laneCount, state.rendererConfig)}px`,
+      `${estimateViewerWidth(
+        state.model.score.mode,
+        state.model.score.laneCount,
+        state.rendererConfig,
+        getActiveColumnCount(resolvedViewerMode),
+      )}px`,
     );
   }
 
@@ -1207,22 +1284,31 @@ export function createScoreViewerController({
       && editorFrameStateCache.viewportHeight === viewportHeight
       && Math.abs(editorFrameStateCache.pixelsPerBeat - pixelsPerBeat) < 0.0005
       && Math.abs(editorFrameStateCache.judgeLineY - judgeLineY) < 0.0005
+      && editorFrameStateCache.columnCount === getActiveColumnCount("editor")
     ) {
       return editorFrameStateCache.frameState;
     }
-    const frameState = getEditorFrameStateForBeat(
+    const baseFrameState = getEditorFrameStateForBeat(
       state.model,
       state.selectedBeat,
       viewportHeight,
       pixelsPerBeat,
       judgeLineY,
     );
+    const frameState = {
+      ...baseFrameState,
+      endBeat: Math.min(
+        state.model.totalBeat ?? 0,
+        baseFrameState.endBeat + getAdditionalColumnBeatSpan(viewportHeight, pixelsPerBeat, "editor"),
+      ),
+    };
     editorFrameStateCache = {
       model: state.model,
       selectedBeat: state.selectedBeat,
       viewportHeight,
       pixelsPerBeat,
       judgeLineY,
+      columnCount: getActiveColumnCount("editor"),
       frameState,
     };
     return frameState;
@@ -1357,10 +1443,12 @@ export function createScoreViewerController({
       return;
     }
     const hoveredHandle = resolvePointerDragIntent({
+      canDragColumnResize: canDragColumnResize(event),
       canDragJudgeLine: canDragJudgeLine(event),
       canDragLaneHeight: canDragGameTimingHandle(event),
       canDragLaneCover: canDragGameTimingHandle(event),
       canDragScroll: false,
+      isColumnResizeHit: isPointerNearColumnResizeHandle(event),
       isJudgeLineHit: isPointerNearJudgeLine(event),
       isLaneHeightHit: isPointerNearLaneHeightHandle(event),
       isLaneCoverHit: isPointerNearLaneCoverHandle(event),
@@ -1378,6 +1466,19 @@ export function createScoreViewerController({
       rootTop: rootRect.top,
       judgeLineY: getCurrentJudgeLineY(rootRect.height),
     });
+  }
+
+  function isPointerNearColumnResizeHandle(event) {
+    if (!supportsColumnResizeForMode(getResolvedViewerMode())) {
+      return false;
+    }
+    const rootRect = root.getBoundingClientRect();
+    const pointerOffsetX = Number.isFinite(event.clientX) && Number.isFinite(rootRect.left)
+      ? event.clientX - rootRect.left
+      : Number.NaN;
+    return Number.isFinite(pointerOffsetX)
+      && pointerOffsetX >= 0
+      && pointerOffsetX <= Math.max(COLUMN_RESIZE_DRAG_HIT_MARGIN_PX, 0);
   }
 
   function isPointerNearLaneHeightHandle(event) {
@@ -1411,6 +1512,10 @@ export function createScoreViewerController({
   }
 
   function updateDragHandleFromPointer(handleType, event, { notify = false } = {}) {
+    if (handleType === "column-resize") {
+      updateColumnCountFromPointer(event, { notify });
+      return;
+    }
     if (handleType === "judge-line") {
       updateJudgeLinePositionFromPointer(event, { notify });
       return;
@@ -1422,6 +1527,27 @@ export function createScoreViewerController({
     if (handleType === "lane-cover") {
       updateLaneCoverFromPointer(event, { notify });
     }
+  }
+
+  function updateColumnCountFromPointer(event, { notify = false } = {}) {
+    const resolvedViewerMode = getResolvedViewerMode();
+    if (!supportsColumnResizeForMode(resolvedViewerMode)) {
+      return;
+    }
+    const baseColumnWidth = estimateViewerWidth(
+      state.model?.score?.mode,
+      state.model?.score?.laneCount,
+      state.rendererConfig,
+      1,
+    );
+    const deltaX = (dragState?.startClientX ?? event.clientX) - event.clientX;
+    const columnDelta = baseColumnWidth > 0 ? Math.round(deltaX / baseColumnWidth) : 0;
+    setHoveredDragHandle("column-resize", { render: false });
+    updateColumnCountForMode(
+      resolvedViewerMode,
+      (dragState?.startColumnCount ?? 1) + columnDelta,
+      { notify },
+    );
   }
 
   function updateJudgeLinePositionFromPointer(event, { notify = false } = {}) {
@@ -1496,6 +1622,51 @@ export function createScoreViewerController({
     if (notify) {
       onSpacingPxChange(normalizedMode, normalizedPx);
     }
+  }
+
+  function getColumnCountForMode(mode) {
+    const normalizedMode = normalizeColumnCountMode(mode);
+    return state.columnCountByMode[normalizedMode] ?? 1;
+  }
+
+  function getActiveColumnCount(mode = getResolvedViewerMode()) {
+    return supportsColumnResizeForMode(mode) ? getColumnCountForMode(mode) : 1;
+  }
+
+  function updateColumnCountForMode(mode, nextCount, { notify = false } = {}) {
+    const normalizedMode = normalizeColumnCountMode(mode);
+    const normalizedCount = normalizeColumnCount(nextCount);
+    if (getColumnCountForMode(normalizedMode) === normalizedCount) {
+      return;
+    }
+    state.columnCountByMode = {
+      ...state.columnCountByMode,
+      [normalizedMode]: normalizedCount,
+    };
+    editorFrameStateCache = null;
+    refreshLayout();
+    if (notify) {
+      onColumnCountChange(normalizedMode, normalizedCount);
+    }
+  }
+
+  function setColumnCountByMode(nextColumnCountByMode = {}) {
+    const normalizedColumnCountByMode = {
+      time: normalizeColumnCount(nextColumnCountByMode.time),
+      editor: normalizeColumnCount(nextColumnCountByMode.editor),
+    };
+    if (areColumnCountMapsEqual(state.columnCountByMode, normalizedColumnCountByMode)) {
+      return;
+    }
+    state.columnCountByMode = normalizedColumnCountByMode;
+    editorFrameStateCache = null;
+    refreshLayout();
+  }
+
+  function getAdditionalColumnBeatSpan(viewportHeight, pixelsPerBeat, mode) {
+    return Math.max(getActiveColumnCount(mode) - 1, 0)
+      * Math.max(viewportHeight, 0)
+      / Math.max(pixelsPerBeat, 1);
   }
 
   function updateGameTimingConfig(nextPartialConfig = {}, { notify = false } = {}) {
@@ -1613,14 +1784,19 @@ export function getJudgeLinePositionRatioFromPointer({
 }
 
 export function resolvePointerDragIntent({
+  canDragColumnResize,
   canDragJudgeLine,
   canDragLaneHeight,
   canDragLaneCover,
   canDragScroll,
+  isColumnResizeHit,
   isJudgeLineHit,
   isLaneHeightHit,
   isLaneCoverHit,
 }) {
+  if (canDragColumnResize && isColumnResizeHit) {
+    return "column-resize";
+  }
   if (canDragJudgeLine && isJudgeLineHit) {
     return "judge-line";
   }
@@ -1637,6 +1813,10 @@ export function resolvePointerDragIntent({
 }
 
 function isActiveDragHandleType(value) {
+  return value === "column-resize" || value === "judge-line" || value === "lane-height" || value === "lane-cover";
+}
+
+function isVerticalDragHandleType(value) {
   return value === "judge-line" || value === "lane-height" || value === "lane-cover";
 }
 
@@ -1649,6 +1829,30 @@ function createDefaultSpacingPxByMode() {
     time: DEFAULT_TIME_SPACING_PX,
     editor: DEFAULT_EDITOR_SPACING_PX,
   };
+}
+
+function createDefaultColumnCountByMode() {
+  return {
+    time: 1,
+    editor: 1,
+  };
+}
+
+function areColumnCountMapsEqual(left, right) {
+  return (left?.time ?? 1) === (right?.time ?? 1)
+    && (left?.editor ?? 1) === (right?.editor ?? 1);
+}
+
+function normalizeColumnCountMode(mode) {
+  return mode === "editor" ? "editor" : "time";
+}
+
+function normalizeColumnCount(value) {
+  return Math.max(1, Math.round(Number.isFinite(value) ? value : 1));
+}
+
+function supportsColumnResizeForMode(mode) {
+  return mode === "time" || mode === "editor";
 }
 
 function isGameViewerMode(mode) {

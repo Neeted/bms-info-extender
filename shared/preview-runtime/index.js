@@ -49,6 +49,10 @@ const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
 export const VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
 export const INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibleNoteVisibility";
 export const JUDGE_LINE_POSITION_RATIO_STORAGE_KEY = "bms-info-extender.judgeLinePositionRatio";
+export const SPACING_PX_STORAGE_KEYS = Object.freeze({
+  time: "bms-info-extender.spacingPx.time",
+  editor: "bms-info-extender.spacingPx.editor",
+});
 export const SPACING_SCALE_STORAGE_KEYS = Object.freeze({
   time: "bms-info-extender.spacingScale.time",
   editor: "bms-info-extender.spacingScale.editor",
@@ -68,6 +72,10 @@ export const VIEWER_MARKER_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.marker
 export const VIEWER_JUDGE_LINE_HEIGHT_STORAGE_KEY = "bms-info-extender.viewer.judgeLineHeight";
 export const VIEWER_SEPARATOR_WIDTH_STORAGE_KEY = "bms-info-extender.viewer.separatorWidth";
 export const DEFAULT_SPACING_SCALE = 1.0;
+export const DEFAULT_SPACING_PX = Object.freeze({
+  time: 160,
+  editor: 64,
+});
 const SCORE_VIEWER_JUDGE_LINE_HEIGHT_PX = 2;
 export { DEFAULT_VIEWER_MODE };
 export { DEFAULT_INVISIBLE_NOTE_VISIBILITY };
@@ -149,6 +157,23 @@ export function createPreviewPreferenceStorage({ read = () => null, write = () =
     setPersistedJudgeLinePositionRatio(nextRatio) {
       try {
         write(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, normalizeJudgeLinePositionRatio(nextRatio));
+      } catch (_error) {
+        // Ignore storage failures and keep runtime state only.
+      }
+    },
+    getPersistedSpacingPx(mode) {
+      try {
+        return normalizeSpacingPx(
+          Number(read(getSpacingPxStorageKey(mode), getDefaultSpacingPx(mode))),
+          mode,
+        );
+      } catch (_error) {
+        return getDefaultSpacingPx(mode);
+      }
+    },
+    setPersistedSpacingPx(mode, value) {
+      try {
+        write(getSpacingPxStorageKey(mode), normalizeSpacingPx(value, mode));
       } catch (_error) {
         // Ignore storage failures and keep runtime state only.
       }
@@ -1322,6 +1347,8 @@ export function createBmsInfoPreview({
   setPersistedInvisibleNoteVisibility = () => {},
   getPersistedJudgeLinePositionRatio = () => DEFAULT_JUDGE_LINE_POSITION_RATIO,
   setPersistedJudgeLinePositionRatio = () => {},
+  getPersistedSpacingPx = (mode) => getDefaultSpacingPx(mode),
+  setPersistedSpacingPx = () => {},
   getPersistedSpacingScale = () => DEFAULT_SPACING_SCALE,
   setPersistedSpacingScale = () => {},
   getPersistedGameDurationMs = () => DEFAULT_GAME_DURATION_MS,
@@ -1439,7 +1466,7 @@ export function createBmsInfoPreview({
     viewerMode: getInitialViewerMode(getPersistedViewerMode),
     invisibleNoteVisibility: getInitialInvisibleNoteVisibility(getPersistedInvisibleNoteVisibility),
     judgeLinePositionRatio: getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRatio),
-    spacingScaleByMode: getInitialSpacingScaleByMode(getPersistedSpacingScale),
+    spacingPxByMode: getInitialSpacingPxByMode(getPersistedSpacingPx),
     gameTimingConfig: getInitialGameTimingConfig({
       getPersistedGameDurationMs,
       getPersistedGameLaneHeightPx,
@@ -1497,8 +1524,8 @@ export function createBmsInfoPreview({
     onJudgeLinePositionChange: (nextRatio) => {
       setJudgeLinePositionRatio(nextRatio);
     },
-    onSpacingScaleChange: (mode, nextScale) => {
-      setSpacingScale(mode, nextScale);
+    onSpacingPxChange: (mode, nextPx) => {
+      setSpacingPx(mode, nextPx);
     },
     onGameTimingConfigChange: (nextGameTimingConfig) => {
       setGameTimingConfig(nextGameTimingConfig);
@@ -1715,7 +1742,8 @@ export function createBmsInfoPreview({
     setViewerMode,
     setInvisibleNoteVisibility,
     setJudgeLinePositionRatio,
-    setSpacingScale,
+    setSpacingPx,
+    setSpacingScale: setSpacingPx,
     setGameTimingConfig,
     setPinned,
     setPlaybackState,
@@ -2023,20 +2051,20 @@ export function createBmsInfoPreview({
     scheduleRender(PREVIEW_RENDER_DIRTY.judgeLinePosition);
   }
 
-  function setSpacingScale(mode, nextScale) {
-    const normalizedMode = normalizeSpacingMode(mode);
-    const normalizedScale = normalizeSpacingScale(nextScale);
-    if (Math.abs((state.spacingScaleByMode[normalizedMode] ?? DEFAULT_SPACING_SCALE) - normalizedScale) < 0.000001) {
+  function setSpacingPx(mode, nextPx) {
+    const normalizedMode = normalizeSpacingPxMode(mode);
+    const normalizedPx = normalizeSpacingPx(nextPx, normalizedMode);
+    if (Math.abs((state.spacingPxByMode[normalizedMode] ?? getDefaultSpacingPx(normalizedMode)) - normalizedPx) < 0.000001) {
       return;
     }
-    state.spacingScaleByMode = {
-      ...state.spacingScaleByMode,
-      [normalizedMode]: normalizedScale,
+    state.spacingPxByMode = {
+      ...state.spacingPxByMode,
+      [normalizedMode]: normalizedPx,
     };
     try {
-      setPersistedSpacingScale(normalizedMode, normalizedScale);
+      setPersistedSpacingPx(normalizedMode, normalizedPx);
     } catch (error) {
-      console.warn("Failed to persist spacing scale:", error);
+      console.warn("Failed to persist spacing px:", error);
     }
     scheduleRender(PREVIEW_RENDER_DIRTY.spacing);
   }
@@ -2292,7 +2320,7 @@ export function createBmsInfoPreview({
       viewerController.setJudgeLinePositionRatio(state.judgeLinePositionRatio);
     }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.spacing) {
-      viewerController.setSpacingScaleByMode(state.spacingScaleByMode);
+      viewerController.setSpacingPxByMode(state.spacingPxByMode);
     }
     if (expandedRenderMask & PREVIEW_RENDER_DIRTY.gameTimingConfig) {
       viewerController.setGameTimingConfig(state.gameTimingConfig);
@@ -2646,11 +2674,10 @@ export function getInitialJudgeLinePositionRatio(getPersistedJudgeLinePositionRa
   }
 }
 
-export function getInitialSpacingScaleByMode(getPersistedSpacingScale) {
+export function getInitialSpacingPxByMode(getPersistedSpacingPx) {
   return {
-    time: getInitialSpacingScale("time", getPersistedSpacingScale),
-    editor: getInitialSpacingScale("editor", getPersistedSpacingScale),
-    game: getInitialSpacingScale("game", getPersistedSpacingScale),
+    time: getInitialSpacingPx("time", getPersistedSpacingPx),
+    editor: getInitialSpacingPx("editor", getPersistedSpacingPx),
   };
 }
 
@@ -2704,12 +2731,12 @@ export function getInitialRendererConfig({
   }
 }
 
-export function getInitialSpacingScale(mode, getPersistedSpacingScale) {
+export function getInitialSpacingPx(mode, getPersistedSpacingPx) {
   try {
-    return normalizeSpacingScale(Number(getPersistedSpacingScale?.(normalizeSpacingMode(mode))));
+    return normalizeSpacingPx(Number(getPersistedSpacingPx?.(normalizeSpacingPxMode(mode))), mode);
   } catch (error) {
-    console.warn("Failed to read persisted spacing scale:", error);
-    return DEFAULT_SPACING_SCALE;
+    console.warn("Failed to read persisted spacing px:", error);
+    return getDefaultSpacingPx(mode);
   }
 }
 
@@ -2852,8 +2879,27 @@ export function getSpacingScaleStorageKey(mode) {
   return SPACING_SCALE_STORAGE_KEYS[normalizeSpacingMode(mode)];
 }
 
+export function getSpacingPxStorageKey(mode) {
+  return SPACING_PX_STORAGE_KEYS[normalizeSpacingPxMode(mode)];
+}
+
+function normalizeSpacingPxMode(mode) {
+  return mode === "editor" ? "editor" : "time";
+}
+
 function normalizeSpacingMode(mode) {
   return mode === "editor" ? "editor" : mode === "game" || mode === "lunatic" ? "game" : "time";
+}
+
+function getDefaultSpacingPx(mode) {
+  return DEFAULT_SPACING_PX[normalizeSpacingPxMode(mode)] ?? DEFAULT_SPACING_PX.time;
+}
+
+function normalizeSpacingPx(value, mode) {
+  if (!Number.isFinite(value) || value < 1 || value > 2160) {
+    return getDefaultSpacingPx(mode);
+  }
+  return Math.round(value);
 }
 
 function normalizeSpacingScale(value) {

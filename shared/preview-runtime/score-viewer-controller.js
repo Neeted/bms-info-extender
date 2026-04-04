@@ -54,11 +54,13 @@ import {
 } from "./score-viewer-renderer.js";
 
 const DEFAULT_WHEEL_LINE_HEIGHT_PX = 16;
-const MIN_SPACING_SCALE = 0.5;
-const MAX_SPACING_SCALE = 8.0;
-export const SPACING_STEP = 0.05;
-export const SPACING_WHEEL_STEP = 0.01;
+const MIN_SPACING_PX = 1;
+const MAX_SPACING_PX = 2160;
+export const SPACING_STEP = 10;
+export const SPACING_WHEEL_STEP = 1;
 const DEFAULT_SPACING_SCALE = 1.0;
+const DEFAULT_TIME_SPACING_PX = DEFAULT_VIEWER_PIXELS_PER_SECOND;
+const DEFAULT_EDITOR_SPACING_PX = DEFAULT_EDITOR_PIXELS_PER_BEAT;
 export const GAME_DURATION_SLIDER_STEP = 10;
 export const GAME_DURATION_WHEEL_STEP = 1;
 export const GAME_LANE_HEIGHT_SLIDER_STEP = 10;
@@ -77,7 +79,7 @@ export function createScoreViewerController({
   onViewerModeChange = () => {},
   onInvisibleNoteVisibilityChange = () => {},
   onJudgeLinePositionChange = () => {},
-  onSpacingScaleChange = () => {},
+  onSpacingPxChange = () => {},
   onGameTimingConfigChange = () => {},
   onRendererConfigChange = () => {},
 }) {
@@ -143,13 +145,13 @@ export function createScoreViewerController({
   spacingValue.append(spacingValuePrimary, spacingValueSecondary);
   spacingRow.append(spacingTitle, spacingValue);
 
-    const spacingInput = document.createElement("input");
-    spacingInput.className = "score-viewer-spacing-input bmsie-ui-range";
+  const spacingInput = document.createElement("input");
+  spacingInput.className = "score-viewer-spacing-input bmsie-ui-range";
   spacingInput.type = "range";
-  spacingInput.min = String(MIN_SPACING_SCALE);
-  spacingInput.max = String(MAX_SPACING_SCALE);
+  spacingInput.min = String(MIN_SPACING_PX);
+  spacingInput.max = String(MAX_SPACING_PX);
   spacingInput.step = String(SPACING_STEP);
-  spacingInput.value = String(DEFAULT_SPACING_SCALE);
+  spacingInput.value = String(DEFAULT_TIME_SPACING_PX);
 
   const settingsPanel = document.createElement("div");
   settingsPanel.className = "score-viewer-settings-panel";
@@ -160,7 +162,7 @@ export function createScoreViewerController({
   const modeSection = document.createElement("div");
   modeSection.className = "score-viewer-settings-group score-viewer-mode-section";
 
-  const laneHeightRow = createSettingRow("Height", "score-viewer-lane-height-row");
+  const laneHeightRow = createSettingRow("Lane Height", "score-viewer-lane-height-row");
   laneHeightRow.row.classList.add("score-viewer-game-setting");
     const laneHeightInput = document.createElement("input");
   laneHeightInput.className = "score-viewer-spacing-input score-viewer-lane-height-input bmsie-ui-range";
@@ -171,7 +173,7 @@ export function createScoreViewerController({
   laneHeightInput.value = String(DEFAULT_GAME_LANE_HEIGHT_PX);
   laneHeightInput.classList.add("score-viewer-game-setting");
 
-  const laneCoverRow = createSettingRow("Cover", "score-viewer-lane-cover-row");
+  const laneCoverRow = createSettingRow("Lane Cover", "score-viewer-lane-cover-row");
   laneCoverRow.row.classList.add("score-viewer-game-setting");
     const laneCoverInput = document.createElement("input");
     laneCoverInput.className = "score-viewer-spacing-input score-viewer-lane-cover-input bmsie-ui-range";
@@ -285,7 +287,7 @@ export function createScoreViewerController({
     isPinned: false,
     isOpen: false,
     isPlaying: false,
-    spacingScaleByMode: createDefaultSpacingScaleByMode(),
+    spacingPxByMode: createDefaultSpacingPxByMode(),
     gameTimingConfig: createDefaultGameTimingConfig(),
     rendererConfig: DEFAULT_RENDERER_CONFIG,
     viewerMode: DEFAULT_VIEWER_MODE,
@@ -430,7 +432,7 @@ export function createScoreViewerController({
     }
     updateSpacingScaleForMode(
       resolvedViewerMode,
-      normalizeSliderSpacingScale(Number.parseFloat(spacingInput.value)),
+      normalizeSliderSpacingPx(Number.parseFloat(spacingInput.value), resolvedViewerMode),
       { notify: true },
     );
   });
@@ -458,7 +460,7 @@ export function createScoreViewerController({
     }
     updateSpacingScaleForMode(
       resolvedViewerMode,
-      roundSpacingScaleToHundredths(getSpacingScaleForMode(resolvedViewerMode) + delta),
+      normalizeWheelSpacingPx(getSpacingPxForMode(resolvedViewerMode) + delta, resolvedViewerMode),
       { notify: true },
     );
   }, { passive: false });
@@ -683,16 +685,15 @@ export function createScoreViewerController({
     renderScene({ updateChrome: true });
   }
 
-  function setSpacingScaleByMode(nextSpacingScaleByMode = {}) {
-    const normalizedSpacingScaleByMode = {
-      time: clampScale(nextSpacingScaleByMode.time),
-      editor: clampScale(nextSpacingScaleByMode.editor),
-      game: clampScale(nextSpacingScaleByMode.game),
+  function setSpacingPxByMode(nextSpacingPxByMode = {}) {
+    const normalizedSpacingPxByMode = {
+      time: normalizeSpacingPx(nextSpacingPxByMode.time, "time"),
+      editor: normalizeSpacingPx(nextSpacingPxByMode.editor, "editor"),
     };
-    if (areSpacingScaleMapsEqual(state.spacingScaleByMode, normalizedSpacingScaleByMode)) {
+    if (areSpacingPxMapsEqual(state.spacingPxByMode, normalizedSpacingPxByMode)) {
       return;
     }
-    state.spacingScaleByMode = normalizedSpacingScaleByMode;
+    state.spacingPxByMode = normalizedSpacingPxByMode;
     editorFrameStateCache = null;
     refreshLayout();
   }
@@ -866,24 +867,24 @@ export function createScoreViewerController({
     const currentGameLaneGeometry = isGameMode
       ? getCurrentGameLaneGeometry(viewportHeight)
       : null;
-    const spacingDisplay = formatSpacingDisplay({
-      mode: resolvedViewerMode,
-      spacingScale: getSpacingScaleForMode(resolvedViewerMode),
-      durationMs: state.gameTimingConfig.durationMs,
-    });
-    const spacingSliderConfig = isGameMode
-      ? {
-        min: String(1),
-        max: String(5000),
-        step: String(GAME_DURATION_SLIDER_STEP),
-        value: String(state.gameTimingConfig.durationMs),
-      }
-      : {
-        min: String(MIN_SPACING_SCALE),
-        max: String(MAX_SPACING_SCALE),
-        step: String(SPACING_STEP),
-        value: getSpacingScaleForMode(resolvedViewerMode).toFixed(2),
-      };
+      const spacingDisplay = formatSpacingDisplay({
+        mode: resolvedViewerMode,
+        spacingPx: getSpacingPxForMode(resolvedViewerMode),
+        durationMs: state.gameTimingConfig.durationMs,
+      });
+      const spacingSliderConfig = isGameMode
+        ? {
+          min: String(1),
+          max: String(5000),
+          step: String(GAME_DURATION_SLIDER_STEP),
+          value: String(state.gameTimingConfig.durationMs),
+        }
+        : {
+          min: String(MIN_SPACING_PX),
+          max: String(MAX_SPACING_PX),
+          step: String(SPACING_STEP),
+          value: String(getSpacingPxForMode(resolvedViewerMode)),
+        };
     setHiddenIfChanged(canvas, !showScene, "canvasHidden");
     setHiddenIfChanged(bottomBar, !showScene, "bottomBarHidden");
     setHiddenIfChanged(judgeLine, !showScene, "judgeLineHidden");
@@ -1057,7 +1058,7 @@ export function createScoreViewerController({
   setPinned(false);
   const initialSpacingDisplay = formatSpacingDisplay({
     mode: DEFAULT_VIEWER_MODE,
-    spacingScale: DEFAULT_SPACING_SCALE,
+    spacingPx: DEFAULT_TIME_SPACING_PX,
   });
   spacingValuePrimary.textContent = initialSpacingDisplay.primaryText;
   spacingValueSecondary.textContent = initialSpacingDisplay.secondaryText;
@@ -1076,7 +1077,7 @@ export function createScoreViewerController({
     setViewerMode,
     setInvisibleNoteVisibility,
     setJudgeLinePositionRatio,
-    setSpacingScaleByMode,
+    setSpacingPxByMode,
     setGameTimingConfig,
     setRendererConfig,
     setEmptyState,
@@ -1165,11 +1166,11 @@ export function createScoreViewerController({
   }
 
   function getPixelsPerSecond() {
-    return DEFAULT_VIEWER_PIXELS_PER_SECOND * getSpacingScaleForMode("time");
+    return getSpacingPxForMode("time");
   }
 
   function getPixelsPerBeat() {
-    return DEFAULT_EDITOR_PIXELS_PER_BEAT * getSpacingScaleForMode("editor");
+    return getSpacingPxForMode("editor");
   }
 
   function getCurrentJudgeLineY(viewportHeight = root.clientHeight || 0) {
@@ -1475,24 +1476,25 @@ export function createScoreViewerController({
     updateGameTimingConfig({ laneCoverPermille: nextLaneCoverPermille }, { notify });
   }
 
-  function getSpacingScaleForMode(mode) {
-    return state.spacingScaleByMode[normalizeSpacingMode(mode)] ?? DEFAULT_SPACING_SCALE;
+  function getSpacingPxForMode(mode) {
+    const normalizedMode = normalizeSpacingPxMode(mode);
+    return state.spacingPxByMode[normalizedMode] ?? getDefaultSpacingPxForMode(normalizedMode);
   }
 
   function updateSpacingScaleForMode(mode, nextScale, { notify = false } = {}) {
-    const normalizedMode = normalizeSpacingMode(mode);
-    const normalizedScale = clampScale(nextScale);
-    if (Math.abs(getSpacingScaleForMode(normalizedMode) - normalizedScale) < 0.0005) {
+    const normalizedMode = normalizeSpacingPxMode(mode);
+    const normalizedPx = normalizeSpacingPx(nextScale, normalizedMode);
+    if (Math.abs(getSpacingPxForMode(normalizedMode) - normalizedPx) < 0.0005) {
       return;
     }
-    state.spacingScaleByMode = {
-      ...state.spacingScaleByMode,
-      [normalizedMode]: normalizedScale,
+    state.spacingPxByMode = {
+      ...state.spacingPxByMode,
+      [normalizedMode]: normalizedPx,
     };
     editorFrameStateCache = null;
     refreshLayout();
     if (notify) {
-      onSpacingScaleChange(normalizedMode, normalizedScale);
+      onSpacingPxChange(normalizedMode, normalizedPx);
     }
   }
 
@@ -1638,18 +1640,14 @@ function isActiveDragHandleType(value) {
   return value === "judge-line" || value === "lane-height" || value === "lane-cover";
 }
 
-function clampScale(value) {
-  if (!Number.isFinite(value)) {
-    return DEFAULT_SPACING_SCALE;
-  }
-  return Math.min(Math.max(value, MIN_SPACING_SCALE), MAX_SPACING_SCALE);
+function getDefaultSpacingPxForMode(mode) {
+  return mode === "editor" ? DEFAULT_EDITOR_SPACING_PX : DEFAULT_TIME_SPACING_PX;
 }
 
-function createDefaultSpacingScaleByMode() {
+function createDefaultSpacingPxByMode() {
   return {
-    time: DEFAULT_SPACING_SCALE,
-    editor: DEFAULT_SPACING_SCALE,
-    game: DEFAULT_SPACING_SCALE,
+    time: DEFAULT_TIME_SPACING_PX,
+    editor: DEFAULT_EDITOR_SPACING_PX,
   };
 }
 
@@ -1657,30 +1655,36 @@ function isGameViewerMode(mode) {
   return mode === "game" || mode === "lunatic";
 }
 
-function normalizeSpacingMode(mode) {
-  return mode === "editor" ? "editor" : isGameViewerMode(mode) ? "game" : "time";
+function normalizeSpacingPxMode(mode) {
+  return mode === "editor" ? "editor" : "time";
 }
 
-export function normalizeSliderSpacingScale(value) {
-  return roundSpacingScaleToStep(clampScale(value), SPACING_STEP);
-}
-
-export function roundSpacingScaleToHundredths(value) {
-  return roundSpacingScaleToStep(clampScale(value), SPACING_WHEEL_STEP);
-}
-
-function roundSpacingScaleToStep(value, step) {
+function normalizeSpacingPx(value, mode) {
   if (!Number.isFinite(value)) {
-    return DEFAULT_SPACING_SCALE;
+    return getDefaultSpacingPxForMode(mode);
+  }
+  return Math.min(Math.max(Math.round(value), MIN_SPACING_PX), MAX_SPACING_PX);
+}
+
+export function normalizeSliderSpacingPx(value, mode = "time") {
+  return roundSpacingPxToStep(normalizeSpacingPx(value, mode), SPACING_STEP, mode);
+}
+
+export function normalizeWheelSpacingPx(value, mode = "time") {
+  return roundSpacingPxToStep(normalizeSpacingPx(value, mode), SPACING_WHEEL_STEP, mode);
+}
+
+function roundSpacingPxToStep(value, step, mode) {
+  if (!Number.isFinite(value)) {
+    return getDefaultSpacingPxForMode(mode);
   }
   const baseValue = Math.round(value / step) * step;
-  return Number(clampScale(baseValue).toFixed(2));
+  return normalizeSpacingPx(baseValue, mode);
 }
 
-function areSpacingScaleMapsEqual(left, right) {
-  return Math.abs((left?.time ?? DEFAULT_SPACING_SCALE) - (right?.time ?? DEFAULT_SPACING_SCALE)) < 0.0005
-    && Math.abs((left?.editor ?? DEFAULT_SPACING_SCALE) - (right?.editor ?? DEFAULT_SPACING_SCALE)) < 0.0005
-    && Math.abs((left?.game ?? DEFAULT_SPACING_SCALE) - (right?.game ?? DEFAULT_SPACING_SCALE)) < 0.0005;
+function areSpacingPxMapsEqual(left, right) {
+  return Math.abs((left?.time ?? DEFAULT_TIME_SPACING_PX) - (right?.time ?? DEFAULT_TIME_SPACING_PX)) < 0.0005
+    && Math.abs((left?.editor ?? DEFAULT_EDITOR_SPACING_PX) - (right?.editor ?? DEFAULT_EDITOR_SPACING_PX)) < 0.0005;
 }
 
 function areGameTimingConfigsEqual(left, right) {
@@ -1703,24 +1707,21 @@ function clamp(value, minValue, maxValue) {
   return Math.min(Math.max(value, minValue), maxValue);
 }
 
-export function formatSpacingScaleDisplay(mode, value) {
-  const normalizedMode = normalizeSpacingMode(mode);
-  const normalizedScale = clampScale(value);
+export function formatSpacingPxDisplay(mode, value) {
+  const normalizedMode = normalizeSpacingPxMode(mode);
+  const normalizedPx = normalizeSpacingPx(value, normalizedMode);
   if (normalizedMode === "time") {
-    return `${normalizedScale.toFixed(2)}x(${Math.round(DEFAULT_VIEWER_PIXELS_PER_SECOND * normalizedScale)}px/s)`;
+    return `${normalizedPx}px/s`;
   }
-  if (normalizedMode === "editor") {
-    return `${normalizedScale.toFixed(2)}x(${Math.round(DEFAULT_EDITOR_PIXELS_PER_BEAT * normalizedScale)}px/beat)`;
-  }
-  return `${normalizedScale.toFixed(2)}x`;
+  return `${normalizedPx}px/beat`;
 }
 
 function formatSpacingDisplay({
   mode,
-  spacingScale = DEFAULT_SPACING_SCALE,
+  spacingPx = DEFAULT_TIME_SPACING_PX,
   durationMs = DEFAULT_GAME_DURATION_MS,
 } = {}) {
-  const normalizedMode = normalizeSpacingMode(mode);
+  const normalizedMode = isGameViewerMode(mode) ? "game" : normalizeSpacingPxMode(mode);
   if (normalizedMode === "game") {
     const gameDurationDisplay = formatGameDurationDisplay(durationMs);
     return {
@@ -1730,7 +1731,7 @@ function formatSpacingDisplay({
     };
   }
   return {
-    primaryText: formatSpacingScaleDisplay(normalizedMode, spacingScale),
+    primaryText: formatSpacingPxDisplay(normalizedMode, spacingPx),
     secondaryText: "",
     secondaryColor: "",
   };

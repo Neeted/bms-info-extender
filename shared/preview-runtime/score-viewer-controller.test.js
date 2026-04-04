@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   createScoreViewerController,
-  formatSpacingScaleDisplay,
+  formatSpacingPxDisplay,
   GAME_DURATION_SLIDER_STEP,
   GAME_DURATION_WHEEL_STEP,
   GAME_LANE_COVER_SLIDER_STEP,
@@ -14,8 +14,8 @@ import {
   getJudgeLinePositionRatioFromPointer,
   isJudgeLineHit,
   normalizeWheelDeltaY,
-  normalizeSliderSpacingScale,
-  roundSpacingScaleToHundredths,
+  normalizeSliderSpacingPx,
+  normalizeWheelSpacingPx,
   resolvePointerDragIntent,
   SPACING_STEP,
   SPACING_WHEEL_STEP,
@@ -146,23 +146,22 @@ test("judge line pointer ratios clamp to the viewport and default to center for 
   }), 0.5);
 });
 
-test("spacing slider input snaps to 0.05x and wheel adjustments snap to 0.01x", () => {
-  assert.equal(SPACING_STEP, 0.05);
-  assert.equal(SPACING_WHEEL_STEP, 0.01);
-  assert.equal(normalizeSliderSpacingScale(1.02), 1.0);
-  assert.equal(normalizeSliderSpacingScale(1.03), 1.05);
-  assert.equal(normalizeSliderSpacingScale(0.11), 0.5);
-  assert.equal(roundSpacingScaleToHundredths(1.234), 1.23);
-  assert.equal(roundSpacingScaleToHundredths(1.235), 1.24);
-  assert.equal(roundSpacingScaleToHundredths(9), 8.0);
+test("spacing slider input snaps to 10px and wheel adjustments snap to 1px", () => {
+  assert.equal(SPACING_STEP, 10);
+  assert.equal(SPACING_WHEEL_STEP, 1);
+  assert.equal(normalizeSliderSpacingPx(163, "time"), 160);
+  assert.equal(normalizeSliderSpacingPx(166, "time"), 170);
+  assert.equal(normalizeSliderSpacingPx(-5, "time"), 1);
+  assert.equal(normalizeWheelSpacingPx(95, "editor"), 95);
+  assert.equal(normalizeWheelSpacingPx(0, "editor"), 1);
+  assert.equal(normalizeWheelSpacingPx(5000, "time"), 2160);
 });
 
 test("spacing display text includes mode-specific units for time and editor", () => {
-  assert.equal(formatSpacingScaleDisplay("time", 1.0), "1.00x(160px/s)");
-  assert.equal(formatSpacingScaleDisplay("editor", 1.0), "1.00x(64px/beat)");
-  assert.equal(formatSpacingScaleDisplay("game", 1.0), "1.00x");
-  assert.equal(formatSpacingScaleDisplay("time", 1.25), "1.25x(200px/s)");
-  assert.equal(formatSpacingScaleDisplay("editor", 1.5), "1.50x(96px/beat)");
+  assert.equal(formatSpacingPxDisplay("time", 160), "160px/s");
+  assert.equal(formatSpacingPxDisplay("editor", 64), "64px/beat");
+  assert.equal(formatSpacingPxDisplay("time", 200), "200px/s");
+  assert.equal(formatSpacingPxDisplay("editor", 96), "96px/beat");
 });
 
 test("controller groups spacing and mode controls into a settings panel", () => {
@@ -419,13 +418,13 @@ test("controller shows spacing text for time and editor while keeping secondary 
     const spacingPrimary = findElementByClass(root, "score-viewer-spacing-value-primary");
     const spacingSecondary = findElementByClass(root, "score-viewer-spacing-value-secondary");
 
-    assert.equal(spacingPrimary.textContent, "1.00x(160px/s)");
+    assert.equal(spacingPrimary.textContent, "160px/s");
     assert.equal(spacingSecondary.textContent, "");
     assert.equal(spacingSecondary.style.display, "none");
 
     controller.setViewerMode("editor");
 
-    assert.equal(spacingPrimary.textContent, "1.00x(64px/beat)");
+    assert.equal(spacingPrimary.textContent, "64px/beat");
     assert.equal(spacingSecondary.textContent, "");
     assert.equal(spacingSecondary.style.display, "none");
 

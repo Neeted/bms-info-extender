@@ -13,6 +13,7 @@ import {
   DEFAULT_GAME_LANE_COVER_VISIBLE,
   DEFAULT_GAME_LANE_HEIGHT_PX,
   DEFAULT_JUDGE_LINE_POSITION_RATIO,
+  DEFAULT_SPACING_PX,
   DEFAULT_SPACING_SCALE,
   DEFAULT_GRAPH_INTERACTION_MODE,
   PREVIEW_OVERLAY_HOST_ID,
@@ -31,13 +32,14 @@ import {
   VIEWER_SEPARATOR_WIDTH_STORAGE_KEY,
   INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY,
   JUDGE_LINE_POSITION_RATIO_STORAGE_KEY,
+  SPACING_PX_STORAGE_KEYS,
   SPACING_SCALE_STORAGE_KEYS,
   VIEWER_MODE_STORAGE_KEY,
   OVERLAY_SURFACE_CSS,
   expandPreviewRenderMask,
   getInitialGraphInteractionMode,
-  getInitialSpacingScale,
-  getInitialSpacingScaleByMode,
+  getInitialSpacingPx,
+  getInitialSpacingPxByMode,
   getInitialViewerMode,
   getInitialInvisibleNoteVisibility,
   getInitialJudgeLinePositionRatio,
@@ -72,22 +74,24 @@ test("judge line position ratio defaults to center and restores valid persisted 
   assert.equal(getInitialJudgeLinePositionRatio(() => "invalid"), 0.5);
 });
 
-test("spacing scale defaults to 1.0 and restores valid persisted values per mode", () => {
+test("spacing px defaults to standard values and restores valid persisted values for time/editor", () => {
+  assert.deepEqual(DEFAULT_SPACING_PX, {
+    time: 160,
+    editor: 64,
+  });
+  assert.equal(SPACING_PX_STORAGE_KEYS.time, "bms-info-extender.spacingPx.time");
+  assert.equal(SPACING_PX_STORAGE_KEYS.editor, "bms-info-extender.spacingPx.editor");
   assert.equal(DEFAULT_SPACING_SCALE, 1.0);
-  assert.equal(SPACING_SCALE_STORAGE_KEYS.time, "bms-info-extender.spacingScale.time");
-  assert.equal(SPACING_SCALE_STORAGE_KEYS.editor, "bms-info-extender.spacingScale.editor");
   assert.equal(SPACING_SCALE_STORAGE_KEYS.game, "bms-info-extender.spacingScale.game");
-  assert.equal(getInitialSpacingScale("time", () => null), 1.0);
-  assert.equal(getInitialSpacingScale("editor", () => 1.25), 1.25);
-  assert.equal(getInitialSpacingScale("game", () => "1.75"), 1.75);
-  assert.equal(getInitialSpacingScale("time", () => -1), 1.0);
-  assert.equal(getInitialSpacingScale("time", () => "invalid"), 1.0);
-  assert.deepEqual(getInitialSpacingScaleByMode((mode) => (
-    mode === "time" ? 1.1 : mode === "editor" ? 1.2 : 1.3
+  assert.equal(getInitialSpacingPx("time", () => null), 160);
+  assert.equal(getInitialSpacingPx("editor", () => 96), 96);
+  assert.equal(getInitialSpacingPx("time", () => -1), 160);
+  assert.equal(getInitialSpacingPx("time", () => "invalid"), 160);
+  assert.deepEqual(getInitialSpacingPxByMode((mode) => (
+    mode === "time" ? 320 : 96
   )), {
-    time: 1.1,
-    editor: 1.2,
-    game: 1.3,
+    time: 320,
+    editor: 96,
   });
 });
 
@@ -178,8 +182,8 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedViewerMode(), "time");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "hide");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.5);
-  assert.equal(preferences.getPersistedSpacingScale("time"), 1.0);
-  assert.equal(preferences.getPersistedSpacingScale("editor"), 1.0);
+  assert.equal(preferences.getPersistedSpacingPx("time"), 160);
+  assert.equal(preferences.getPersistedSpacingPx("editor"), 64);
   assert.equal(preferences.getPersistedSpacingScale("game"), 1.0);
   assert.equal(preferences.getPersistedGameDurationMs(), 500);
   assert.equal(preferences.getPersistedGameLaneHeightPx(), 300);
@@ -197,8 +201,8 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   preferences.setPersistedViewerMode("lunatic");
   preferences.setPersistedInvisibleNoteVisibility("show");
   preferences.setPersistedJudgeLinePositionRatio(0.25);
-  preferences.setPersistedSpacingScale("time", 1.1);
-  preferences.setPersistedSpacingScale("editor", 1.25);
+  preferences.setPersistedSpacingPx("time", 320);
+  preferences.setPersistedSpacingPx("editor", 96);
   preferences.setPersistedSpacingScale("game", 1.5);
   preferences.setPersistedGameDurationMs(640);
   preferences.setPersistedGameLaneHeightPx(420);
@@ -217,8 +221,8 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(store.get(VIEWER_MODE_STORAGE_KEY), "lunatic");
   assert.equal(store.get(INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY), "show");
   assert.equal(store.get(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY), 0.25);
-  assert.equal(store.get(SPACING_SCALE_STORAGE_KEYS.time), 1.1);
-  assert.equal(store.get(SPACING_SCALE_STORAGE_KEYS.editor), 1.25);
+  assert.equal(store.get(SPACING_PX_STORAGE_KEYS.time), 320);
+  assert.equal(store.get(SPACING_PX_STORAGE_KEYS.editor), 96);
   assert.equal(store.get(SPACING_SCALE_STORAGE_KEYS.game), 1.5);
   assert.equal(store.get(GAME_DURATION_MS_STORAGE_KEY), 640);
   assert.equal(store.get(GAME_LANE_HEIGHT_PX_STORAGE_KEY), 420);
@@ -236,8 +240,8 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedViewerMode(), "lunatic");
   assert.equal(preferences.getPersistedInvisibleNoteVisibility(), "show");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.25);
-  assert.equal(preferences.getPersistedSpacingScale("time"), 1.1);
-  assert.equal(preferences.getPersistedSpacingScale("editor"), 1.25);
+  assert.equal(preferences.getPersistedSpacingPx("time"), 320);
+  assert.equal(preferences.getPersistedSpacingPx("editor"), 96);
   assert.equal(preferences.getPersistedSpacingScale("game"), 1.5);
   assert.equal(preferences.getPersistedGameDurationMs(), 640);
   assert.equal(preferences.getPersistedGameLaneHeightPx(), 420);
@@ -253,7 +257,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   assert.equal(preferences.getPersistedViewerSeparatorWidth(), 4);
 
   store.set(JUDGE_LINE_POSITION_RATIO_STORAGE_KEY, "invalid");
-  store.set(SPACING_SCALE_STORAGE_KEYS.editor, "invalid");
+  store.set(SPACING_PX_STORAGE_KEYS.editor, "invalid");
   store.set(GAME_DURATION_MS_STORAGE_KEY, "invalid");
   store.set(GAME_LANE_HEIGHT_PX_STORAGE_KEY, "invalid");
   store.set(GAME_LANE_COVER_PERMILLE_STORAGE_KEY, "invalid");
@@ -267,7 +271,7 @@ test("preview preference storage shares persistence wiring for viewer mode, invi
   store.set(VIEWER_MARKER_HEIGHT_STORAGE_KEY, "invalid");
   store.set(VIEWER_SEPARATOR_WIDTH_STORAGE_KEY, "invalid");
   assert.equal(preferences.getPersistedJudgeLinePositionRatio(), 0.5);
-  assert.equal(preferences.getPersistedSpacingScale("editor"), 1.0);
+  assert.equal(preferences.getPersistedSpacingPx("editor"), 64);
   assert.equal(preferences.getPersistedGameDurationMs(), 500);
   assert.equal(preferences.getPersistedGameLaneHeightPx(), 300);
   assert.equal(preferences.getPersistedGameLaneCoverPermille(), 0);

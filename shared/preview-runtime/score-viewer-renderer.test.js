@@ -134,7 +134,7 @@ test("rendererConfig reflects custom note, separator, note head, bar line, and m
     true,
   );
   assert.equal(
-    context.fillRectCalls.some((call) => call.fillStyle === "#ff7858" && call.height === 5),
+    context.fillRectCalls.some((call) => call.fillStyle === "#ff0000" && call.height === 5),
     true,
   );
   assert.equal(estimateViewerWidth("7k", 8, rendererConfig), 284);
@@ -206,7 +206,7 @@ test("renderer draws the judge line on an integer bottom edge", () => {
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.fillStyle === "#ff7858")
+      .filter((call) => call.fillStyle === "#ff0000")
       .map(({ x, y, width, height }) => ({ x, y, width, height })),
     [{ x: 48, y: 158, width: 144, height: 3 }],
   );
@@ -224,7 +224,7 @@ test("renderer skips judge line drawing when the configured height is zero", () 
   });
 
   assert.equal(
-    context.fillRectCalls.some((call) => call.fillStyle === "#ff7858"),
+    context.fillRectCalls.some((call) => call.fillStyle === "#ff0000"),
     false,
   );
 });
@@ -244,7 +244,7 @@ test("renderer draws the judge line after markers and before notes", () => {
     .filter((operation) => operation.type === "fillRect")
     .map((operation) => operation.fillStyle);
   const markerIndex = orderedFillStyles.indexOf("#00ff00");
-  const judgeLineIndex = orderedFillStyles.indexOf("#ff7858");
+  const judgeLineIndex = orderedFillStyles.indexOf("#ff0000");
   const noteIndex = orderedFillStyles.indexOf("#bebebe");
 
   assert.ok(markerIndex >= 0);
@@ -273,7 +273,7 @@ test("renderer draws the game judge line only across the active lane area", () =
 
   assert.deepEqual(
     context.fillRectCalls
-      .filter((call) => call.fillStyle === "#ff7858")
+      .filter((call) => call.fillStyle === "#ff0000")
       .map(({ x, y, width, height }) => ({ x, y, width, height })),
     [{ x: 48, y: 237, width: 144, height: 3 }],
   );

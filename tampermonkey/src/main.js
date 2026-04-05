@@ -1,4 +1,5 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
+// 2.3.0 譜面ビューア描画を調整、設定項目を調整、Lunaticモードの再生時間マッピング機能追加、Time/Editorモードで複数列表示に対応
 // 2.2.0 操作や設定値の変更、Gameモードをよりbeatoraja寄りに、LR2風(負数STOPワープ、SCROLL無視)のLunaticモード追加
 // 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更
 // 2.0.1 STELLAVERSE SPA遷移時、前回URLの拡張情報DOMが残っている場合にスキップするガードを追加
@@ -85,24 +86,21 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
       font-size: 1.25rem;
       line-height: 1.35;
     }
-    .bmsie-version-notice-section + .bmsie-version-notice-section {
-      margin-top: 14px;
-    }
-    .bmsie-version-notice-section-title {
-      margin: 0 0 8px;
-      font-size: 1rem;
-      line-height: 1.4;
-      color: #ffffff;
-    }
-    .bmsie-version-notice-list {
+    .bmsie-version-notice-content {
       margin: 0;
-      padding-left: 1.25rem;
-      line-height: 1.6;
-    }
-    .bmsie-version-notice-sublist {
-      margin-top: 6px;
-      padding-left: 1.1rem;
-      line-height: 1.5;
+      padding: 14px 16px;
+      min-height: 280px;
+      max-height: 280px;
+      overflow-y: auto;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      background: rgba(10, 12, 18, 0.72);
+      color: #f4f6ff;
+      font-size: 14px;
+      line-height: normal;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      box-sizing: border-box;
     }
     .bmsie-version-notice-controls {
       display: flex;
@@ -159,37 +157,99 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
       cursor: pointer;
     }
   `;
+    const RELEASE_NOTES_JA =
+`# v2.3.0
+
+## 譜面ビューアの描画を調整しました
+- 横線系のオブジェクトは下端がタイミングとして正しくなるように整理しました
+- つまり、ノーツの下端が判定ラインの下端に重なった時がジャストです
+
+## 譜面ビューアの設定値を見直しました
+- SPACINGは基準からの倍率ではなくピクセル数で指定するようにしました
+- Game, Lunaticモードでのレーン高さはウィンドウサイズからの相対値ではなく、判定ラインからのピクセル数としました
+
+## 譜面ビューアの詳細設定ウィンドウを追加しました
+- ビューア下部情報ウィンドウ右上の⚙アイコンから開けます
+- ノーツ幅、スクラッチ幅、ノーツ高さ、小節線幅、マーカー幅、判定ライン幅、レーンセパレーター幅が設定可能です
+
+## Lunaticモードで負数STOPにより圧縮された再生時間と、その他のモードの再生時間をマッピングできるようにしました
+- ノーツグラフ上の再生ライン位置やその他のモードに切り替えたときの表示位置にズレが生じなくなりました
+
+## Time, Editorモードで複数列表示に対応しました
+- 譜面ビューア左辺をドラッグして列を引き出せます
+- NOTE: 一般的なビューアと異なり各列で小節を積み上げる方式ではないので小節線の位置が揃いません
+
+## TODO
+- プレイサイド選択、ランダム系オプションの実装
+- 負数BPMの解釈
+
+---
+
+# v2.2.0
+
+## 譜面ビューアに変更を加えました
+- 判定ラインをドラッグ可能にしました
+- 譜面ビューアをダブルクリックで再生・停止できるようにしました
+- グラフ左上に設定を追加し、再生ラインを Hover Follow またはクリック・再生ラインのドラッグ・右クリッの掴みっぱなしで動かす設定を選べるようにしました
+- 下部情報ウィンドウの設定情報は自動的に隠すようにしました
+- Game モードの挙動を beatoraja に近づけました
+- LR2風の Lunatic モードを追加しました(負数STOPワープ、SCROLL無視)
+- 緑数字、レーン高さ、レーンカバー、HS-FIX が設定可能です
+- レーン高さ、レーンカバーはドラッグ可能です
+- スライダーの設定値を保存するようにしました
+- スライダーはホイールで微調整可能です
+
+## 従来からの挙動について補足
+- 譜面ビューアはドラッグやホイールでも動かすことができます`;
+    const RELEASE_NOTES_EN =
+`# v2.3.0
+
+## Adjusted the score viewer rendering
+- Horizontal-line style objects are now arranged so their bottom edge is the correct timing reference
+- In other words, a note is judged just when its bottom edge overlaps the bottom edge of the judge line
+
+## Reviewed the score viewer setting values
+- SPACING is now specified directly in pixels instead of as a multiplier from the baseline
+- In Game and Lunatic mode, lane height is now specified as a pixel distance from the judge line instead of a value relative to the window size
+
+## Added a detailed settings window for the score viewer
+- You can open it from the gear icon at the top right of the viewer's bottom info panel
+- You can configure note width, scratch width, note height, bar line width, marker width, judge line width, and lane separator width
+
+## Lunatic mode can now map playback time compressed by negative STOPs to playback time in the other modes
+- This removes mismatches in the playback line position on the notes graph and in the displayed position when switching to another mode
+
+## Added multi-column display support in Time and Editor mode
+- You can drag the left edge of the score viewer to pull out additional columns
+- NOTE: Unlike general-purpose viewers, each column does not stack measures independently, so bar line positions will not align across columns
+
+## TODO
+- Implement play-side selection and random-related options
+- Interpret negative BPM values
+
+---
+
+# v2.2.0
+
+## Updated the score viewer
+- The judge line is now draggable
+- You can now play or stop the score viewer by double-clicking it
+- Added settings at the top left of the graph so you can choose whether the playback line uses Hover Follow or moves by click, playback-line dragging, and right-click sticky dragging
+- Settings in the bottom info panel are now hidden automatically
+- Game mode now behaves more like beatoraja
+- Added an LR2-style Lunatic mode (negative STOP warp, SCROLL ignored)
+- Green number, lane height, lane cover, and HS-FIX are now configurable
+- Lane height and lane cover can also be adjusted by dragging
+- Slider values are now saved
+- Sliders can now be fine-tuned with the mouse wheel
+
+## Notes about existing behavior
+- The score viewer can also be moved by dragging or using the mouse wheel`;
   const VERSION_NOTIFICATION_CONTENT = {
-    "2.2.0": {
+    "2.3.0": {
       ja: {
-        title: "譜面ビューアに変更を加えました",
-        sections: [
-          {
-            title: null,
-            items: [
-              "判定ラインをドラッグ可能にしました",
-              "譜面ビューアをダブルクリックで再生・停止できるようにしました",
-              "グラフ左上に設定を追加し、再生ラインを Hover Follow または Click・再生ラインのドラッグ・右クリックの掴みっぱなしで動かす設定を選べるようにしました",
-              "下部情報ウィンドウの設定情報は自動的に隠すようにしました",
-              "Game モードの挙動を beatoraja に近づけました",
-              "LR2風の Lunatic モードを追加しました(負数STOPワープ、SCROLL無視)",
-              {
-                text: "緑数字、レーン高さ、レーンカバー、HS-FIX が設定可能です",
-                subitems: [
-                  "レーン高さ、レーンカバーはドラッグ可能です"
-                ]
-              },
-              "スライダーの設定値を保存するようにしました",
-              "スライダーはホイールで微調整可能です"
-            ]
-          },
-          {
-            title: "従来からの挙動について補足",
-            items: [
-              "譜面ビューアはドラッグやホイールでも動かすことができます"
-            ]
-          }
-        ],
+        title: "BMS Info Extender リリースノート",
+        body: RELEASE_NOTES_JA,
         languageLabel: "言語",
         dontShowAgainLabel: "このバージョンの通知を再度表示しない",
         okLabel: "OK",
@@ -199,34 +259,8 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         }
       },
       en: {
-        title: "The score viewer has been updated",
-        sections: [
-          {
-            title: null,
-            items: [
-              "The judge line is now draggable",
-              "You can now play or stop the score viewer by double-clicking it",
-              "A new graph setting lets you choose whether the playback line follows hover or uses clicks, playback-line dragging, and right-click sticky dragging",
-              "The settings in the bottom info panel are now hidden automatically",
-              "Game mode now behaves more like beatoraja",
-              "Added an LR2-style Lunatic mode with negative-STOP warps and no SCROLL support",
-              {
-                text: "Green number, lane height, lane cover, and HS-FIX are now configurable",
-                subitems: [
-                  "Lane height and lane cover can also be adjusted by dragging"
-                ]
-              },
-              "Slider values are now persisted",
-              "Sliders can now be fine-tuned with the mouse wheel"
-            ]
-          },
-          {
-            title: "Notes about existing behavior",
-            items: [
-              "The score viewer can still be moved by dragging or using the mouse wheel"
-            ]
-          }
-        ],
+        title: "BMS Info Extender Release Notes",
+        body: RELEASE_NOTES_EN,
         languageLabel: "Language",
         dontShowAgainLabel: "Do not show this version notice again",
         okLabel: "OK",
@@ -543,7 +577,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
       checkboxText.textContent = localizedContent.dontShowAgainLabel;
       okButton.textContent = localizedContent.okLabel;
       updateNotificationLanguageOptions(languageSelect, localizedContent.languageOptions);
-      renderNotificationSections(contentElement, localizedContent.sections);
+      renderNotificationBody(contentElement, localizedContent.body);
     }
   }
 
@@ -563,45 +597,8 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
     }
   }
 
-  function renderNotificationSections(contentElement, sections) {
-    contentElement.replaceChildren();
-    for (const section of sections) {
-      const sectionElement = document.createElement("section");
-      sectionElement.className = "bmsie-version-notice-section";
-      if (section.title) {
-        const sectionTitleElement = document.createElement("h3");
-        sectionTitleElement.className = "bmsie-version-notice-section-title";
-        sectionTitleElement.textContent = section.title;
-        sectionElement.appendChild(sectionTitleElement);
-      }
-      sectionElement.appendChild(createNotificationList(section.items));
-      contentElement.appendChild(sectionElement);
-    }
-  }
-
-  function createNotificationList(items = []) {
-    const listElement = document.createElement("ul");
-    listElement.className = "bmsie-version-notice-list";
-    for (const item of items) {
-      const listItemElement = document.createElement("li");
-      if (typeof item === "string") {
-        listItemElement.textContent = item;
-      } else {
-        listItemElement.textContent = item.text;
-        if (Array.isArray(item.subitems) && item.subitems.length > 0) {
-          const sublistElement = document.createElement("ul");
-          sublistElement.className = "bmsie-version-notice-sublist";
-          for (const subitem of item.subitems) {
-            const subitemElement = document.createElement("li");
-            subitemElement.textContent = subitem;
-            sublistElement.appendChild(subitemElement);
-          }
-          listItemElement.appendChild(sublistElement);
-        }
-      }
-      listElement.appendChild(listItemElement);
-    }
-    return listElement;
+  function renderNotificationBody(contentElement, bodyText = "") {
+    contentElement.textContent = bodyText;
   }
 
   /**

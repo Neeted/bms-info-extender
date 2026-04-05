@@ -176,6 +176,7 @@
       return null;
     }
     const normalizedGameProfile = normalizeGameProfile(gameProfile);
+    const canonicalBeatTimingIndex = createCanonicalBeatTimingIndex(score);
     const profiledScore = normalizedGameProfile === "lunatic" ? createLunaticProfileScore(score) : score;
     const rawAllNotes = profiledScore.notes.map((note) => ({ ...note })).sort(compareNoteLike);
     const rawBarLines = [...profiledScore.barLines].sort(compareTimedBeatLike);
@@ -262,6 +263,7 @@
       bpmSummary: resolvedBpmSummary,
       totalCombo: comboEvents.length,
       beatTimingIndex,
+      canonicalBeatTimingIndex,
       gameScrollIndex,
       totalBeat,
       supportsEditorMode: Boolean(beatTimingIndex && Number.isFinite(totalBeat)),
@@ -276,6 +278,15 @@
     const lastTimelineTimeSec = Number.isFinite(score.lastTimelineTimeSec) ? score.lastTimelineTimeSec : null;
     const lastPlayableTimeSec = Number.isFinite(score.lastPlayableTimeSec) ? score.lastPlayableTimeSec : 0;
     return Math.max(totalDurationSec ?? lastTimelineTimeSec ?? lastPlayableTimeSec, 0);
+  }
+  function getCanonicalScoreTotalDurationSec(modelOrScore) {
+    if (!modelOrScore || typeof modelOrScore !== "object") {
+      return 0;
+    }
+    if ("score" in modelOrScore || "sourceScore" in modelOrScore) {
+      return getScoreTotalDurationSec(modelOrScore.sourceScore ?? modelOrScore.score);
+    }
+    return getScoreTotalDurationSec(modelOrScore);
   }
   function getScoreTotalBeat(score) {
     if (!score || typeof score !== "object") {
@@ -304,6 +315,38 @@
       maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
     }
     return Math.max(maxBeat, 0);
+  }
+  function mapCanonicalTimeToViewerTime(model, timeSec, viewerMode = DEFAULT_VIEWER_MODE) {
+    if (!model) {
+      return 0;
+    }
+    const resolvedMode = resolveViewerModeForModel(model, viewerMode);
+    const numericTimeSec = Number.isFinite(timeSec) ? Math.max(timeSec, 0) : 0;
+    if (resolvedMode !== "lunatic" || model.gameProfile !== "lunatic") {
+      return getClampedSelectedTimeSec(model, numericTimeSec);
+    }
+    if (!model.canonicalBeatTimingIndex || !model.beatTimingIndex) {
+      return getClampedSelectedTimeSec(model, numericTimeSec);
+    }
+    const clampedCanonicalTimeSec = clamp(numericTimeSec, 0, getCanonicalScoreTotalDurationSec(model));
+    const canonicalBeat = model.canonicalBeatTimingIndex.secondsToBeat(clampedCanonicalTimeSec);
+    return getClampedSelectedTimeSec(model, model.beatTimingIndex.beatToSeconds(canonicalBeat));
+  }
+  function mapViewerTimeToCanonicalTime(model, timeSec, viewerMode = DEFAULT_VIEWER_MODE) {
+    if (!model) {
+      return 0;
+    }
+    const resolvedMode = resolveViewerModeForModel(model, viewerMode);
+    const numericTimeSec = Number.isFinite(timeSec) ? Math.max(timeSec, 0) : 0;
+    if (resolvedMode !== "lunatic" || model.gameProfile !== "lunatic") {
+      return getClampedSelectedTimeSec(model, numericTimeSec);
+    }
+    if (!model.canonicalBeatTimingIndex || !model.beatTimingIndex) {
+      return clamp(numericTimeSec, 0, getCanonicalScoreTotalDurationSec(model));
+    }
+    const clampedViewerTimeSec = getClampedSelectedTimeSec(model, numericTimeSec);
+    const viewerBeat = model.beatTimingIndex.secondsToBeat(clampedViewerTimeSec);
+    return clamp(model.canonicalBeatTimingIndex.beatToSeconds(viewerBeat), 0, getCanonicalScoreTotalDurationSec(model));
   }
   function getClampedSelectedTimeSec(model, timeSec) {
     if (!model) {
@@ -605,6 +648,19 @@
   }
   function normalizeGameProfile(value) {
     return value === "lunatic" ? "lunatic" : "game";
+  }
+  function createCanonicalBeatTimingIndex(score) {
+    if (!score || typeof score !== "object") {
+      return null;
+    }
+    const canonicalTimingActions = createTimingActionsFromCanonicalScore(score).map((action) => action?.type === "stop" ? {
+      ...action,
+      stopLunaticBehavior: void 0
+    } : action);
+    return createBeatTimingIndex({
+      ...score,
+      timingActions: canonicalTimingActions
+    });
   }
   function createLunaticProfileScore(score) {
     if (!score || typeof score !== "object") {
@@ -7277,6 +7333,7 @@
       isGraphSettingsOpen: false,
       parsedScore: null,
       viewerModel: null,
+      playbackViewerTimeSec: 0,
       loadToken: 0,
       renderFrameId: null,
       pendingRenderMask: 0,
@@ -7288,12 +7345,15 @@
     const viewerController = createScoreViewerController({
       root: shell,
       onTimeChange: (selection) => {
-        const nextTimeSec = typeof selection === "object" ? selection.timeSec : selection;
+        const resolvedViewerMode = getResolvedViewerMode(state);
+        const viewerTimeSec = typeof selection === "object" ? selection.timeSec : selection;
+        const nextTimeSec = getCanonicalTimeSecFromViewerSelection(state, viewerTimeSec, resolvedViewerMode);
         setSelectedTimeSec(nextTimeSec, {
           openViewer: true,
           notify: true,
           beatHint: selection?.beat,
-          source: selection?.source ?? "viewer"
+          source: selection?.source ?? "viewer",
+          viewerTimeSec
         });
       },
       onPlaybackToggle: (nextPlaying) => {
@@ -7544,6 +7604,7 @@
         state.viewerModel = null;
         state.selectedTimeSec = 0;
         state.selectedBeat = 0;
+        state.playbackViewerTimeSec = 0;
         state.isViewerOpen = false;
         renderMask |= PREVIEW_RENDER_ALL;
         scheduleRender(renderMask);
@@ -7563,7 +7624,8 @@
         state.viewerModel = viewerModel;
         state.selectedSha256 = nextSha256;
         state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
-        state.selectedBeat = getBeatAtTimeSec(state.viewerModel, state.selectedTimeSec);
+        state.selectedBeat = resolveSelectedBeat(state, state.selectedTimeSec);
+        state.playbackViewerTimeSec = getViewerTimeSecForSelection(state, state.selectedTimeSec);
         renderMask |= PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection;
       } else if (state.selectedSha256 !== nextSha256) {
         state.parsedScore = null;
@@ -7571,6 +7633,7 @@
         state.selectedSha256 = nextSha256;
         state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
         state.selectedBeat = 0;
+        state.playbackViewerTimeSec = 0;
         renderMask |= PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection;
       }
       scheduleRender(renderMask || PREVIEW_RENDER_DIRTY.selection);
@@ -7596,6 +7659,7 @@
       if (!sha256) {
         state.parsedScore = null;
         state.viewerModel = null;
+        state.playbackViewerTimeSec = 0;
         scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.viewerOpen);
         return;
       }
@@ -7613,6 +7677,7 @@
         state.parsedScore = null;
         state.viewerModel = null;
         state.selectedBeat = 0;
+        state.playbackViewerTimeSec = 0;
         state.isViewerOpen = false;
         scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection | PREVIEW_RENDER_DIRTY.viewerOpen);
         return;
@@ -7624,6 +7689,7 @@
         state.parsedScore = null;
         state.viewerModel = null;
         state.selectedBeat = 0;
+        state.playbackViewerTimeSec = 0;
         scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection);
         return;
       }
@@ -7669,6 +7735,7 @@
         state.parsedScore = null;
         state.viewerModel = null;
         state.selectedBeat = 0;
+        state.playbackViewerTimeSec = 0;
         state.isViewerOpen = false;
         scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection | PREVIEW_RENDER_DIRTY.viewerOpen);
       }
@@ -7680,7 +7747,8 @@
         compressedAvailabilityBySha256.set(state.selectedSha256, { status: "ready" });
       }
       state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
-      state.selectedBeat = getBeatAtTimeSec(state.viewerModel, state.selectedTimeSec);
+      state.selectedBeat = resolveSelectedBeat(state, state.selectedTimeSec);
+      state.playbackViewerTimeSec = getViewerTimeSecForSelection(state, state.selectedTimeSec);
       scheduleRender(PREVIEW_RENDER_DIRTY.viewerModel | PREVIEW_RENDER_DIRTY.selection);
     }
     function getNormalizedRecordSha256(record) {
@@ -7719,15 +7787,34 @@
       });
       return availabilityPromise;
     }
-    function setSelectedTimeSec(nextTimeSec, { openViewer = false, notify = false, beatHint = void 0, source = "external" } = {}) {
+    function setSelectedTimeSec(nextTimeSec, {
+      openViewer = false,
+      notify = false,
+      beatHint = void 0,
+      source = "external",
+      viewerTimeSec = void 0
+    } = {}) {
       const clampedTimeSec = clampSelectedTimeSec(state, nextTimeSec);
       const resolvedViewerMode = getResolvedViewerMode(state);
-      const nextBeat = resolveSelectedBeat(state, clampedTimeSec, beatHint, resolvedViewerMode);
+      const previousViewerTimeSec = getDisplayedViewerTimeSec(state, state.selectedTimeSec, resolvedViewerMode);
+      const nextViewerTimeSec = resolveSelectionViewerTimeSec(
+        state,
+        clampedTimeSec,
+        viewerTimeSec,
+        resolvedViewerMode
+      );
+      const nextBeat = resolveSelectedBeat(
+        state,
+        clampedTimeSec,
+        beatHint,
+        resolvedViewerMode,
+        nextViewerTimeSec
+      );
       const changed = hasViewerSelectionChanged(
         state.viewerModel,
         resolvedViewerMode,
-        state.selectedTimeSec,
-        clampedTimeSec,
+        previousViewerTimeSec,
+        nextViewerTimeSec,
         state.selectedBeat,
         nextBeat
       );
@@ -7736,6 +7823,7 @@
       }
       state.selectedTimeSec = clampedTimeSec;
       state.selectedBeat = nextBeat;
+      state.playbackViewerTimeSec = nextViewerTimeSec;
       if (notify && changed) {
         onSelectedTimeChange({
           timeSec: clampedTimeSec,
@@ -7760,8 +7848,11 @@
       if (state.parsedScore) {
         state.viewerModel = buildViewerModel(state.parsedScore, state.record, state.viewerMode);
         state.selectedTimeSec = clampSelectedTimeSec(state, state.selectedTimeSec);
+        state.playbackViewerTimeSec = getViewerTimeSecForSelection(state, state.selectedTimeSec);
+      } else {
+        state.playbackViewerTimeSec = 0;
       }
-      state.selectedBeat = getBeatAtTimeSec(state.viewerModel, state.selectedTimeSec);
+      state.selectedBeat = resolveSelectedBeat(state, state.selectedTimeSec, void 0, getResolvedViewerMode(state));
       try {
         setPersistedViewerMode(normalizedMode);
       } catch (error) {
@@ -7941,13 +8032,14 @@
       if (!state.viewerModel || !state.parsedScore) {
         return;
       }
-      const maxTimeSec = getScoreTotalDurationSec(state.viewerModel.score);
-      if (maxTimeSec <= 0) {
+      const maxViewerTimeSec = getPlaybackViewerMaxTimeSec(state);
+      if (maxViewerTimeSec <= 0) {
         return;
       }
-      if (state.selectedTimeSec >= maxTimeSec - 5e-4) {
-        setSelectedTimeSec(0, { notify: true, source: "playback" });
+      if (getCurrentPlaybackViewerTimeSec(state) >= maxViewerTimeSec - 5e-4) {
+        setSelectedTimeSec(0, { notify: true, source: "playback", viewerTimeSec: 0 });
       }
+      state.playbackViewerTimeSec = getViewerTimeSecForSelection(state, state.selectedTimeSec);
       state.isPlaying = true;
       state.isViewerOpen = true;
       state.lastPlaybackTimestamp = null;
@@ -7955,7 +8047,7 @@
       if (state.playbackFrameId !== null) {
         cancelAnimationFrame(state.playbackFrameId);
       }
-      scheduleRender(PREVIEW_RENDER_DIRTY.playback | PREVIEW_RENDER_DIRTY.viewerOpen);
+      scheduleRender(PREVIEW_RENDER_DIRTY.playback | PREVIEW_RENDER_DIRTY.viewerOpen | PREVIEW_RENDER_DIRTY.selection);
       state.playbackFrameId = requestAnimationFrame(stepPlayback);
     }
     function stopPlayback(renderAfter = true) {
@@ -7969,7 +8061,7 @@
         onPlaybackChange(false);
       }
       if (renderAfter) {
-        scheduleRender(PREVIEW_RENDER_DIRTY.playback);
+        scheduleRender(PREVIEW_RENDER_DIRTY.playback | PREVIEW_RENDER_DIRTY.selection);
       }
     }
     function stepPlayback(timestamp) {
@@ -7985,32 +8077,17 @@
       }
       const deltaSec = (timestamp - state.lastPlaybackTimestamp) / 1e3;
       state.lastPlaybackTimestamp = timestamp;
-      const maxTimeSec = getScoreTotalDurationSec(state.viewerModel.score);
-      const nextTimeSec = Math.min(state.selectedTimeSec + deltaSec, maxTimeSec);
+      const maxViewerTimeSec = getPlaybackViewerMaxTimeSec(state);
       const resolvedViewerMode = getResolvedViewerMode(state);
-      const nextBeat = resolveSelectedBeat(state, nextTimeSec, void 0, resolvedViewerMode);
-      const changed = hasViewerSelectionChanged(
-        state.viewerModel,
-        resolvedViewerMode,
-        state.selectedTimeSec,
-        nextTimeSec,
-        state.selectedBeat,
-        nextBeat
-      );
-      state.selectedTimeSec = nextTimeSec;
-      state.selectedBeat = nextBeat;
-      if (changed) {
-        onSelectedTimeChange({
-          timeSec: state.selectedTimeSec,
-          beat: nextBeat,
-          viewerMode: resolvedViewerMode,
-          source: "playback"
-        });
-      }
-      scheduleRender(PREVIEW_RENDER_DIRTY.selection);
-      if (nextTimeSec >= maxTimeSec - 5e-4) {
-        stopPlayback(false);
-        scheduleRender(PREVIEW_RENDER_DIRTY.selection | PREVIEW_RENDER_DIRTY.playback);
+      const nextViewerTimeSec = Math.min(getCurrentPlaybackViewerTimeSec(state, resolvedViewerMode) + deltaSec, maxViewerTimeSec);
+      const nextTimeSec = getCanonicalTimeSecFromViewerSelection(state, nextViewerTimeSec, resolvedViewerMode);
+      setSelectedTimeSec(nextTimeSec, {
+        notify: true,
+        source: "playback",
+        viewerTimeSec: nextViewerTimeSec
+      });
+      if (nextViewerTimeSec >= maxViewerTimeSec - 5e-4) {
+        stopPlayback(true);
         return;
       }
       state.playbackFrameId = requestAnimationFrame(stepPlayback);
@@ -8097,7 +8174,11 @@
         viewerController.setPinned(state.isPinned);
       }
       if (expandedRenderMask & PREVIEW_RENDER_DIRTY.selection || expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel || expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerMode) {
-        viewerController.setSelectedTimeSec(state.selectedTimeSec, { beatHint: state.selectedBeat });
+        const viewerSelectedTimeSec = getDisplayedViewerTimeSec(state, state.selectedTimeSec);
+        viewerController.setSelectedTimeSec(
+          viewerSelectedTimeSec,
+          { beatHint: state.selectedBeat }
+        );
       }
       if (expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerOpen || expandedRenderMask & PREVIEW_RENDER_DIRTY.viewerModel) {
         viewerController.setOpen(Boolean(state.isViewerOpen && state.viewerModel));
@@ -8343,23 +8424,75 @@
     return false;
   }
   function clampSelectedTimeSec(state, timeSec) {
-    if (state.viewerModel) {
-      return getClampedSelectedTimeSec(state.viewerModel, timeSec);
-    }
-    const maxTimeSec = state.record?.durationSec ?? 0;
+    const maxTimeSec = getCanonicalMaxTimeSec(state);
     return clampValue(Number.isFinite(timeSec) ? timeSec : 0, 0, Math.max(maxTimeSec, 0));
   }
   function getResolvedViewerMode(state) {
     return resolveViewerModeForModel(state.viewerModel, state.viewerMode);
   }
-  function resolveSelectedBeat(state, timeSec, beatHint = void 0, resolvedViewerMode = getResolvedViewerMode(state)) {
+  function resolveSelectedBeat(state, timeSec, beatHint = void 0, resolvedViewerMode = getResolvedViewerMode(state), viewerTimeSec = void 0) {
     if (resolvedViewerMode === "time") {
       return 0;
     }
     if (Number.isFinite(beatHint)) {
       return getClampedSelectedBeat(state.viewerModel, beatHint);
     }
-    return getBeatAtTimeSec(state.viewerModel, timeSec);
+    return getBeatAtTimeSec(
+      state.viewerModel,
+      resolveSelectionViewerTimeSec(state, timeSec, viewerTimeSec, resolvedViewerMode)
+    );
+  }
+  function getCanonicalMaxTimeSec(state) {
+    if (state.parsedScore) {
+      return getScoreTotalDurationSec(state.parsedScore);
+    }
+    if (state.viewerModel) {
+      return getCanonicalScoreTotalDurationSec(state.viewerModel);
+    }
+    return Math.max(state.record?.durationSec ?? 0, 0);
+  }
+  function getViewerTimeSecForSelection(state, canonicalTimeSec, resolvedViewerMode = getResolvedViewerMode(state)) {
+    if (!state.viewerModel) {
+      return Number.isFinite(canonicalTimeSec) ? Math.max(canonicalTimeSec, 0) : 0;
+    }
+    return mapCanonicalTimeToViewerTime(state.viewerModel, canonicalTimeSec, resolvedViewerMode);
+  }
+  function getPlaybackViewerMaxTimeSec(state) {
+    if (!state.viewerModel) {
+      return 0;
+    }
+    return getScoreTotalDurationSec(state.viewerModel.score);
+  }
+  function clampPlaybackViewerTimeSec(state, viewerTimeSec) {
+    return clampValue(
+      Number.isFinite(viewerTimeSec) ? viewerTimeSec : 0,
+      0,
+      Math.max(getPlaybackViewerMaxTimeSec(state), 0)
+    );
+  }
+  function getCurrentPlaybackViewerTimeSec(state, resolvedViewerMode = getResolvedViewerMode(state)) {
+    if (Number.isFinite(state.playbackViewerTimeSec)) {
+      return clampPlaybackViewerTimeSec(state, state.playbackViewerTimeSec);
+    }
+    return getViewerTimeSecForSelection(state, state.selectedTimeSec, resolvedViewerMode);
+  }
+  function resolveSelectionViewerTimeSec(state, canonicalTimeSec, viewerTimeSec = void 0, resolvedViewerMode = getResolvedViewerMode(state)) {
+    if (Number.isFinite(viewerTimeSec)) {
+      return clampPlaybackViewerTimeSec(state, viewerTimeSec);
+    }
+    return getViewerTimeSecForSelection(state, canonicalTimeSec, resolvedViewerMode);
+  }
+  function getDisplayedViewerTimeSec(state, canonicalTimeSec, resolvedViewerMode = getResolvedViewerMode(state)) {
+    if (state.isPlaying) {
+      return getCurrentPlaybackViewerTimeSec(state, resolvedViewerMode);
+    }
+    return getViewerTimeSecForSelection(state, canonicalTimeSec, resolvedViewerMode);
+  }
+  function getCanonicalTimeSecFromViewerSelection(state, viewerTimeSec, resolvedViewerMode = getResolvedViewerMode(state)) {
+    if (!state.viewerModel) {
+      return Number.isFinite(viewerTimeSec) ? Math.max(viewerTimeSec, 0) : 0;
+    }
+    return mapViewerTimeToCanonicalTime(state.viewerModel, viewerTimeSec, resolvedViewerMode);
   }
   function getInitialViewerMode(getPersistedViewerMode) {
     try {

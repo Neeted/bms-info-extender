@@ -201,6 +201,7 @@ export function createScoreViewerModel(score, { bpmSummary = undefined, gameProf
     return null;
   }
   const normalizedGameProfile = normalizeGameProfile(gameProfile);
+  const canonicalBeatTimingIndex = createCanonicalBeatTimingIndex(score);
   const profiledScore = normalizedGameProfile === "lunatic"
     ? createLunaticProfileScore(score)
     : score;
@@ -301,6 +302,7 @@ export function createScoreViewerModel(score, { bpmSummary = undefined, gameProf
     bpmSummary: resolvedBpmSummary,
     totalCombo: comboEvents.length,
     beatTimingIndex,
+    canonicalBeatTimingIndex,
     gameScrollIndex,
     totalBeat,
     supportsEditorMode: Boolean(beatTimingIndex && Number.isFinite(totalBeat)),
@@ -316,6 +318,16 @@ export function getScoreTotalDurationSec(score) {
   const lastTimelineTimeSec = Number.isFinite(score.lastTimelineTimeSec) ? score.lastTimelineTimeSec : null;
   const lastPlayableTimeSec = Number.isFinite(score.lastPlayableTimeSec) ? score.lastPlayableTimeSec : 0;
   return Math.max(totalDurationSec ?? lastTimelineTimeSec ?? lastPlayableTimeSec, 0);
+}
+
+export function getCanonicalScoreTotalDurationSec(modelOrScore) {
+  if (!modelOrScore || typeof modelOrScore !== "object") {
+    return 0;
+  }
+  if ("score" in modelOrScore || "sourceScore" in modelOrScore) {
+    return getScoreTotalDurationSec(modelOrScore.sourceScore ?? modelOrScore.score);
+  }
+  return getScoreTotalDurationSec(modelOrScore);
 }
 
 export function getScoreTotalBeat(score) {
@@ -346,6 +358,40 @@ export function getScoreTotalBeat(score) {
     maxBeat = Math.max(maxBeat, finiteOrZero(event.beat));
   }
   return Math.max(maxBeat, 0);
+}
+
+export function mapCanonicalTimeToViewerTime(model, timeSec, viewerMode = DEFAULT_VIEWER_MODE) {
+  if (!model) {
+    return 0;
+  }
+  const resolvedMode = resolveViewerModeForModel(model, viewerMode);
+  const numericTimeSec = Number.isFinite(timeSec) ? Math.max(timeSec, 0) : 0;
+  if (resolvedMode !== "lunatic" || model.gameProfile !== "lunatic") {
+    return getClampedSelectedTimeSec(model, numericTimeSec);
+  }
+  if (!model.canonicalBeatTimingIndex || !model.beatTimingIndex) {
+    return getClampedSelectedTimeSec(model, numericTimeSec);
+  }
+  const clampedCanonicalTimeSec = clamp(numericTimeSec, 0, getCanonicalScoreTotalDurationSec(model));
+  const canonicalBeat = model.canonicalBeatTimingIndex.secondsToBeat(clampedCanonicalTimeSec);
+  return getClampedSelectedTimeSec(model, model.beatTimingIndex.beatToSeconds(canonicalBeat));
+}
+
+export function mapViewerTimeToCanonicalTime(model, timeSec, viewerMode = DEFAULT_VIEWER_MODE) {
+  if (!model) {
+    return 0;
+  }
+  const resolvedMode = resolveViewerModeForModel(model, viewerMode);
+  const numericTimeSec = Number.isFinite(timeSec) ? Math.max(timeSec, 0) : 0;
+  if (resolvedMode !== "lunatic" || model.gameProfile !== "lunatic") {
+    return getClampedSelectedTimeSec(model, numericTimeSec);
+  }
+  if (!model.canonicalBeatTimingIndex || !model.beatTimingIndex) {
+    return clamp(numericTimeSec, 0, getCanonicalScoreTotalDurationSec(model));
+  }
+  const clampedViewerTimeSec = getClampedSelectedTimeSec(model, numericTimeSec);
+  const viewerBeat = model.beatTimingIndex.secondsToBeat(clampedViewerTimeSec);
+  return clamp(model.canonicalBeatTimingIndex.beatToSeconds(viewerBeat), 0, getCanonicalScoreTotalDurationSec(model));
 }
 
 export function getClampedSelectedTimeSec(model, timeSec) {
@@ -822,6 +868,24 @@ function createFallbackComboEvents(notes) {
 
 function normalizeGameProfile(value) {
   return value === "lunatic" ? "lunatic" : "game";
+}
+
+function createCanonicalBeatTimingIndex(score) {
+  if (!score || typeof score !== "object") {
+    return null;
+  }
+  const canonicalTimingActions = createTimingActionsFromCanonicalScore(score).map((action) => (
+    action?.type === "stop"
+      ? {
+        ...action,
+        stopLunaticBehavior: undefined,
+      }
+      : action
+  ));
+  return createBeatTimingIndex({
+    ...score,
+    timingActions: canonicalTimingActions,
+  });
 }
 
 function createLunaticProfileScore(score) {

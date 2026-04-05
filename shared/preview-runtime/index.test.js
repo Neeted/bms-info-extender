@@ -46,6 +46,11 @@ import {
   getInitialGameTimingConfig,
   getInitialRendererConfig,
 } from "./index.js";
+import {
+  getScoreTotalDurationSec,
+  mapCanonicalTimeToViewerTime,
+  mapViewerTimeToCanonicalTime,
+} from "./score-viewer-model.js";
 
 test("viewer mode defaults to time and keeps persisted game values", () => {
   assert.equal(DEFAULT_VIEWER_MODE, "time");
@@ -723,7 +728,7 @@ test("viewer detail settings popup adjusts renderer config by wheel with clamp a
   }
 });
 
-test("preview playback stops at the Lunatic profile duration instead of the raw parser duration", async () => {
+test("preview playback in Lunatic advances on compressed viewer time while keeping canonical selection aligned", async () => {
   const environment = installPreviewTestEnvironment();
   try {
     const { preview } = createPreviewHarness(environment.document, {
@@ -736,15 +741,133 @@ test("preview playback stops at the Lunatic profile duration instead of the raw 
     preview.setSelectedTimeSec(0);
     preview.setPlaybackState(true);
 
-    for (let index = 0; index < 8; index += 1) {
+    let state = preview.getState();
+    for (let index = 0; index < 32; index += 1) {
+      await environment.settle();
+      state = preview.getState();
+      if (state.playbackViewerTimeSec >= 2) {
+        break;
+      }
+    }
+
+    assert.equal(state.resolvedViewerMode, "lunatic");
+    assert.ok(state.playbackViewerTimeSec >= 2);
+    assert.ok(state.selectedTimeSec > state.playbackViewerTimeSec);
+    assert.ok(Math.abs(
+      state.selectedTimeSec - mapViewerTimeToCanonicalTime(state.viewerModel, state.playbackViewerTimeSec, "lunatic"),
+    ) < 0.0005);
+
+    const expectedViewerDurationSec = getScoreTotalDurationSec(state.viewerModel.score);
+    for (let index = 0; index < 48 && preview.getState().isPlaying; index += 1) {
       await environment.settle();
     }
 
-    const state = preview.getState();
+    state = preview.getState();
     assert.equal(state.isPlaying, false);
     assert.equal(state.resolvedViewerMode, "lunatic");
-    assert.ok(state.selectedTimeSec < state.parsedScore.totalDurationSec);
-    assert.ok(Math.abs(state.selectedTimeSec - state.viewerModel.score.totalDurationSec) < 0.0005);
+    assert.ok(Math.abs(state.selectedTimeSec - state.parsedScore.totalDurationSec) < 0.0005);
+    assert.ok(Math.abs(state.playbackViewerTimeSec - expectedViewerDurationSec) < 0.0005);
+    assert.ok(Math.abs(
+      mapCanonicalTimeToViewerTime(state.viewerModel, state.selectedTimeSec, "lunatic") - state.playbackViewerTimeSec,
+    ) < 0.0005);
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("viewer wheel during Lunatic playback updates playback viewer time and pausing keeps the visible position", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createLunaticParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("c".repeat(64)), { parsedScore: createLunaticParsedScore() });
+    preview.setViewerMode("lunatic");
+    preview.setSelectedTimeSec(0);
+    preview.setPlaybackState(true);
+    await environment.settle();
+
+    const scrollHost = findElementByClass(environment.document.body, "score-viewer-scroll-host");
+    assert.ok(scrollHost);
+
+    const beforeWheel = preview.getState();
+    scrollHost.dispatchEvent({ type: "wheel", deltaY: 160, deltaMode: 0 });
+
+    const afterWheel = preview.getState();
+    assert.ok(afterWheel.playbackViewerTimeSec > beforeWheel.playbackViewerTimeSec);
+    assert.ok(Math.abs(
+      afterWheel.selectedTimeSec - mapViewerTimeToCanonicalTime(afterWheel.viewerModel, afterWheel.playbackViewerTimeSec, "lunatic"),
+    ) < 0.0005);
+
+    preview.setPlaybackState(false);
+    await environment.settle();
+
+    const paused = preview.getState();
+    assert.equal(paused.isPlaying, false);
+    assert.ok(Math.abs(paused.playbackViewerTimeSec - afterWheel.playbackViewerTimeSec) < 0.0005);
+    assert.ok(Math.abs(
+      mapCanonicalTimeToViewerTime(paused.viewerModel, paused.selectedTimeSec, "lunatic") - paused.playbackViewerTimeSec,
+    ) < 0.0005);
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("graph selection during Lunatic playback reseeds playback viewer time and resume starts from the frozen position", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview, elements } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createLunaticParsedScore(),
+      preferences: {
+        getPersistedGraphInteractionMode: () => "drag",
+      },
+    });
+
+    preview.setRecord(createNormalizedRecord("d".repeat(64)), { parsedScore: createLunaticParsedScore() });
+    preview.setViewerMode("lunatic");
+    preview.setSelectedTimeSec(0);
+    preview.setPlaybackState(true);
+    await environment.settle();
+
+    elements.graphCanvas.dispatchEvent({ type: "click", clientX: 15, clientY: 0 });
+
+    const afterGraphSelect = preview.getState();
+    assert.ok(Math.abs(afterGraphSelect.selectedTimeSec - 3) < 0.0005);
+    assert.ok(Math.abs(
+      afterGraphSelect.playbackViewerTimeSec - mapCanonicalTimeToViewerTime(afterGraphSelect.viewerModel, afterGraphSelect.selectedTimeSec, "lunatic"),
+    ) < 0.0005);
+
+    preview.setPlaybackState(false);
+    await environment.settle();
+
+    const paused = preview.getState();
+    const pausedViewerTimeSec = paused.playbackViewerTimeSec;
+    const pausedSelectedTimeSec = paused.selectedTimeSec;
+    assert.ok(Math.abs(
+      mapCanonicalTimeToViewerTime(paused.viewerModel, paused.selectedTimeSec, "lunatic") - paused.playbackViewerTimeSec,
+    ) < 0.0005);
+
+    preview.setPlaybackState(true);
+    const resumedImmediately = preview.getState();
+    assert.ok(Math.abs(resumedImmediately.playbackViewerTimeSec - pausedViewerTimeSec) < 0.0005);
+    assert.ok(Math.abs(resumedImmediately.selectedTimeSec - pausedSelectedTimeSec) < 0.0005);
+
+    await environment.settle();
+
+    const resumed = preview.getState();
+    assert.ok(resumed.playbackViewerTimeSec >= pausedViewerTimeSec);
+    assert.ok(Math.abs(
+      resumed.selectedTimeSec - mapViewerTimeToCanonicalTime(resumed.viewerModel, resumed.playbackViewerTimeSec, "lunatic"),
+    ) < 0.0005);
 
     preview.destroy();
     await environment.settle();
@@ -1034,27 +1157,36 @@ function createParsedScore() {
 
 function createLunaticParsedScore() {
   return {
+    format: "bms",
     mode: "7k",
     laneCount: 8,
     initialBpm: 120,
-    notes: [{ lane: 1, beat: 0.2, timeSec: 0.1, kind: "normal" }],
-    barLines: [{ beat: 0, timeSec: 0 }, { beat: 1, timeSec: 0.5 }],
+    noteCounts: { visible: 2, normal: 2, long: 0, invisible: 0, mine: 0, all: 2 },
+    notes: [
+      { lane: 1, beat: 4 + 1 / 96, timeSec: 2.5 + (0.5 / 96), kind: "normal" },
+      { lane: 1, beat: 8, timeSec: 4.5, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4.5 }],
     bpmChanges: [],
     stops: [],
-    scrollChanges: [{ beat: 0.1, timeSec: 0.05, rate: 0 }],
-    comboEvents: [{ lane: 1, beat: 0.2, timeSec: 0.1, kind: "normal" }],
+    scrollChanges: [{ beat: 4, timeSec: 2, rate: 0 }],
+    comboEvents: [
+      { lane: 1, beat: 4 + 1 / 96, timeSec: 2.5 + (0.5 / 96), kind: "normal" },
+      { lane: 1, beat: 8, timeSec: 4.5, kind: "normal" },
+    ],
     timingActions: [{
       type: "stop",
-      beat: 0.1,
-      timeSec: 0.05,
+      beat: 4,
+      timeSec: 2,
       stopBeats: 1,
       durationSec: 0.5,
       stopResolution: "resolved",
       stopLunaticBehavior: "warp",
     }],
-    totalDurationSec: 0.5,
-    lastTimelineTimeSec: 0.5,
-    lastPlayableTimeSec: 0.1,
+    totalDurationSec: 4.5,
+    lastTimelineTimeSec: 4.5,
+    lastPlayableTimeSec: 4.5,
+    warnings: [],
   };
 }
 

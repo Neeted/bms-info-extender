@@ -8,10 +8,11 @@ import {
   createScoreViewerModel,
   DEFAULT_VIEWER_MODE,
   getBeatAtTimeSec,
-  getClampedSelectedTimeSec,
+  getCanonicalScoreTotalDurationSec,
   getScoreTotalDurationSec,
   getViewerCursor,
   hasViewerSelectionChanged,
+  mapCanonicalTimeToViewerTime,
 } from "../../../../shared/preview-runtime/score-viewer-model.js";
 
 const DEFAULT_PARSER_VERSION = "current";
@@ -259,7 +260,7 @@ function updateStateFromControls() {
 
 function getNormalizedSelectedTimeSec(value) {
   if (state.viewerModel) {
-    return getClampedSelectedTimeSec(state.viewerModel, value);
+    return clamp(value, 0, getCanonicalScoreTotalDurationSec(state.viewerModel));
   }
   if (state.parsedScore) {
     return clamp(value, 0, getScoreTotalDurationSec(state.parsedScore));
@@ -271,7 +272,27 @@ function getSelectedBeatForTime(timeSec, viewerMode = state.resolvedViewerMode) 
   if (viewerMode === "time") {
     return 0;
   }
-  return getBeatAtTimeSec(state.viewerModel, timeSec);
+  return getBeatAtTimeSec(
+    state.viewerModel,
+    mapCanonicalTimeToViewerTime(state.viewerModel, timeSec, viewerMode),
+  );
+}
+
+function buildViewerModelForMode(score, viewerMode = state.resolvedViewerMode) {
+  if (!score) {
+    return null;
+  }
+  return createScoreViewerModel(score, {
+    gameProfile: viewerMode === "lunatic" ? "lunatic" : "game",
+  });
+}
+
+function syncViewerModelToMode(viewerMode = state.resolvedViewerMode) {
+  if (!state.parsedScore) {
+    state.viewerModel = null;
+    return;
+  }
+  state.viewerModel = buildViewerModelForMode(state.parsedScore, viewerMode);
 }
 
 function setSelectedTimeSec(nextValue, { openViewer = false, syncUrl = true } = {}) {
@@ -447,9 +468,19 @@ function getEventCountsLabel(score) {
 }
 
 function getCurrentCursor() {
-  return state.viewerModel
-    ? getViewerCursor(state.viewerModel, state.selectedTimeSec, state.resolvedViewerMode, state.selectedBeat)
-    : null;
+  if (!state.viewerModel) {
+    return null;
+  }
+  const viewerCursor = getViewerCursor(
+    state.viewerModel,
+    mapCanonicalTimeToViewerTime(state.viewerModel, state.selectedTimeSec, state.resolvedViewerMode),
+    state.resolvedViewerMode,
+    state.selectedBeat,
+  );
+  return {
+    ...viewerCursor,
+    timeSec: state.selectedTimeSec,
+  };
 }
 
 function renderMessageBanner() {
@@ -616,6 +647,10 @@ function ensurePreviewRuntime() {
     onSelectedTimeChange: (selection) => {
       const nextTimeSec = typeof selection === "object" ? selection.timeSec : selection;
       const nextViewerMode = selection?.viewerMode ?? state.resolvedViewerMode;
+      if (nextViewerMode !== state.resolvedViewerMode) {
+        state.resolvedViewerMode = nextViewerMode;
+        syncViewerModelToMode(nextViewerMode);
+      }
       const nextBeat = nextViewerMode === "time"
         ? 0
         : (Number.isFinite(selection?.beat) ? selection.beat : getSelectedBeatForTime(nextTimeSec, nextViewerMode));
@@ -629,7 +664,6 @@ function ensurePreviewRuntime() {
       );
       state.selectedTimeSec = nextTimeSec;
       state.selectedBeat = nextBeat;
-      state.resolvedViewerMode = nextViewerMode;
       elements.timeNumberInput.value = state.selectedTimeSec.toFixed(3);
       elements.timeRangeInput.value = String(state.selectedTimeSec);
       if (changed) {
@@ -664,7 +698,11 @@ function ensurePreviewRuntime() {
 function renderPreviewPanel() {
   const previewRuntime = ensurePreviewRuntime();
   const previewState = previewRuntime.getState();
-  state.resolvedViewerMode = previewState.resolvedViewerMode ?? state.resolvedViewerMode;
+  const nextResolvedViewerMode = previewState.resolvedViewerMode ?? state.resolvedViewerMode;
+  if (nextResolvedViewerMode !== state.resolvedViewerMode) {
+    state.resolvedViewerMode = nextResolvedViewerMode;
+    syncViewerModelToMode(nextResolvedViewerMode);
+  }
   state.selectedBeat = getSelectedBeatForTime(state.selectedTimeSec, state.resolvedViewerMode);
   if (!state.bmsDataRecord) {
     if (state.previewContainer) {
@@ -839,7 +877,7 @@ function renderSliderBounds() {
   elements.timeRangeInput.max = String(maxValue);
   elements.timeNumberInput.min = "0";
   if (state.parsedScore) {
-    state.selectedTimeSec = getClampedSelectedTimeSec(state.viewerModel, state.selectedTimeSec);
+    state.selectedTimeSec = clamp(state.selectedTimeSec, 0, maxValue);
     state.selectedBeat = getSelectedBeatForTime(state.selectedTimeSec);
   } else {
     state.selectedTimeSec = clamp(state.selectedTimeSec, 0, maxValue);
@@ -955,10 +993,10 @@ async function handleLoad({ clearCachesFirst = false } = {}) {
     state.compressedByteLength = scoreResult.value.compressedResult.byteLength;
     state.decompressedByteLength = scoreResult.value.decompressedResult.byteLength;
     state.parsedScore = scoreResult.value.parsedResult.score;
-    state.viewerModel = createScoreViewerModel(scoreResult.value.parsedResult.score);
+    state.viewerModel = buildViewerModelForMode(scoreResult.value.parsedResult.score, state.resolvedViewerMode);
     state.lastError = null;
     state.isViewerOpen = false;
-    state.selectedTimeSec = getClampedSelectedTimeSec(state.viewerModel, state.selectedTimeSec);
+    state.selectedTimeSec = getNormalizedSelectedTimeSec(state.selectedTimeSec);
     state.selectedBeat = getSelectedBeatForTime(state.selectedTimeSec);
 
     if (state.panelError) {

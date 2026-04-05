@@ -11,6 +11,7 @@ import {
   createEditorMeasureRanges,
   createScoreViewerModel,
   getBeatAtTimeSec,
+  getCanonicalScoreTotalDurationSec,
   getClampedSelectedTimeSec,
   getComboCountAtTime,
   getContentHeightPx,
@@ -39,6 +40,8 @@ import {
   getVisibleBeatRange,
   hasViewerSelectionChanged,
   getMeasureIndexAtTime,
+  mapCanonicalTimeToViewerTime,
+  mapViewerTimeToCanonicalTime,
   getScrollTopForTimeSec,
   getTimeSecForBeat,
   getTimeSecForEditorScrollTop,
@@ -637,6 +640,11 @@ test("viewer model builds a Lunatic profile that keeps beats and shortens time t
   assert.ok(Math.abs(lunaticModel.notes[0].timeSec - 2) < 0.000001);
   assert.ok(Math.abs(lunaticModel.notes[1].beat - 8) < 0.000001);
   assert.ok(Math.abs(lunaticModel.notes[1].timeSec - (4 - (0.5 / 48))) < 0.000001);
+  assert.equal(getCanonicalScoreTotalDurationSec(lunaticModel), 4);
+  assert.equal(mapCanonicalTimeToViewerTime(lunaticModel, 2.25, "lunatic"), 2);
+  assert.ok(Math.abs(mapViewerTimeToCanonicalTime(lunaticModel, lunaticModel.notes[1].timeSec, "lunatic") - 4) < 0.000001);
+  assert.equal(mapCanonicalTimeToViewerTime(gameModel, 2.25, "game"), 2.25);
+  assert.equal(mapViewerTimeToCanonicalTime(gameModel, 2.25, "game"), 2.25);
 });
 
 test("viewer model applies the last same-beat scroll change to subsequent game displacement", () => {

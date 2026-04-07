@@ -59,23 +59,35 @@ WITH entrys AS (
   SELECT
     playlist_id,
     md5,
-    org_name,
-    org_symbol,
-    folder,
-    compat_prefix
+    CASE playlist_id
+      -- AI難易度表
+      WHEN 97 THEN
+        CASE
+          WHEN level < 0 THEN 'AI難易度表 ☆'||(level + 11)||--ピーク難易度が★以上の場合の対策
+                                                            CASE
+                                                              WHEN 0 <= CAST(REPLACE(REPLACE(comment, '(Max:', ''), ')', '') AS REAL) THEN ' (Peak:★'||REPLACE(REPLACE(comment, '(Max:', ''), ')', '')||')'
+                                                              ELSE ' (Peak:☆'||(CAST(REPLACE(REPLACE(comment, '(Max:', ''), ')', '') AS REAL) + 11)||')'
+                                                            END
+          WHEN level > 100 THEN 'AI難易度表 ◆'||(level - 100)||' (Peak:◆'||(CAST(REPLACE(REPLACE(comment, '(Max:', ''), ')', '') AS REAL) - 100)||')'
+          ELSE 'AI難易度表 ★'||level||' (Peak:★'||REPLACE(REPLACE(comment, '(Max:', ''), ')', '')||')'
+        END
+      -- ≒slst推定難易度表
+      WHEN 98 THEN org_name||' '||replace(folder,compat_prefix,'')||' ('||comment||')'
+      -- --癖譜面コレクション(サブ)
+      WHEN 160 THEN org_name||' ¿¡'||replace(folder,compat_prefix,'')
+      ELSE org_name||' '||org_symbol||replace(folder,compat_prefix,'')
+    END AS 'folder'
   FROM
     playlist_entry INNER JOIN playlist USING(playlist_id)
   WHERE
     is_removed = 0
     AND playlist_id >= 97
-    --AND playlist_id NOT IN (5044, 5057, 5060, 5106)
-  ORDER BY playlist_id
+  ORDER BY playlist_id ASC
 )
 , tables AS (
   SELECT
     md5,
-    --癖譜面コレクション(サブ)特例対応
-    '['||group_concat('"'||org_name||' '||replace(org_symbol,'&iquest;&iexcl;','¿¡')||replace(folder,compat_prefix,'')||'"', ',')||']' AS "tables"
+    '['||group_concat('"'||entrys.folder||'"', ',')||']' AS 'tables'
   FROM entrys
   GROUP BY md5
 )

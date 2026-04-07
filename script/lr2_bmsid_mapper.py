@@ -11,6 +11,7 @@ LR2 IR (http://www.dream-pro.info/~lavalse/LR2IR/) から bmsid を取得し、
 - lr2_bmsid/bmsid_to_md5.arrow
 - lr2_bmsid/bmsid_to_md5.tsv
 """
+import argparse
 import sqlite3
 import re
 import logging
@@ -49,6 +50,17 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def parse_args() -> argparse.Namespace:
+    """コマンドライン引数を解析する"""
+    parser = argparse.ArgumentParser(description="LR2 IR から bmsid と md5 のマッピングを取得")
+    parser.add_argument(
+        "--mode",
+        choices=("1", "2", "3"),
+        help="bmsid取得モード。未指定時は対話で選択します",
+    )
+    return parser.parse_args()
 
 
 def ask_user_mode() -> str:
@@ -101,6 +113,8 @@ def fetch_bmsid_from_lr2ir(md5: str) -> int | None:
 
 
 def main():
+    args = parse_args()
+
     # --- 1. 既存データの読み込み ---
     if ARROW_PATH.exists():
         # Windowsでのファイルロック回避のため memory_map=False で読み込む
@@ -124,7 +138,7 @@ def main():
     logger.info(f"DBからmd5を {df_db.height} 件 取得しました")
 
     # --- 3. 処理対象の抽出 ---
-    mode = ask_user_mode()
+    mode = args.mode or ask_user_mode()
     
     # 共通処理: 新規md5（arrowに存在しないDBデータ）
     existing_md5 = set(df_existing["md5"].to_list())

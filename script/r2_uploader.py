@@ -33,6 +33,9 @@ UPLOADED_DIR = DATA_DIR / "compressed" / "brotli_uploaded"
 # 並列アップロード数（回線とR2の制限次第で調整可）
 MAX_WORKERS = 32
 
+# 1時間後は再検証を促しつつ、障害時のみ stale を許容する
+CACHE_CONTROL = "public, max-age=3600, s-maxage=3600, must-revalidate, stale-if-error=86400"
+
 # --- boto3 クライアントの作成 ---
 s3, bucket_name = create_r2_client(MAX_WORKERS)
 
@@ -63,6 +66,7 @@ def upload_single_file(file_path: Path, progress_bar) -> bool:
             ExtraArgs={
                 'ContentType': 'text/plain; charset=utf-8',
                 'ContentEncoding': 'br',
+                'CacheControl': CACHE_CONTROL,
             }
         )
         success = True

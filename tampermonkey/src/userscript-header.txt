@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.0
+// @version      2.3.1
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -19,6 +19,10 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.1 TABLESのデータが更新されにくい場合があるので修正。
+//       メタデータの配信にCache-Controlを付与していなかったため、ヒューリスティックキャッシュが長期間効いてしまう問題があった。
+//       配信にCache-Controlを付与するとともに、ユーザースクリプト側では暫定的にキャッシュバスターを付与ししばらく様子見。
+//       BMS Info Extenderが公開から8ヶ月程度経っているので、1カ月程度はキャッシュバスター付きバージョンを配布し、ヒューリスティックキャッシュが切れてから元のクエリに戻す予定。
 // 2.3.0 譜面ビューア描画を調整、設定項目を調整
 // 2.2.0 操作や設定値の変更、Gameモードをよりbeatoraja寄りに、LR2風(負数STOPワープ、SCROLL無視)のLunaticモード追加
 // 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更

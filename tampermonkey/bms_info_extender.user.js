@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.0
+// @version      2.3.1
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -19,6 +19,10 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.1 TABLESのデータが更新されにくい場合があるので修正。
+//       メタデータの配信にCache-Controlを付与していなかったため、ヒューリスティックキャッシュが長期間効いてしまう問題があった。
+//       配信にCache-Controlを付与するとともに、ユーザースクリプト側では暫定的にキャッシュバスターを付与ししばらく様子見。
+//       BMS Info Extenderが公開から8ヶ月程度経っているので、1カ月程度はキャッシュバスター付きバージョンを配布し、ヒューリスティックキャッシュが切れてから元のクエリに戻す予定。
 // 2.3.0 譜面ビューア描画を調整、設定項目を調整
 // 2.2.0 操作や設定値の変更、Gameモードをよりbeatoraja寄りに、LR2風(負数STOPワープ、SCROLL無視)のLunaticモード追加
 // 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更
@@ -5245,7 +5249,7 @@
     "MINE"
   ];
   async function fetchBmsInfoRecordByLookupKey(lookupKey) {
-    const response = await fetch(`https://bms.howan.jp/${lookupKey}`);
+    const response = await fetch(`https://bms.howan.jp/${lookupKey}?v=2.3.1`);
     if (!response.ok) {
       throw new Error(`Failed to fetch BMS data: HTTP ${response.status}`);
     }
@@ -8747,8 +8751,8 @@
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
     const SCORE_PARSER_VERSION = "0.6.5";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.2.0";
-    const SKIP_VERSION_NOTIFICATION = false;
+    const SCRIPT_VERSION_FALLBACK = "2.3.1";
+    const SKIP_VERSION_NOTIFICATION_FROM = "";
     const VERSION_NOTIFICATION_STORAGE_KEYS = {
       lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",
       notificationLanguage: "bms-info-extender.versionNotification.language"
@@ -8955,28 +8959,26 @@
 ## Notes about existing behavior
 - The score viewer can also be moved by dragging or using the mouse wheel`;
     const VERSION_NOTIFICATION_CONTENT = {
-      "2.3.0": {
-        ja: {
-          title: "BMS Info Extender リリースノート",
-          body: RELEASE_NOTES_JA,
-          languageLabel: "言語",
-          dontShowAgainLabel: "このバージョンの通知を再度表示しない",
-          okLabel: "OK",
-          languageOptions: {
-            ja: "日本語",
-            en: "English"
-          }
-        },
-        en: {
-          title: "BMS Info Extender Release Notes",
-          body: RELEASE_NOTES_EN,
-          languageLabel: "Language",
-          dontShowAgainLabel: "Do not show this version notice again",
-          okLabel: "OK",
-          languageOptions: {
-            ja: "日本語",
-            en: "English"
-          }
+      ja: {
+        title: "BMS Info Extender リリースノート",
+        body: RELEASE_NOTES_JA,
+        languageLabel: "言語",
+        dontShowAgainLabel: "このバージョンの通知を再度表示しない",
+        okLabel: "OK",
+        languageOptions: {
+          ja: "日本語",
+          en: "English"
+        }
+      },
+      en: {
+        title: "BMS Info Extender Release Notes",
+        body: RELEASE_NOTES_EN,
+        languageLabel: "Language",
+        dontShowAgainLabel: "Do not show this version notice again",
+        okLabel: "OK",
+        languageOptions: {
+          ja: "日本語",
+          en: "English"
         }
       }
     };
@@ -9027,15 +9029,7 @@
     bootstrap();
     async function initializeVersionNotification() {
       const currentVersion = getCurrentScriptVersion();
-      if (SKIP_VERSION_NOTIFICATION) {
-        persistNotifiedVersion(currentVersion);
-        return;
-      }
       if (!shouldShowVersionNotification(currentVersion)) {
-        return;
-      }
-      const notificationContent = getVersionNotificationContent(currentVersion);
-      if (!notificationContent) {
         persistNotifiedVersion(currentVersion);
         return;
       }
@@ -9045,18 +9039,72 @@
       }
       showVersionNotificationModal({
         version: currentVersion,
-        notificationContent,
+        notificationContent: getVersionNotificationContent(),
         initialLanguage: getPersistedNotificationLanguage()
       });
     }
     function getCurrentScriptVersion() {
       return typeof GM_info === "object" && GM_info?.script?.version ? String(GM_info.script.version) : SCRIPT_VERSION_FALLBACK;
     }
-    function getVersionNotificationContent(version) {
-      return VERSION_NOTIFICATION_CONTENT[version] ?? null;
+    function getVersionNotificationContent() {
+      return VERSION_NOTIFICATION_CONTENT;
     }
     function shouldShowVersionNotification(currentVersion) {
-      return getLastNotifiedVersion() !== currentVersion;
+      const lastNotifiedVersion = getLastNotifiedVersion();
+      if (lastNotifiedVersion === currentVersion) {
+        return false;
+      }
+      if (!lastNotifiedVersion) {
+        return true;
+      }
+      if (!SKIP_VERSION_NOTIFICATION_FROM) {
+        return true;
+      }
+      const thresholdComparison = compareVersionStrings(
+        lastNotifiedVersion,
+        SKIP_VERSION_NOTIFICATION_FROM
+      );
+      if (thresholdComparison === null) {
+        return true;
+      }
+      return thresholdComparison < 0;
+    }
+    function compareVersionStrings(leftVersion, rightVersion) {
+      const leftParts = parseVersionString(leftVersion);
+      const rightParts = parseVersionString(rightVersion);
+      if (!leftParts || !rightParts) {
+        return null;
+      }
+      const maxLength = Math.max(leftParts.length, rightParts.length);
+      for (let index = 0; index < maxLength; index += 1) {
+        const leftPart = leftParts[index] ?? 0;
+        const rightPart = rightParts[index] ?? 0;
+        if (leftPart < rightPart) {
+          return -1;
+        }
+        if (leftPart > rightPart) {
+          return 1;
+        }
+      }
+      return 0;
+    }
+    function parseVersionString(version) {
+      const normalizedVersion = String(version ?? "").trim();
+      if (!normalizedVersion) {
+        return null;
+      }
+      const parts = normalizedVersion.split(".");
+      if (parts.length === 0) {
+        return null;
+      }
+      const parsedParts = [];
+      for (const part of parts) {
+        if (!/^\d+$/.test(part)) {
+          return null;
+        }
+        parsedParts.push(Number(part));
+      }
+      return parsedParts;
     }
     function getLastNotifiedVersion() {
       return typeof GM_getValue === "function" ? String(GM_getValue(VERSION_NOTIFICATION_STORAGE_KEYS.lastNotifiedVersion, "")) : "";

@@ -1809,10 +1809,7 @@
         drawTempoMarkersGameMode(context, lanes, projection);
         drawJudgeLineGameMode(context, lanes, projection);
         drawLongBodiesGameMode(context, model, lanes, projection);
-        drawNoteHeadsGameMode(context, model, lanes, projection);
-        if (showInvisibleNotes) {
-          drawInvisibleNoteHeadsGameMode(context, lanes, projection);
-        }
+        drawNoteHeadsGameMode(context, model, lanes, projection, showInvisibleNotes);
       });
       drawLaneCoverGameMode(context, laneLayout, projection);
       return {
@@ -2461,8 +2458,12 @@
     }
     context.restore();
   }
-  function drawNoteHeadsGameMode(context, model, lanes, projection) {
+  function drawNoteHeadsGameMode(context, model, lanes, projection, showInvisibleNotes = false) {
     context.save();
+    if (showInvisibleNotes) {
+      context.strokeStyle = INVISIBLE_NOTE_COLOR;
+      context.lineWidth = 1;
+    }
     for (const projectedPoint of projection.points) {
       if (!isGameProjectionYWithinRenderBounds(projectedPoint.y, projection)) {
         continue;
@@ -2481,15 +2482,7 @@
         }
         drawRectNote(context, lane, projectedPoint.y, lane.note);
       }
-    }
-    context.restore();
-  }
-  function drawInvisibleNoteHeadsGameMode(context, lanes, projection) {
-    context.save();
-    context.strokeStyle = INVISIBLE_NOTE_COLOR;
-    context.lineWidth = 1;
-    for (const projectedPoint of projection.points) {
-      if (!isGameProjectionYWithinRenderBounds(projectedPoint.y, projection)) {
+      if (!showInvisibleNotes) {
         continue;
       }
       for (const note of projectedPoint.point.notes) {

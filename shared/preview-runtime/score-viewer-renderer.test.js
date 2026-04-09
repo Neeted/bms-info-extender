@@ -724,6 +724,99 @@ test("renderer draws Lunatic warp markers with a WARP label in game mode", () =>
   );
 });
 
+test("renderer draws later game timeline mine notes over earlier invisible notes when SCROLL overlaps their Y", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameSweepOverlapScore());
+
+  const projection = collectGameProjection(model, 2, 320, {
+    gameTimingConfig: {
+      durationMs: 2000,
+      laneHeightPx: 160,
+      laneCoverPermille: 0,
+      laneCoverVisible: false,
+      hsFixMode: "main",
+    },
+    judgeLineY: 240,
+  });
+  const invisiblePoint = projection.points.find((projected) => projected.point.notes.some((note) => note.kind === "invisible"));
+  const minePoint = projection.points.find((projected) => projected.point.notes.some((note) => note.kind === "mine"));
+  assert.ok(invisiblePoint);
+  assert.ok(minePoint);
+  assert.equal(invisiblePoint.y, minePoint.y);
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, {
+    viewerMode: "game",
+    showInvisibleNotes: false,
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 2000,
+      laneHeightPx: 160,
+      laneCoverPermille: 0,
+      laneCoverVisible: false,
+      hsFixMode: "main",
+    },
+  });
+  assert.equal(
+    context.strokeRectCalls.some((call) => call.strokeStyle === "#FFFF00"),
+    false,
+  );
+
+  context.reset();
+  renderer.render(model, 2, {
+    viewerMode: "game",
+    showInvisibleNotes: true,
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 2000,
+      laneHeightPx: 160,
+      laneCoverPermille: 0,
+      laneCoverVisible: false,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.deepEqual(
+    getMineAndInvisibleOperations(context).map((operation) => operation.type),
+    ["strokeRect", "fillRect"],
+  );
+});
+
+test("renderer draws invisible notes after visible or mine notes on the same game timeline point", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameSamePointMineAndInvisibleScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, {
+    viewerMode: "game",
+    showInvisibleNotes: true,
+  });
+
+  assert.deepEqual(
+    getMineAndInvisibleOperations(context).map((operation) => operation.type),
+    ["fillRect", "strokeRect"],
+  );
+});
+
+test("renderer uses the same invisible-after-visible sweep order in Lunatic mode", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameSamePointMineAndInvisibleScore(), { gameProfile: "lunatic" });
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2, {
+    viewerMode: "lunatic",
+    showInvisibleNotes: true,
+  });
+
+  assert.deepEqual(
+    getMineAndInvisibleOperations(context).map((operation) => operation.type),
+    ["fillRect", "strokeRect"],
+  );
+});
+
 test("renderer keeps near-simultaneous scroll spikes and nearby section lines visible in game mode", () => {
   const model = createScoreViewerModel(createGameProjectionSpikeScore());
   const projection = collectGameProjection(model, 1.9, 320, 64);
@@ -1531,6 +1624,56 @@ function createGameProjectionSpikeScore() {
   };
 }
 
+function createGameSweepOverlapScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 3,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 1, mine: 1, all: 2 },
+    notes: [
+      { lane: 1, beat: 4, timeSec: 2, kind: "invisible" },
+      { lane: 1, beat: 6, timeSec: 3, kind: "mine" },
+    ],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [
+      { beat: 4, timeSec: 2, rate: 1 },
+      { beat: 5, timeSec: 2.5, rate: -1 },
+      { beat: 6, timeSec: 3, rate: 1 },
+    ],
+    warnings: [],
+  };
+}
+
+function createGameSamePointMineAndInvisibleScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 2,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 0, normal: 0, long: 0, invisible: 1, mine: 1, all: 2 },
+    notes: [
+      { lane: 1, beat: 4, timeSec: 2, kind: "mine" },
+      { lane: 1, beat: 4, timeSec: 2, kind: "invisible" },
+    ],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
 function createReverseLongNoteScore() {
   return {
     format: "bms",
@@ -1800,7 +1943,9 @@ class MockRenderingContext2D {
     if (!clippedRect) {
       return;
     }
-    this.strokeRectCalls.push({ ...clippedRect, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
+    const operation = { ...clippedRect, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth };
+    this.strokeRectCalls.push(operation);
+    this.operations.push({ type: "strokeRect", ...operation });
   }
 
   fillText(text, x, y) {
@@ -1881,6 +2026,13 @@ class MockRenderingContext2D {
     this._currentPathRect = snapshot.currentPathRect;
     this._clipRect = snapshot.clipRect;
   }
+}
+
+function getMineAndInvisibleOperations(context) {
+  return context.operations.filter((operation) => (
+    (operation.type === "fillRect" && operation.fillStyle === "#880000")
+    || (operation.type === "strokeRect" && operation.strokeStyle === "#FFFF00")
+  ));
 }
 
 function intersectRectWithClip(rect, clipRect) {

@@ -14,46 +14,91 @@ BMS情報データをマージ・圧縮して保存するスクリプト
 - compressed/brotli/ ディレクトリに識別子（md5, sha256, bmsid）ごとのbrotliファイル
 - compressed/prev_dataset.arrow (前回処理データのキャッシュ)
 """
-import sqlite3
-import argparse
-import logging
-from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from __future__ import annotations
 
+import argparse
+import gc
+import logging
+import os
+import sqlite3
+from concurrent.futures import ProcessPoolExecutor
+from typing import Any
+
+import brotli
 import pandas as pd
 import polars as pl
-import brotli
 from tqdm import tqdm
 
 from common import DATA_DIR, load_config, write_arrow_safe
 
-# ロギング設定
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- 設定読み込み ---
-config = load_config()
-main_db = config.get("database", "main_db")
-songdata_db = config.get("database", "songdata_db")
-songinfo_db = config.get("database", "songinfo_db")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
-# --- 出力先ディレクトリ ---
+
 OUTPUT_BASE_DIR = DATA_DIR / "compressed"
-OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR = OUTPUT_BASE_DIR / "brotli"
+PREV_DATASET_PATH = OUTPUT_BASE_DIR / "prev_dataset.arrow"
 
-output_dir = OUTPUT_BASE_DIR / "brotli"
-output_dir.mkdir(parents=True, exist_ok=True)
+BMSID_ARROW_PATH = DATA_DIR / "lr2_bmsid" / "bmsid_to_md5.arrow"
+STELLA_SONGID_ARROW_PATH = DATA_DIR / "stella_songid" / "stella_songid.arrow"
 
-prev_dataset_path = OUTPUT_BASE_DIR / "prev_dataset.arrow"
+SEPARATOR = "\x1f"
+IDENTIFIER_COLUMNS = ("md5", "sha256", "bmsid")
+OUTPUT_COLUMNS = [
+    "md5",
+    "sha256",
+    "maxbpm",
+    "minbpm",
+    "length",
+    "mode",
+    "judge",
+    "feature",
+    "notes",
+    "n",
+    "ln",
+    "s",
+    "ls",
+    "total",
+    "density",
+    "peakdensity",
+    "enddensity",
+    "mainbpm",
+    "distribution",
+    "speedchange",
+    "lanenotes",
+    "tables",
+    "stella",
+    "bmsid",
+]
 
-# --- マッパーデータのパス ---
-bmsid_arrow_path = DATA_DIR / "lr2_bmsid" / "bmsid_to_md5.arrow"
-stella_songid_arrow_path = DATA_DIR / "stella_songid" / "stella_songid.arrow"
+CACHE_SCHEMA: dict[str, pl.DataType] = {
+    "md5": pl.Utf8,
+    "sha256": pl.Utf8,
+    "maxbpm": pl.Int64,
+    "minbpm": pl.Int64,
+    "length": pl.Int64,
+    "mode": pl.Int64,
+    "judge": pl.Int64,
+    "feature": pl.Int64,
+    "notes": pl.Int64,
+    "n": pl.Int64,
+    "ln": pl.Int64,
+    "s": pl.Int64,
+    "ls": pl.Int64,
+    "total": pl.Float64,
+    "density": pl.Float64,
+    "peakdensity": pl.Float64,
+    "enddensity": pl.Float64,
+    "mainbpm": pl.Float64,
+    "distribution": pl.Utf8,
+    "speedchange": pl.Utf8,
+    "lanenotes": pl.Utf8,
+    "tables": pl.Utf8,
+    "stella": pl.Int64,
+    "bmsid": pl.Int64,
+}
 
-# 区切り文字（Unit Separator: ASCII 31）
-# brotli圧縮後のデータ展開時にこの文字でカラムを分割する
-SEPARATOR = '\x1f'
-
-# SQLクエリ: BMSデータを取得してテーブル情報と結合
 QUERY = """
 WITH entrys AS (
   SELECT
@@ -76,229 +121,383 @@ WITH entrys AS (
       -- --癖譜面コレクション(サブ)
       WHEN 160 THEN org_name||' ¿¡'||replace(folder,compat_prefix,'')
       ELSE org_name||' '||org_symbol||replace(folder,compat_prefix,'')
-    END AS 'folder'
+    END AS folder
   FROM
     playlist_entry INNER JOIN playlist USING(playlist_id)
   WHERE
     is_removed = 0
     AND playlist_id >= 97
-  ORDER BY playlist_id ASC
-)
-, tables AS (
+),
+ordered_tables AS (
   SELECT
     md5,
-    '['||group_concat('"'||entrys.folder||'"', ',')||']' AS 'tables'
+    folder
   FROM entrys
+  WHERE md5 IS NOT NULL AND md5 <> ''
+  ORDER BY md5 ASC, playlist_id ASC, folder ASC
+),
+tables AS (
+  SELECT
+    md5,
+    '['||group_concat('"'||replace(folder, '"', '\\"')||'"', ',')||']' AS tables
+  FROM ordered_tables
   GROUP BY md5
 )
 SELECT
-  --songdata.song
-  "md5", 
-  "sha256",
-  "maxbpm",
-  "minbpm",
-  "length",
-  "mode",
-  "judge",
-  "feature",
-  "notes",
-  --songinfo.information
-  "n",
-  "ln",
-  "s",
-  "ls",
-  "total",
-  "density",
-  "peakdensity",
-  "enddensity",
-  "mainbpm",
-  "distribution",
-  "speedchange",
-  "lanenotes",
-  "tables"
+  -- songdata.song
+  md5,
+  sha256,
+  maxbpm,
+  minbpm,
+  length,
+  mode,
+  judge,
+  feature,
+  notes,
+  -- songinfo.information
+  n,
+  ln,
+  s,
+  ls,
+  total,
+  density,
+  peakdensity,
+  enddensity,
+  mainbpm,
+  distribution,
+  speedchange,
+  lanenotes,
+  tables
 FROM
-  (SELECT "md5", "sha256", "maxbpm", "minbpm", "length", "mode", "judge", "feature", "notes" FROM songdata.song GROUP BY sha256)
+  (
+    SELECT
+      NULLIF(md5, '') AS md5,
+      sha256,
+      maxbpm,
+      minbpm,
+      length,
+      mode,
+      judge,
+      feature,
+      notes
+    FROM songdata.song
+    GROUP BY sha256
+  )
   INNER JOIN songinfo.information USING(sha256)
   LEFT OUTER JOIN tables USING(md5)
 ;
 """
 
 
-def process_row(row_dict: dict) -> int:
+def normalize_hash(value: Any) -> str | None:
+    """空文字やNaNを除外してハッシュ値を正規化する。"""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return text or None
+
+
+def serialize_value(value: Any) -> str:
+    """圧縮出力と差分比較で共有するセル文字列化。"""
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
+def empty_cache_df() -> pl.DataFrame:
+    """標準スキーマの空DataFrameを返す。"""
+    return pl.DataFrame(
+        {name: pl.Series(name=name, values=[], dtype=dtype) for name, dtype in CACHE_SCHEMA.items()}
+    )
+
+
+def normalize_dataset_df(df: pl.DataFrame) -> pl.DataFrame:
+    """旧キャッシュも吸収しながら比較・保存用の標準形へそろえる。"""
+    working_df = df
+    if "stella" not in working_df.columns and "stella_songid" in working_df.columns:
+        working_df = working_df.with_columns(pl.col("stella_songid").alias("stella"))
+
+    for column, dtype in CACHE_SCHEMA.items():
+        if column not in working_df.columns:
+            working_df = working_df.with_columns(pl.lit(None).cast(dtype).alias(column))
+
+    expressions: list[pl.Expr] = []
+    for column, dtype in CACHE_SCHEMA.items():
+        expr = pl.col(column).cast(dtype, strict=False)
+        if column in {"md5", "sha256"}:
+            expr = expr.map_elements(normalize_hash, return_dtype=pl.Utf8)
+        expressions.append(expr.alias(column))
+
+    return working_df.select(expressions)
+
+
+def validate_sha256_key(df: pl.DataFrame, dataset_name: str) -> None:
+    """sha256 が常に存在し一意であることを検証する。"""
+    invalid_count = df.filter(pl.col("sha256").is_null()).height
+    if invalid_count > 0:
+        raise ValueError(f"{dataset_name}: sha256 が空またはNullの行が {invalid_count} 件あります。")
+
+    duplicate_sha = (
+        df.group_by("sha256")
+        .len()
+        .filter(pl.col("len") > 1)
+        .select("sha256")
+        .head(5)
+        .to_series()
+        .to_list()
+    )
+    if duplicate_sha:
+        raise ValueError(f"{dataset_name}: sha256 重複が見つかりました。例: {duplicate_sha}")
+
+
+def load_current_dataset(main_db: str, songdata_db: str, songinfo_db: str) -> pl.DataFrame:
+    """SQLite から最新の BMS 情報データを取得する。"""
+    logger.info("SQLiteに接続してデータを取得します...")
+    conn = sqlite3.connect(main_db)
+    try:
+        conn.execute(f"ATTACH DATABASE '{songdata_db}' AS songdata")
+        conn.execute(f"ATTACH DATABASE '{songinfo_db}' AS songinfo")
+        # Pandas経由で読み込む理由:
+        # Polarsの read_database_uri() は ATTACH DATABASE をサポートしていないため、
+        # sqlite3.connect() で接続してATTACH後、Pandas経由でPolarsに変換する必要がある
+        df_pandas = pd.read_sql_query(QUERY, conn)
+    finally:
+        conn.close()
+
+    dataset_df = normalize_dataset_df(pl.from_pandas(df_pandas))
+    validate_sha256_key(dataset_df, "current dataset")
+    logger.info("メインデータ取得完了: %s", dataset_df.shape)
+    return dataset_df
+
+
+def load_mapper_df(path, source_column: str, output_column: str) -> pl.DataFrame | None:
+    """md5 ベースの補助マッピングを読み込み、join 用に正規化する。"""
+    if not path.exists():
+        return None
+
+    mapper_df = pl.read_ipc(path, memory_map=False)
+    if "md5" not in mapper_df.columns or source_column not in mapper_df.columns:
+        raise ValueError(f"マッパーファイルの列が不足しています: {path}")
+
+    normalized = (
+        mapper_df.with_columns(
+            pl.col("md5").cast(pl.Utf8, strict=False).map_elements(normalize_hash, return_dtype=pl.Utf8),
+            pl.col(source_column).cast(pl.Int64, strict=False).alias(output_column),
+        )
+        .filter(pl.col("md5").is_not_null())
+        .unique(subset=["md5"], keep="last")
+        .select(["md5", output_column])
+    )
+    return normalized
+
+
+def merge_mapper_column(dataset_df: pl.DataFrame, mapper_df: pl.DataFrame, output_column: str) -> pl.DataFrame:
+    """プレースホルダー列を置き換えつつ md5 ベースの補助列を結合する。"""
+    base_df = dataset_df.drop(output_column) if output_column in dataset_df.columns else dataset_df
+    return base_df.join(mapper_df, on="md5", how="left")
+
+
+def join_mapper_columns(dataset_df: pl.DataFrame) -> pl.DataFrame:
+    """Stella / LR2 の補助列を md5 ベースで付与する。"""
+    result_df = dataset_df
+
+    stella_df = load_mapper_df(STELLA_SONGID_ARROW_PATH, "stella_songid", "stella")
+    if stella_df is not None:
+        result_df = merge_mapper_column(result_df, stella_df, "stella")
+
+    bmsid_df = load_mapper_df(BMSID_ARROW_PATH, "bmsid", "bmsid")
+    if bmsid_df is not None:
+        result_df = merge_mapper_column(result_df, bmsid_df, "bmsid")
+
+    result_df = normalize_dataset_df(result_df)
+    validate_sha256_key(result_df, "current dataset after mapper join")
+    logger.info("マージ後のデータサイズ: %s", result_df.shape)
+    return result_df
+
+
+def load_prev_dataset() -> pl.DataFrame:
+    """前回キャッシュを読み込んで標準形へ変換する。"""
+    try:
+        prev_df = pl.read_ipc(PREV_DATASET_PATH, memory_map=False)
+    except Exception as exc:
+        logger.warning("Arrowファイルの読み込みに失敗しました: %s", exc)
+        raise
+
+    normalized = normalize_dataset_df(prev_df)
+    validate_sha256_key(normalized, "prev dataset")
+    return normalized
+
+
+def comparison_key_expr(columns: list[str], alias: str) -> pl.Expr:
+    """差分比較用に、出力と同じ空文字表現へ寄せた比較キーを作る。"""
+    return pl.concat_str(
+        [
+            pl.when(pl.col(column).is_null())
+            .then(pl.lit(""))
+            .otherwise(pl.col(column).cast(pl.Utf8, strict=False))
+            for column in columns
+        ],
+        separator=SEPARATOR,
+    ).alias(alias)
+
+
+def extract_diff_df(new_df: pl.DataFrame, prev_df: pl.DataFrame) -> pl.DataFrame:
+    """sha256 基準で新規・変更行だけを抽出する。"""
+    comparison_columns = [column for column in OUTPUT_COLUMNS if column != "sha256"]
+    new_marked = new_df.with_columns(comparison_key_expr(comparison_columns, "_comparison_key"))
+    prev_marked = prev_df.with_columns(
+        pl.lit(True).alias("_exists_in_prev"),
+        comparison_key_expr(comparison_columns, "_comparison_key_prev"),
+    )
+
+    joined = new_marked.join(
+        prev_marked.select(["sha256", "_exists_in_prev", "_comparison_key_prev"]),
+        on="sha256",
+        how="left",
+    )
+    diff_df = joined.filter(
+        pl.col("_exists_in_prev").is_null()
+        | pl.col("_comparison_key").ne_missing(pl.col("_comparison_key_prev"))
+    )
+    return diff_df.select(OUTPUT_COLUMNS)
+
+
+def build_row_string(row_dict: dict[str, Any]) -> str:
+    """出力列順を固定して 1 行を文字列化する。"""
+    return SEPARATOR.join(serialize_value(row_dict.get(column)) for column in OUTPUT_COLUMNS)
+
+
+def is_valid_identifier(value: Any) -> bool:
+    """識別子として有効かどうかを判定する。"""
+    if value is None:
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return True
+
+
+def process_row(row_dict: dict[str, Any]) -> int:
     """
     1行のデータを処理してbrotli圧縮し、ファイルに保存する。
-    
-    ProcessPoolExecutorで実行するためにトップレベルに定義。
-    
-    Args:
-        row_dict: Polarsのrow(dict形式)
-    
-    Returns:
-        作成したファイル数
+
+    ProcessPoolExecutor で実行するためトップレベルに定義。
     """
-    md5 = row_dict.get("md5")
-    sha256 = row_dict.get("sha256")
-    bmsid = row_dict.get("bmsid")
-
-    identifiers = {
-        "md5": md5,
-        "sha256": sha256,
-        "bmsid": bmsid,
-    }
-
-    def is_valid_identifier(value) -> bool:
-        """識別子として有効かどうかを判定"""
-        if value is None:
-            return False
-        if isinstance(value, str) and not value.strip():
-            return False
-        # Polarsから来た場合は基本的にNoneになるが、念のためpd.isnaもチェック
-        try:
-            if pd.isna(value):
-                return False
-        except (TypeError, ValueError):
-            pass
-        return True
-
-    # Python 3.7+ では辞書の挿入順序が保証されており、
-    # Polarsの iter_rows(named=True) もカラム順序通りに辞書を生成するため、
-    # values() でそのまま順序通りに取り出せる
-    row_data = ["" if v is None else str(v) for v in row_dict.values()]
-    row_str = SEPARATOR.join(row_data)
-
+    row_str = build_row_string(row_dict)
     compressed = brotli.compress(
         row_str.encode("utf-8"),
         quality=11,
         mode=brotli.MODE_TEXT,
-        lgwin=16
+        lgwin=16,
     )
 
-    results = []
-    for name, id_value in identifiers.items():
-        if is_valid_identifier(id_value):
-            filename = output_dir / str(id_value)
-            with open(filename, "wb") as f:
-                f.write(compressed)
-            results.append(filename)
-    
-    return len(results)
+    written_count = 0
+    for column in IDENTIFIER_COLUMNS:
+        identifier = row_dict.get(column)
+        if not is_valid_identifier(identifier):
+            continue
+
+        filename = OUTPUT_DIR / str(identifier)
+        with open(filename, "wb") as output_file:
+            output_file.write(compressed)
+        written_count += 1
+
+    return written_count
 
 
-def main():
+def compress_diff_rows(diff_df: pl.DataFrame) -> int:
+    """差分行だけを並列に圧縮する。"""
+    logger.info("圧縮処理を開始します(ProcessPoolExecutor)...")
+    max_workers = os.cpu_count() or 4
+    chunksize = max(1, min(256, diff_df.height // (max_workers * 4) if diff_df.height else 1))
+
+    count = 0
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        results = executor.map(process_row, diff_df.iter_rows(named=True), chunksize=chunksize)
+        for written in tqdm(results, total=diff_df.height, desc="Compressing"):
+            count += written
+
+    return count
+
+
+def parse_args() -> argparse.Namespace:
+    """コマンドライン引数を解析する。"""
     parser = argparse.ArgumentParser(description="BMS情報データをマージ・圧縮して保存")
-    parser.add_argument("--force-init", action="store_true", 
-                        help="強制的に初期化モードで実行（Arrowファイル作成のみ、圧縮スキップ）")
-    parser.add_argument("--regenerate-all", action="store_true", 
-                        help="全データを再圧縮")
-    args, _ = parser.parse_known_args()
-
-    logging.info("SQLiteに接続してデータを取得します...")
-    conn = sqlite3.connect(main_db)
-    conn.execute(f"ATTACH DATABASE '{songdata_db}' AS songdata")
-    conn.execute(f"ATTACH DATABASE '{songinfo_db}' AS songinfo")
-    
-    # Pandas経由で読み込む理由:
-    # Polarsの read_database_uri() は ATTACH DATABASE をサポートしていないため、
-    # sqlite3.connect() で接続してATTACH後、Pandas経由でPolarsに変換する必要がある
-    df_pandas = pd.read_sql_query(QUERY, conn)
-    conn.close()
-    
-    new_df = pl.from_pandas(df_pandas)
-    
-    # MD5が空またはNullの行を除外
-    new_df = new_df.filter(
-        pl.col("md5").is_not_null() & (pl.col("md5") != "")
+    parser.add_argument(
+        "--force-init",
+        action="store_true",
+        help="強制的に初期化モードで実行（Arrowファイル作成のみ、圧縮スキップ）",
     )
-    
-    logging.info(f"メインデータ取得完了: {new_df.shape}")
+    parser.add_argument(
+        "--regenerate-all",
+        action="store_true",
+        help="全データを再圧縮",
+    )
+    return parser.parse_args()
 
-    # --- Stella SongIDのデータを読み込みマージ ---
-    if stella_songid_arrow_path.exists():
-        stella_df = pl.read_ipc(stella_songid_arrow_path, memory_map=False)
-        stella_df = stella_df.with_columns(pl.col("stella_songid").cast(pl.Int64))
-        stella_df = stella_df.unique(subset=["md5"], keep="last")
-        new_df = new_df.join(stella_df, on="md5", how="left")
-    
-    # --- LR2 BMSIDのデータを読み込みマージ ---
-    if bmsid_arrow_path.exists():
-        bmsid_df = pl.read_ipc(bmsid_arrow_path, memory_map=False)
-        bmsid_df = bmsid_df.with_columns(pl.col("bmsid").cast(pl.Int64))
-        bmsid_df = bmsid_df.unique(subset=["md5"], keep="last")
-        new_df = new_df.join(bmsid_df, on="md5", how="left")
 
-    logging.info(f"マージ後のデータサイズ: {new_df.shape}")
+def main() -> None:
+    args = parse_args()
 
-    # --- 初期化・モード判定 ---
-    if not prev_dataset_path.exists() or args.force_init:
-        logging.info("初期化モードで実行します。")
-        logging.info("現在のデータを保存して終了します（圧縮処理はスキップされます）。")
-        new_df.write_ipc(prev_dataset_path)
-        logging.info(f"保存完了: {prev_dataset_path}")
+    OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    config = load_config()
+    main_db = config.get("database", "main_db")
+    songdata_db = config.get("database", "songdata_db")
+    songinfo_db = config.get("database", "songinfo_db")
+
+    new_df = load_current_dataset(main_db, songdata_db, songinfo_db)
+    new_df = join_mapper_columns(new_df)
+
+    if not PREV_DATASET_PATH.exists() or args.force_init:
+        logger.info("初期化モードで実行します。")
+        logger.info("現在のデータを保存して終了します（圧縮処理はスキップされます）。")
+        write_arrow_safe(new_df, PREV_DATASET_PATH)
+        logger.info("保存完了: %s", PREV_DATASET_PATH)
         return
 
     if args.regenerate_all:
-        logging.info("全件再生成モード: 既存のキャッシュを無視して全データを圧縮対象とします。")
-        prev_df = new_df.clear()
+        logger.info("全件再生成モード: 既存のキャッシュを無視して全データを圧縮対象とします。")
+        prev_df = empty_cache_df()
     else:
-        logging.info("前回データ(Arrow)を読み込んでいます...")
-        try:
-            # Windowsでのファイルロック回避のため memory_map=False で読み込む
-            prev_df = pl.read_ipc(prev_dataset_path, memory_map=False)
-        except Exception as e:
-            logging.warning(f"Arrowファイルの読み込みに失敗しました: {e}")
-            raise e
+        logger.info("前回データ(Arrow)を読み込んでいます...")
+        prev_df = load_prev_dataset()
 
-    # --- 差分抽出 ---
-    prev_df_marked = prev_df.with_columns(pl.lit(True).alias("_exists_in_prev"))
-    joined = new_df.join(prev_df_marked, on="md5", suffix="_prev", how="left")
-    
-    # 新規レコード（前回データに存在しない）
-    condition_new = pl.col("_exists_in_prev").is_null()
-    
-    # 変更レコード（値が異なる）
-    condition_modified = pl.lit(False)
-    for col in new_df.columns:
-        if col == "md5":
-            continue
-        condition_modified = condition_modified | pl.col(col).ne_missing(pl.col(f"{col}_prev"))
-    
-    diff_df = joined.filter(condition_new | condition_modified)
-    diff_df = diff_df.select(new_df.columns)
-
-    logging.info(f"差分件数: {diff_df.height} / {new_df.height}")
+    diff_df = extract_diff_df(new_df, prev_df)
+    logger.info("差分件数: %s / %s", diff_df.height, new_df.height)
 
     if diff_df.height == 0:
-        logging.info("差分がないため、処理を終了します。")
+        logger.info("差分がないため圧縮処理はスキップしますが、キャッシュは最新形へ更新します。")
+        write_arrow_safe(new_df, PREV_DATASET_PATH)
+        logger.info("データセットを更新しました: %s", PREV_DATASET_PATH)
         return
 
-    # --- 並列処理による圧縮 ---
-    rows = list(diff_df.iter_rows(named=True))
-    
-    logging.info("圧縮処理を開始します(ProcessPoolExecutor)...")
-    
-    import os
-    max_workers = os.cpu_count() or 4
-    
-    count = 0
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_row, row): row for row in rows}
-        
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Compressing"):
-            try:
-                count += future.result()
-            except Exception as e:
-                logging.error(f"行処理中にエラーが発生しました: {e}")
+    count = compress_diff_rows(diff_df)
+    logger.info("処理完了: %s個のファイルを保存しました。", count)
 
-    logging.info(f"処理完了: {count}個のファイルを保存しました。")
-    
-    # メモリ解放
     del prev_df
-    import gc
     gc.collect()
 
-    # データセットを更新
-    write_arrow_safe(new_df, prev_dataset_path)
-    logging.info(f"データセットを更新しました: {prev_dataset_path}")
+    write_arrow_safe(new_df, PREV_DATASET_PATH)
+    logger.info("データセットを更新しました: %s", PREV_DATASET_PATH)
 
 
 if __name__ == "__main__":

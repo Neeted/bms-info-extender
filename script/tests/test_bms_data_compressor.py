@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+import polars as pl
+
+
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import bms_data_compressor as compressor
+
+
+def make_row(**overrides):
+    row = {
+        "md5": "md5-default",
+        "sha256": "sha-default",
+        "maxbpm": 180,
+        "minbpm": 90,
+        "length": 120000,
+        "mode": 7,
+        "judge": 100,
+        "feature": 1,
+        "notes": 1234,
+        "n": 1000,
+        "ln": 100,
+        "s": 50,
+        "ls": 84,
+        "total": 300.0,
+        "density": 12.5,
+        "peakdensity": 20.0,
+        "enddensity": 5.5,
+        "mainbpm": 150.0,
+        "distribution": "#abcdef",
+        "speedchange": "0,150",
+        "lanenotes": "1,2,3",
+        "tables": '["Table A"]',
+        "stella": 42,
+        "bmsid": 99,
+    }
+    row.update(overrides)
+    return row
+
+
+class BmsDataCompressorTests(unittest.TestCase):
+    def test_normalize_dataset_df_absorbs_legacy_stella_column(self):
+        df = pl.DataFrame(
+            [
+                {
+                    "md5": "",
+                    "sha256": "abc123",
+                    "maxbpm": 180,
+                    "stella_songid": 7,
+                }
+            ]
+        )
+
+        normalized = compressor.normalize_dataset_df(df)
+        record = normalized.to_dicts()[0]
+
+        self.assertEqual(normalized.columns, compressor.OUTPUT_COLUMNS)
+        self.assertIsNone(record["md5"])
+        self.assertEqual(record["sha256"], "abc123")
+        self.assertEqual(record["stella"], 7)
+
+    def test_extract_diff_df_uses_sha256_key_and_detects_md5_change(self):
+        prev_df = compressor.normalize_dataset_df(pl.DataFrame([make_row(md5="old-md5", sha256="same-sha")]))
+        new_df = compressor.normalize_dataset_df(pl.DataFrame([make_row(md5="new-md5", sha256="same-sha")]))
+
+        diff_df = compressor.extract_diff_df(new_df, prev_df)
+
+        self.assertEqual(diff_df.height, 1)
+        self.assertEqual(diff_df.to_dicts()[0]["md5"], "new-md5")
+
+    def test_extract_diff_df_treats_none_and_empty_string_as_same_output(self):
+        prev_df = compressor.normalize_dataset_df(pl.DataFrame([make_row(sha256="same-sha", tables=None)]))
+        new_df = compressor.normalize_dataset_df(pl.DataFrame([make_row(sha256="same-sha", tables="")]))
+
+        diff_df = compressor.extract_diff_df(new_df, prev_df)
+
+        self.assertEqual(diff_df.height, 0)
+
+    def test_merge_mapper_column_replaces_placeholder_values(self):
+        dataset_df = compressor.normalize_dataset_df(pl.DataFrame([make_row(md5="same-md5", stella=None)]))
+        mapper_df = pl.DataFrame([{"md5": "same-md5", "stella": 55}])
+
+        merged_df = compressor.normalize_dataset_df(
+            compressor.merge_mapper_column(dataset_df, mapper_df, "stella")
+        )
+
+        self.assertEqual(merged_df.to_dicts()[0]["stella"], 55)
+
+    def test_build_row_string_keeps_output_order_and_blank_md5(self):
+        row = make_row(md5=None, sha256="sha-only", stella=None, bmsid=None)
+
+        row_str = compressor.build_row_string(row)
+        values = row_str.split(compressor.SEPARATOR)
+
+        self.assertEqual(len(values), len(compressor.OUTPUT_COLUMNS))
+        self.assertEqual(values[0], "")
+        self.assertEqual(values[1], "sha-only")
+        self.assertEqual(values[-2], "")
+        self.assertEqual(values[-1], "")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -754,6 +754,89 @@ test("BMSON charge notes add a long-end combo event", () => {
   assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start", "long-end"]);
 });
 
+test("BMSON keeps key_channels invisible and mine_channels separate from visible note count", () => {
+  const bmson = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "beat-7k",
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 1, y: 240, l: 0, c: false }] },
+    ],
+    key_channels: [
+      { name: "mine", notes: [{ x: 2, y: 960, damage: 0 }] },
+    ],
+    mine_channels: [
+      { name: "mine", notes: [{ x: 3, y: 1200, damage: 1 }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const result = parseScoreBytes(new TextEncoder().encode(JSON.stringify(bmson)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "11".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.noteCounts, {
+    visible: 1,
+    normal: 1,
+    long: 0,
+    invisible: 1,
+    mine: 1,
+    all: 3,
+  });
+  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["normal"]);
+  assert.equal(result.score.lastPlayableTimeSec, 0.5);
+  assert.equal(result.score.lastTimelineTimeSec, 2.5);
+  assert.ok(result.score.notes.some((note) => note.kind === "invisible"));
+  assert.ok(result.score.notes.some((note) => note.kind === "mine"));
+});
+
+test("BMSON auto-detects mode from key_channels and mine_channels", () => {
+  const bmson = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+    },
+    key_channels: [
+      { name: "mine", notes: [{ x: 8, y: 240, damage: 0 }] },
+    ],
+    mine_channels: [
+      { name: "mine", notes: [{ x: 15, y: 480, damage: 1 }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const result = parseScoreBytes(new TextEncoder().encode(JSON.stringify(bmson)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "12".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.mode, "14k");
+  assert.equal(result.score.laneCount, 16);
+  assert.deepEqual(result.score.noteCounts, {
+    visible: 0,
+    normal: 0,
+    long: 0,
+    invisible: 1,
+    mine: 1,
+    all: 2,
+  });
+});
+
 test("oracle regression: invisible notes are excluded from visible note count", { skip: !scoreFileExists("9984e8e84895de265c025ce257900e04397e66ac701a4b3a151638a384fbe462") }, () => {
   const sha256 = "9984e8e84895de265c025ce257900e04397e66ac701a4b3a151638a384fbe462";
   const gzipPath = path.join(REPO_ROOT, "site", "score", sha256.slice(0, 2), `${sha256}.gz`);
@@ -780,6 +863,25 @@ test("oracle regression: mine notes are excluded from visible note count", { ski
   assert.equal(result.score.noteCounts.invisible, 0);
   assert.equal(result.score.noteCounts.mine, 427);
   assert.equal(result.score.noteCounts.all, 2226);
+});
+
+test("oracle regression: BMSON mine_channels are exposed as mine notes", { skip: !scoreFileExists("86e299d7f8fb616624898bebefbaa8345d6963bbb8ed5de51bd183863b67b39f") }, () => {
+  const sha256 = "86e299d7f8fb616624898bebefbaa8345d6963bbb8ed5de51bd183863b67b39f";
+  const gzipPath = path.join(REPO_ROOT, "site", "score", sha256.slice(0, 2), `${sha256}.gz`);
+  const result = parseScoreBytes(gunzipSync(readFileSync(gzipPath)), {
+    formatHint: "bmson",
+    sha256,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.mode, "7k");
+  assert.ok(result.score.noteCounts.invisible > 0);
+  assert.ok(result.score.noteCounts.mine > 0);
+  assert.ok(result.score.notes.some((note) => note.kind === "invisible"));
+  assert.ok(result.score.notes.some((note) => note.kind === "mine"));
+  assert.equal(
+    result.score.noteCounts.all,
+    result.score.noteCounts.visible + result.score.noteCounts.invisible + result.score.noteCounts.mine,
+  );
 });
 
 for (const fileName of readdirSync(FIXTURE_DIR, { withFileTypes: true })

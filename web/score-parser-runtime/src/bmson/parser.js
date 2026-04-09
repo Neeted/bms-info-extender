@@ -69,7 +69,7 @@ export function parseBmsonText(text, options) {
     for (const note of channel.notes ?? []) {
       const mapping = mapBmsonLane(mode, note?.x);
       if (!mapping) {
-        warnings.push(createWarning("parse_warning", `Ignored unsupported BMSON lane x=${String(note?.x)} for mode ${mode}.`));
+        warnings.push(createUnsupportedBmsonLaneWarning(note?.x, mode));
         continue;
       }
       const beat = note.y / resolution;
@@ -100,6 +100,8 @@ export function parseBmsonText(text, options) {
       lastPlayableTimeSec = Math.max(lastPlayableTimeSec, endTimeSec ?? timeSec);
     }
   }
+  appendBmsonMarkerNotes(notes, bmson.key_channels, "invisible", mode, resolution, timing, warnings);
+  appendBmsonMarkerNotes(notes, bmson.mine_channels, "mine", mode, resolution, timing, warnings);
 
   notes.sort((left, right) => {
     if (left.timeSec !== right.timeSec) {
@@ -172,6 +174,11 @@ export function parseBmsonText(text, options) {
       lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
     }
   }
+  for (const note of notes) {
+    if (note.kind === "invisible" || note.kind === "mine") {
+      lastTimelineTimeSec = Math.max(lastTimelineTimeSec, note.timeSec);
+    }
+  }
 
   return success(createEmptyScore({
     sha256: options.sha256,
@@ -214,13 +221,9 @@ function detectBmsonMode(bmson) {
   }
 
   const xs = [];
-  for (const channel of bmson.sound_channels ?? []) {
-    for (const note of channel.notes ?? []) {
-      if (Number.isFinite(note?.x)) {
-        xs.push(Number(note.x));
-      }
-    }
-  }
+  appendBmsonLaneXs(xs, bmson.sound_channels);
+  appendBmsonLaneXs(xs, bmson.key_channels);
+  appendBmsonLaneXs(xs, bmson.mine_channels);
   if (xs.length === 0) {
     return "unknown";
   }
@@ -325,6 +328,41 @@ function mapBmsonLane(mode, xValue) {
 
 function shouldCountBmsonLongEnd(note) {
   return note?.t === 2 || note?.t === 3;
+}
+
+function appendBmsonMarkerNotes(notes, channels, kind, mode, resolution, timing, warnings) {
+  for (const channel of channels ?? []) {
+    for (const note of channel.notes ?? []) {
+      const mapping = mapBmsonLane(mode, note?.x);
+      if (!mapping) {
+        warnings.push(createUnsupportedBmsonLaneWarning(note?.x, mode));
+        continue;
+      }
+      const beat = note.y / resolution;
+      const timeSec = timing.beatToSeconds(beat);
+      notes.push({
+        lane: mapping.lane,
+        beat,
+        timeSec,
+        kind,
+        side: mapping.side,
+      });
+    }
+  }
+}
+
+function appendBmsonLaneXs(xs, channels) {
+  for (const channel of channels ?? []) {
+    for (const note of channel.notes ?? []) {
+      if (Number.isFinite(note?.x)) {
+        xs.push(Number(note.x));
+      }
+    }
+  }
+}
+
+function createUnsupportedBmsonLaneWarning(xValue, mode) {
+  return createWarning("parse_warning", `Ignored unsupported BMSON lane x=${String(xValue)} for mode ${mode}.`);
 }
 
 function createComboEvent(mapping, beat, timeSec, kind) {

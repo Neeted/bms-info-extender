@@ -1,4 +1,5 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
+// 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正、手作りの温かみのある1.1.0では正常だったが、Codexを過信した2.0.0で埋め込んでいたバグ
 // 2.3.1 TABLESのデータが更新されにくい場合があるので修正。
 //       メタデータの配信にCache-Controlを付与していなかったため、ヒューリスティックキャッシュが長期間効いてしまう問題があった。
 //       配信にCache-Controlを付与するとともに、ユーザースクリプト側では暫定的にキャッシュバスターを付与ししばらく様子見。
@@ -40,7 +41,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
   const SCORE_PARSER_VERSION = "0.6.5";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.1";
+  const SCRIPT_VERSION_FALLBACK = "2.3.2";
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
   const VERSION_NOTIFICATION_STORAGE_KEYS = {
     lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",

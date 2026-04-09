@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.1
+// @version      2.3.2
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -19,6 +19,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正、手作りの温かみのある1.1.0では正常だったが、Codexを過信した2.0.0で埋め込んでいたバグ
 // 2.3.1 TABLESのデータが更新されにくい場合があるので修正。
 //       メタデータの配信にCache-Controlを付与していなかったため、ヒューリスティックキャッシュが長期間効いてしまう問題があった。
 //       配信にCache-Controlを付与するとともに、ユーザースクリプト側では暫定的にキャッシュバスターを付与ししばらく様子見。
@@ -5381,7 +5382,10 @@
     if (mode === 9) {
       return `p${laneIndex}`;
     }
-    return String(laneIndex);
+    if (mode === 7 || mode === 14) {
+      return String(laneIndex);
+    }
+    return "1";
   }
 
   // shared/preview-runtime/bms-info-graph.js
@@ -8751,7 +8755,7 @@
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
     const SCORE_PARSER_VERSION = "0.6.5";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.1";
+    const SCRIPT_VERSION_FALLBACK = "2.3.2";
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
     const VERSION_NOTIFICATION_STORAGE_KEYS = {
       lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",

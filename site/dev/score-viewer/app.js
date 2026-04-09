@@ -5347,7 +5347,10 @@ function getLaneChipKey(mode, laneIndex) {
   if (mode === 9) {
     return `p${laneIndex}`;
   }
-  return String(laneIndex);
+  if (mode === 7 || mode === 14) {
+    return String(laneIndex);
+  }
+  return "1";
 }
 
 // shared/preview-runtime/bms-info-graph.js

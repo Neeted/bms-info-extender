@@ -323,6 +323,32 @@ test("viewer model dirty render also reapplies persisted viewer chrome", () => {
   );
 });
 
+test("preview renders unsupported mode lane notes with the white-key fallback lane attribute", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview, elements } = createPreviewHarness(environment.document);
+    const record = {
+      ...createNormalizedRecord("f".repeat(64)),
+      mode: 25,
+      lanenotesArr: Array.from({ length: 25 }, (_, index) => [index, 0, 0, index]),
+    };
+
+    preview.setRecord(record);
+    await environment.settle();
+
+    const laneNotes = elements.container.querySelector("#bd-lanenotes-div").children;
+    assert.equal(laneNotes.length, 25);
+    for (const laneNote of laneNotes) {
+      assert.equal(laneNote.getAttribute("lane"), "1");
+    }
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
 test("graph hover mode opens the viewer and updates the selected time", async () => {
   const environment = installPreviewTestEnvironment();
   try {

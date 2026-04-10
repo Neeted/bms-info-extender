@@ -804,6 +804,94 @@ test("preview playback in Lunatic advances on compressed viewer time while keepi
   }
 });
 
+test("preview playback in Lunatic stops at the synthetic end after a negative BPM segment", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createLunaticNegativeBpmParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("n".repeat(64)), { parsedScore: createLunaticNegativeBpmParsedScore() });
+    preview.setViewerMode("lunatic");
+    preview.setSelectedTimeSec(0);
+    preview.setPlaybackState(true);
+
+    for (let index = 0; index < 80 && preview.getState().isPlaying; index += 1) {
+      await environment.settle();
+    }
+
+    const state = preview.getState();
+    assert.equal(state.isPlaying, false);
+    assert.equal(state.resolvedViewerMode, "lunatic");
+    assert.ok(Math.abs(state.playbackViewerTimeSec - 4) < 0.0005);
+    assert.ok(Math.abs(state.selectedTimeSec - 6) < 0.0005);
+    assert.ok(Math.abs(
+      mapCanonicalTimeToViewerTime(state.viewerModel, state.selectedTimeSec, "lunatic") - state.playbackViewerTimeSec,
+    ) < 0.0005);
+  } finally {
+    environment.restore();
+  }
+});
+
+test("paused Lunatic keeps the extended viewer position after playback passes the canonical end", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createLunaticExtendedNegativeBpmParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("p".repeat(64)), { parsedScore: createLunaticExtendedNegativeBpmParsedScore() });
+    preview.setViewerMode("lunatic");
+    preview.setSelectedTimeSec(0);
+    preview.setPlaybackState(true);
+
+    for (let index = 0; index < 120 && preview.getState().isPlaying; index += 1) {
+      await environment.settle();
+    }
+
+    const scrollHost = findElementByClass(environment.document.body, "score-viewer-scroll-host");
+    assert.ok(scrollHost);
+
+    const state = preview.getState();
+    assert.equal(state.isPlaying, false);
+    assert.ok(Math.abs(state.playbackViewerTimeSec - 6) < 0.0005);
+    assert.ok(Math.abs(state.selectedTimeSec - 4) < 0.0005);
+    assert.ok(scrollHost.scrollTop > 900);
+  } finally {
+    environment.restore();
+  }
+});
+
+test("manual scroll in Lunatic can stay past the canonical end when negative BPM extends viewer time", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => createLunaticExtendedNegativeBpmParsedScore(),
+    });
+
+    preview.setRecord(createNormalizedRecord("q".repeat(64)), { parsedScore: createLunaticExtendedNegativeBpmParsedScore() });
+    preview.setViewerMode("lunatic");
+    preview.setPinned(true);
+    preview.setSelectedTimeSec(0);
+    await environment.settle();
+
+    const scrollHost = findElementByClass(environment.document.body, "score-viewer-scroll-host");
+    assert.ok(scrollHost);
+    scrollHost.dispatchEvent({ type: "wheel", deltaY: 4000, deltaMode: 0 });
+    await environment.settle();
+
+    const state = preview.getState();
+    assert.ok(state.playbackViewerTimeSec > 5.5);
+    assert.ok(Math.abs(state.selectedTimeSec - 4) < 0.0005);
+    assert.ok(scrollHost.scrollTop > 900);
+  } finally {
+    environment.restore();
+  }
+});
+
 test("viewer wheel during Lunatic playback updates playback viewer time and pausing keeps the visible position", async () => {
   const environment = installPreviewTestEnvironment();
   try {
@@ -1212,6 +1300,69 @@ function createLunaticParsedScore() {
     totalDurationSec: 4.5,
     lastTimelineTimeSec: 4.5,
     lastPlayableTimeSec: 4.5,
+    warnings: [],
+  };
+}
+
+function createLunaticNegativeBpmParsedScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    noteCounts: { visible: 2, normal: 1, long: 1, invisible: 0, mine: 0, all: 2 },
+    notes: [
+      { lane: 1, beat: 3, timeSec: 1.5, endBeat: 8, endTimeSec: 4, kind: "long" },
+      { lane: 2, beat: 10, timeSec: 5, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    comboEvents: [
+      { lane: 1, beat: 3, timeSec: 1.5, kind: "long-start" },
+      { lane: 1, beat: 8, timeSec: 4, kind: "long-end" },
+      { lane: 2, beat: 10, timeSec: 5, kind: "normal" },
+    ],
+    timingActions: [{
+      type: "bpm",
+      beat: 4,
+      timeSec: 2,
+      bpm: -240,
+    }],
+    totalDurationSec: 6,
+    lastTimelineTimeSec: 6,
+    lastPlayableTimeSec: 5,
+    warnings: [],
+  };
+}
+
+function createLunaticExtendedNegativeBpmParsedScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    initialBpm: 120,
+    notes: [
+      { lane: 2, beat: 6, timeSec: 3, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    comboEvents: [
+      { lane: 2, beat: 6, timeSec: 3, kind: "normal" },
+    ],
+    timingActions: [{
+      type: "bpm",
+      beat: 4,
+      timeSec: 2,
+      bpm: -60,
+    }],
+    totalDurationSec: 4,
+    lastTimelineTimeSec: 4,
+    lastPlayableTimeSec: 3,
     warnings: [],
   };
 }

@@ -647,6 +647,99 @@ test("viewer model builds a Lunatic profile that keeps beats and shortens time t
   assert.equal(mapViewerTimeToCanonicalTime(gameModel, 2.25, "game"), 2.25);
 });
 
+test("viewer model builds a Lunatic reverse profile from the first negative BPM and truncates combo growth", () => {
+  const score = {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 6,
+    lastPlayableTimeSec: 5,
+    lastTimelineTimeSec: 6,
+    noteCounts: { visible: 3, normal: 2, long: 1, invisible: 0, mine: 0, all: 3 },
+    notes: [
+      { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
+      { lane: 2, beat: 3, endBeat: 8, timeSec: 1.5, endTimeSec: 4, kind: "long" },
+      { lane: 3, beat: 10, timeSec: 5, kind: "normal" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
+      { lane: 2, beat: 3, timeSec: 1.5, kind: "long-start" },
+      { lane: 2, beat: 8, timeSec: 4, kind: "long-end" },
+      { lane: 3, beat: 10, timeSec: 5, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    timingActions: [
+      { type: "bpm", beat: 4, timeSec: 2, bpm: -240 },
+      { type: "bpm", beat: 8, timeSec: 4, bpm: 180 },
+    ],
+    warnings: [],
+  };
+
+  const lunaticModel = createScoreViewerModel(score, { gameProfile: "lunatic" });
+
+  assert.equal(resolveViewerModeForModel(lunaticModel, "lunatic"), "lunatic");
+  assert.equal(lunaticModel.lunaticReverseMeta?.startBeat, 4);
+  assert.equal(lunaticModel.lunaticReverseMeta?.sourceBpm, -240);
+  assert.equal(lunaticModel.score.scrollChanges.length, 0);
+  assert.deepEqual(
+    lunaticModel.score.timingActions.filter((action) => action.type === "bpm"),
+    [{ type: "bpm", beat: 4, timeSec: 2, bpm: 240, displayBpm: -240, effectiveBpm: 240, forceMarker: true }],
+  );
+  assert.deepEqual(
+    lunaticModel.comboEvents.map((event) => ({ beat: event.beat, kind: event.kind })),
+    [
+      { beat: 2, kind: "normal" },
+      { beat: 3, kind: "long-start" },
+    ],
+  );
+  assert.equal(lunaticModel.totalCombo, 2);
+  assert.ok(Math.abs(lunaticModel.score.notes[2].timeSec - 3.5) < 0.000001);
+  assert.equal(lunaticModel.score.totalDurationSec, 4);
+  assert.equal(getComboCountAtTime(lunaticModel, 3.9), 2);
+  assert.equal(mapCanonicalTimeToViewerTime(lunaticModel, 5, "lunatic"), 3.75);
+  assert.equal(mapViewerTimeToCanonicalTime(lunaticModel, 3.5, "lunatic"), 14 / 3);
+});
+
+test("viewer model keeps a negative BPM marker in Lunatic even when its absolute value matches the prior BPM", () => {
+  const score = {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 6,
+    lastPlayableTimeSec: 6,
+    lastTimelineTimeSec: 6,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [{ lane: 1, beat: 10, timeSec: 3.2857142857142856, kind: "normal" }],
+    comboEvents: [{ lane: 1, beat: 10, timeSec: 3.2857142857142856, kind: "normal" }],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 2.857142857142857 }, { beat: 12, timeSec: 3.7142857142857144 }],
+    bpmChanges: [{ beat: 4, timeSec: 2, bpm: 280 }],
+    stops: [],
+    scrollChanges: [],
+    timingActions: [
+      { type: "bpm", beat: 4, timeSec: 2, bpm: 280 },
+      { type: "bpm", beat: 8, timeSec: 2.857142857142857, bpm: -280 },
+    ],
+    warnings: [],
+  };
+
+  const lunaticModel = createScoreViewerModel(score, { gameProfile: "lunatic" });
+  const reversePoint = lunaticModel.gameTimeline.find((point) => point.bpmChanges.some((change) => change.bpm === -280));
+
+  assert.deepEqual(
+    lunaticModel.score.bpmChanges.map((change) => ({ bpm: change.bpm, effectiveBpm: change.effectiveBpm })),
+    [
+      { bpm: 280, effectiveBpm: 280 },
+      { bpm: -280, effectiveBpm: 280 },
+    ],
+  );
+  assert.ok(reversePoint);
+});
+
 test("viewer model applies the last same-beat scroll change to subsequent game displacement", () => {
   const model = createScoreViewerModel({
     format: "bms",

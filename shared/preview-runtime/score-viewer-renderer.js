@@ -867,6 +867,12 @@ export function collectGameProjection(
   if (!model?.gameTimeline?.length) {
     return projection;
   }
+  projection.lunaticReverseMeta = getActiveLunaticReverseMeta(model, selectedTimeSec);
+
+  if (projection.lunaticReverseMeta) {
+    collectLunaticReverseProjection(model, projection);
+    return projection;
+  }
 
   const timeline = model.gameTimeline;
   const startIndex = lowerBoundGameTimelineByTime(timeline, selectedTimeSec);
@@ -897,6 +903,34 @@ export function collectGameProjection(
     projection.points.push({ index, point, y });
   }
   return projection;
+}
+
+function collectLunaticReverseProjection(model, projection) {
+  const timeline = model?.gameTimeline ?? [];
+  const reverseMeta = projection.lunaticReverseMeta;
+  if (!reverseMeta || timeline.length === 0) {
+    return;
+  }
+
+  const pixelsPerSection = projection.judgeDistancePx * projection.hispeed;
+  const reverseOffsetSections = Math.max(projection.selectedTrackPosition - reverseMeta.startTrackPosition, 0);
+  const startIndex = Math.min(Math.max(reverseMeta.firstFutureTimelineIndex ?? timeline.length, 0), timeline.length);
+
+  for (let index = startIndex; index < timeline.length; index += 1) {
+    const point = timeline[index];
+    const pointSections = finiteOrZero(point?.trackPosition) / 4;
+    const y = projection.judgeLineY - ((pointSections - reverseMeta.startTrackPosition) + reverseOffsetSections) * pixelsPerSection;
+
+    projection.pointYByIndex.set(index, y);
+    if (isGameProjectionPastUpperBound(y, projection.renderTopY, projection.scanMargin)) {
+      projection.exitPoint = { index, point, y };
+      break;
+    }
+    if (!isViewportYVisible(y, projection.renderTopY, projection.renderBottomY, projection.scanMargin)) {
+      continue;
+    }
+    projection.points.push({ index, point, y });
+  }
 }
 
 function getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerSection) {
@@ -1001,7 +1035,7 @@ function drawMeasureLabelsGameMode(context, barLines, lanes, projection) {
 function drawLongBodiesGameMode(context, model, lanes, projection) {
   context.save();
   for (const note of model.notes) {
-    if (note.kind !== "long" || !Number.isFinite(note.endTimeSec) || note.endTimeSec <= projection.selectedTimeSec) {
+    if (!shouldDrawGameLongBody(note, projection)) {
       continue;
     }
     const lane = lanes[note.lane];
@@ -1064,7 +1098,11 @@ function drawNoteHeadsGameMode(context, model, lanes, projection, showInvisibleN
     if (!lane) {
       continue;
     }
-    drawRectNote(context, lane, projection.judgeLineY, lane.note);
+    const headY = getHeldLongStartHeadY(note, projection);
+    if (!isGameProjectionYWithinRenderBounds(headY, projection)) {
+      continue;
+    }
+    drawRectNote(context, lane, headY, lane.note);
   }
   if (showInvisibleNotes) {
     for (const projectedPoint of projection.points) {
@@ -1203,6 +1241,9 @@ function getProjectedGameLongBodyStartY(note, projection) {
   if (Number.isFinite(projectedStartY)) {
     return projectedStartY;
   }
+  if (isLunaticReverseHeldLongStart(note, projection)) {
+    return getLunaticReverseHeldLongStartY(projection);
+  }
   if (note.timeSec < projection.selectedTimeSec && note.endTimeSec > projection.selectedTimeSec) {
     return projection.judgeLineY;
   }
@@ -1224,11 +1265,68 @@ function shouldDrawHeldLongStartHead(note, projection) {
   if (note?.kind !== "long" || !Number.isFinite(note?.timeSec) || !Number.isFinite(note?.endTimeSec)) {
     return false;
   }
+  if (isLunaticReverseHeldLongStart(note, projection)) {
+    return true;
+  }
   if (!(note.timeSec < projection.selectedTimeSec && projection.selectedTimeSec < note.endTimeSec)) {
     return false;
   }
   const projectedStartY = projection.pointYByIndex.get(note.gameTimelineIndex);
   return !Number.isFinite(projectedStartY);
+}
+
+function shouldDrawGameLongBody(note, projection) {
+  if (note?.kind !== "long" || !Number.isFinite(note?.endTimeSec)) {
+    return false;
+  }
+  if (projection?.lunaticReverseMeta && Number.isFinite(note?.endBeat) && note.endBeat > projection.lunaticReverseMeta.startBeat) {
+    return true;
+  }
+  return note.endTimeSec > projection.selectedTimeSec;
+}
+
+function getHeldLongStartHeadY(note, projection) {
+  if (isLunaticReverseHeldLongStart(note, projection)) {
+    return getLunaticReverseHeldLongStartY(projection);
+  }
+  return projection.judgeLineY;
+}
+
+function isLunaticReverseHeldLongStart(note, projection) {
+  const reverseMeta = projection?.lunaticReverseMeta;
+  if (!reverseMeta || note?.kind !== "long") {
+    return false;
+  }
+  if (!(projection.selectedTimeSec >= reverseMeta.startTimeSec)) {
+    return false;
+  }
+  if (!Number.isFinite(note?.beat) || !Number.isFinite(note?.endBeat)) {
+    return false;
+  }
+  if (!(note.beat < reverseMeta.startBeat && note.endBeat > reverseMeta.startBeat)) {
+    return false;
+  }
+  const projectedStartY = projection.pointYByIndex.get(note.gameTimelineIndex);
+  return !Number.isFinite(projectedStartY);
+}
+
+function getLunaticReverseHeldLongStartY(projection) {
+  const reverseMeta = projection?.lunaticReverseMeta;
+  if (!reverseMeta) {
+    return projection?.judgeLineY ?? 0;
+  }
+  return projection.judgeLineY
+    - Math.max(projection.selectedTrackPosition - reverseMeta.startTrackPosition, 0)
+      * projection.judgeDistancePx
+      * projection.hispeed;
+}
+
+function getActiveLunaticReverseMeta(model, selectedTimeSec) {
+  const reverseMeta = model?.lunaticReverseMeta;
+  if (!reverseMeta) {
+    return null;
+  }
+  return selectedTimeSec >= reverseMeta.startTimeSec ? reverseMeta : null;
 }
 
 function clipToGameRenderWindow(context, projection, viewportWidth, render) {

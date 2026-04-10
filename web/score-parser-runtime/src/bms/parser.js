@@ -29,8 +29,11 @@ export function parseBmsText(text, options) {
   }
 
   const timingWarnings = [];
-  const timing = buildTiming(chart, timingWarnings);
-  const timingActions = materializeTimingActions(timing);
+  const { timing, supplementalTimingActions } = buildTiming(chart, timingWarnings);
+  const timingActions = mergeTimingActions(
+    materializeTimingActions(timing),
+    materializeSupplementalTimingActions(supplementalTimingActions, timing),
+  );
   const timelineObjects = chart.objects.map((object) => {
     const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
     return {
@@ -76,6 +79,7 @@ function buildTiming(chart, warnings) {
   }
 
   const actions = [];
+  const supplementalTimingActions = [];
   const extendedBpmCache = new Map();
   const stopResolutionCache = new Map();
   for (const object of chart.objects) {
@@ -92,7 +96,11 @@ function buildTiming(chart, warnings) {
     if (object.channel === "08") {
       const bpm = resolveExtendedBpm(chart.headers, object.value, extendedBpmCache);
       if (bpm !== null) {
-        actions.push({ type: "bpm", beat, bpm });
+        if (bpm > 0) {
+          actions.push({ type: "bpm", beat, bpm });
+        } else {
+          supplementalTimingActions.push({ type: "bpm", beat, bpm });
+        }
       } else {
         warnings.push(createWarning("parse_warning", `Ignored missing or invalid extended BPM reference BPM${object.value}.`));
       }
@@ -119,7 +127,10 @@ function buildTiming(chart, warnings) {
     }
   }
 
-  return new Timing(initialBpm, actions);
+  return {
+    timing: new Timing(initialBpm, actions),
+    supplementalTimingActions,
+  };
 }
 
 function buildScrollChanges(chart, warnings, timing) {
@@ -151,9 +162,31 @@ function resolveExtendedBpm(headers, value, cache) {
   }
 
   const parsedValue = Number.parseFloat(headers.get(`BPM${value}`) ?? "");
-  const bpm = Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
+  const bpm = Number.isFinite(parsedValue) && parsedValue !== 0 ? parsedValue : null;
   cache.set(value, bpm);
   return bpm;
+}
+
+function materializeSupplementalTimingActions(actions, timing) {
+  return (actions ?? []).map((action) => ({
+    ...action,
+    timeSec: timing.beatToSeconds(action.beat),
+  }));
+}
+
+function mergeTimingActions(primaryActions, supplementalActions) {
+  return [...(primaryActions ?? []), ...(supplementalActions ?? [])]
+    .sort((left, right) => {
+      if ((left?.beat ?? 0) !== (right?.beat ?? 0)) {
+        return (left?.beat ?? 0) - (right?.beat ?? 0);
+      }
+      if ((left?.timeSec ?? 0) !== (right?.timeSec ?? 0)) {
+        return (left?.timeSec ?? 0) - (right?.timeSec ?? 0);
+      }
+      const leftOrder = left?.type === "bpm" ? 0 : 1;
+      const rightOrder = right?.type === "bpm" ? 0 : 1;
+      return leftOrder - rightOrder;
+    });
 }
 
 function resolveStopResolution(headers, value, cache) {

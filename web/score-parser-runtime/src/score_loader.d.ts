@@ -54,6 +54,7 @@ export type ParsedBpmChange = {
     beat: number;
     timeSec: number;
     bpm: number;
+    effectiveBpm?: number;
 };
 
 export type ParsedStop = {
@@ -74,6 +75,9 @@ export type ParsedTimingAction = {
     beat: number;
     timeSec: number;
     bpm?: number;
+    displayBpm?: number;
+    effectiveBpm?: number;
+    forceMarker?: boolean;
     stopBeats?: number;
     durationSec?: number;
     stopResolution?: "resolved" | "invalid";

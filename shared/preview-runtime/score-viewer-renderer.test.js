@@ -724,6 +724,20 @@ test("renderer draws Lunatic warp markers with a WARP label in game mode", () =>
   );
 });
 
+test("renderer shows a negative BPM label for Lunatic reverse-start markers", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createLunaticNegativeMarkerScore(), { gameProfile: "lunatic" });
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.9, { viewerMode: "time" });
+
+  assert.equal(
+    context.fillTextCalls.some((call) => call.text === "-280" && call.fillStyle === "#00ff00"),
+    true,
+  );
+});
+
 test("renderer draws later game timeline mine notes over earlier invisible notes when SCROLL overlaps their Y", () => {
   const { canvas, context } = createMockCanvas();
   const renderer = createScoreViewerRenderer(canvas);
@@ -1415,6 +1429,47 @@ test("renderer Lunatic projection keeps skipped-region notes visible before warp
   );
 });
 
+test("renderer keeps Lunatic negative-BPM notes visible and moving upward after their mapped time passes", () => {
+  const model = createScoreViewerModel(createLunaticNegativeBpmProjectionScore(), { gameProfile: "lunatic" });
+  const projectionOptions = {
+    judgeLineY: 240,
+    gameTimingConfig: { durationMs: 2000, laneHeightPx: 80 },
+  };
+  const left = collectGameProjection(model, 2.5, 320, projectionOptions);
+  const right = collectGameProjection(model, 2.6, 320, projectionOptions);
+  const leftNote = left.points.find((projected) => projected.point.notes.some((note) => note.beat === 6));
+  const rightNote = right.points.find((projected) => projected.point.notes.some((note) => note.beat === 6));
+
+  assert.ok(leftNote);
+  assert.ok(rightNote);
+  assert.ok(leftNote.y < left.judgeLineY);
+  assert.ok(rightNote.y < leftNote.y);
+});
+
+test("renderer moves a Lunatic held long-note head upward during negative-BPM reverse", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createLunaticNegativeBpmProjectionScore(), { gameProfile: "lunatic" });
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.5, {
+    viewerMode: "lunatic",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 2000,
+      laneHeightPx: 80,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#bebebe" && call.x === 80 && call.y === 196 && call.width === 15 && call.height === 4),
+    true,
+  );
+});
+
 function createInvisibleNoteScore() {
   return {
     format: "bms",
@@ -1478,6 +1533,64 @@ function createSingleLaneScore(mode, laneCount, lane) {
     bpmChanges: [],
     stops: [],
     scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createLunaticNegativeBpmProjectionScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 6,
+    lastPlayableTimeSec: 5,
+    lastTimelineTimeSec: 6,
+    noteCounts: { visible: 2, normal: 1, long: 1, invisible: 0, mine: 0, all: 2 },
+    notes: [
+      { lane: 1, beat: 3, endBeat: 8, timeSec: 1.5, endTimeSec: 4, kind: "long" },
+      { lane: 2, beat: 6, timeSec: 3, kind: "normal" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 3, timeSec: 1.5, kind: "long-start" },
+      { lane: 1, beat: 8, timeSec: 4, kind: "long-end" },
+      { lane: 2, beat: 6, timeSec: 3, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    timingActions: [
+      { type: "bpm", beat: 4, timeSec: 2, bpm: -240 },
+    ],
+    warnings: [],
+  };
+}
+
+function createLunaticNegativeMarkerScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    totalDurationSec: 6,
+    lastPlayableTimeSec: 6,
+    lastTimelineTimeSec: 6,
+    initialBpm: 120,
+    noteCounts: { visible: 1, normal: 1, long: 0, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 10, timeSec: 3.2857142857142856, kind: "normal" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 10, timeSec: 3.2857142857142856, kind: "normal" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 2.857142857142857 }, { beat: 12, timeSec: 3.7142857142857144 }],
+    bpmChanges: [{ beat: 4, timeSec: 2, bpm: 280 }],
+    stops: [],
+    scrollChanges: [],
+    timingActions: [
+      { type: "bpm", beat: 4, timeSec: 2, bpm: 280 },
+      { type: "bpm", beat: 8, timeSec: 2.857142857142857, bpm: -280 },
+    ],
     warnings: [],
   };
 }

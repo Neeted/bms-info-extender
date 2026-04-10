@@ -194,7 +194,11 @@
       combo: index + 1
     }));
     const longEndEventKeys = new Set(
-      comboEvents.filter((event) => event.kind === "long-end").map(createTimedLaneKey)
+      rawAllNotes.filter((note) => note.kind === "long" && Number.isFinite(note.endTimeSec)).map((note) => ({
+        lane: note.lane,
+        timeSec: note.endTimeSec,
+        side: note.side
+      })).map(createTimedLaneKey)
     );
     const beatTimingIndex = createBeatTimingIndex(profiledScore);
     const gameScrollIndex = createGameScrollIndex(rawScrollChanges);
@@ -222,6 +226,7 @@
       scrollChanges,
       gameScrollIndex
     });
+    const lunaticReverseMeta = normalizeLunaticReverseMeta(profiledScore.lunaticReverseMeta, gameTimeline);
     const resolvedBpmSummary = resolveBpmSummary(profiledScore, bpmSummary);
     const gameTimingStatePoints = createGameTimingStatePoints(gameTimeline, resolvedBpmSummary.startBpm);
     const totalBeat = getScoreTotalBeat(profiledScore);
@@ -255,6 +260,7 @@
       measureRanges,
       comboEvents,
       longEndEventKeys,
+      lunaticReverseMeta,
       barLines,
       bpmChanges,
       stops,
@@ -659,7 +665,7 @@
     if (!score || typeof score !== "object") {
       return null;
     }
-    const canonicalTimingActions = createTimingActionsFromCanonicalScore(score).map((action) => action?.type === "stop" ? {
+    const canonicalTimingActions = createTimingActionsFromCanonicalScore(score, { includeNegativeBpm: false }).map((action) => action?.type === "stop" ? {
       ...action,
       stopLunaticBehavior: void 0
     } : action);
@@ -672,8 +678,8 @@
     if (!score || typeof score !== "object") {
       return score;
     }
-    const baseTimingActions = createTimingActionsFromCanonicalScore(score);
-    const transformedTimingActions = materializeTimingActionsForViewer(
+    const baseTimingActions = createTimingActionsFromCanonicalScore(score, { includeNegativeBpm: true });
+    const { timingActions: transformedTimingActions, reverseMeta } = materializeTimingActionsForViewer(
       score.initialBpm,
       baseTimingActions.filter((action) => action?.type === "bpm" || action?.type === "stop").map((action) => action.type === "bpm" ? {
         type: "bpm",
@@ -685,7 +691,8 @@
         stopBeats: action.stopLunaticBehavior === "warp" ? LUNATIC_INVALID_STOP_WARP_BEATS : action.stopBeats,
         stopResolution: action.stopResolution,
         stopLunaticBehavior: action.stopLunaticBehavior
-      })
+      }),
+      getScoreTotalBeat(score)
     );
     const timingSeed = {
       initialBpm: score.initialBpm,
@@ -699,11 +706,12 @@
       return {
         ...score,
         scrollChanges: [],
-        timingActions: transformedTimingActions
+        timingActions: transformedTimingActions,
+        lunaticReverseMeta: reverseMeta
       };
     }
     const notes = (score.notes ?? []).map((note) => transformLunaticNote(note, beatTimingIndex));
-    const comboEvents = (score.comboEvents ?? []).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
+    const comboEvents = (score.comboEvents ?? []).filter((event) => !reverseMeta || finiteOrZero(event?.beat) < reverseMeta.startBeat).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
     const barLines = (score.barLines ?? []).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
     const bpmChanges = buildBpmChangesFromTimingActionsForViewer(score.initialBpm, transformedTimingActions);
     const stops = buildStopsFromTimingActionsForViewer(transformedTimingActions);
@@ -714,6 +722,7 @@
     ), 0);
     const lastTimelineTimeSec = Math.max(
       lastPlayableTimeSec,
+      finiteOrZero(reverseMeta?.endTimeSec),
       ...barLines.map((event) => finiteOrZero(event.timeSec)),
       ...bpmChanges.map((event) => finiteOrZero(event.timeSec)),
       ...stops.map((event) => finiteOrZero(event.timeSec))
@@ -729,7 +738,8 @@
       timingActions: transformedTimingActions,
       totalDurationSec: lastTimelineTimeSec,
       lastPlayableTimeSec,
-      lastTimelineTimeSec
+      lastTimelineTimeSec,
+      lunaticReverseMeta: reverseMeta
     };
   }
   function transformLunaticTimedBeatEvent(event, beatTimingIndex) {
@@ -751,26 +761,58 @@
     }
     return transformedNote;
   }
-  function materializeTimingActionsForViewer(initialBpm, actions) {
+  function materializeTimingActionsForViewer(initialBpm, actions, terminalBeat = 0) {
     const resolvedInitialBpm = Number.isFinite(initialBpm) && initialBpm > 0 ? initialBpm : null;
     if (!resolvedInitialBpm) {
-      return actions.map((action) => ({ ...action }));
+      return {
+        timingActions: actions.map((action) => ({ ...action })),
+        reverseMeta: null
+      };
     }
     const sortedActions = [...actions ?? []].filter((action) => Number.isFinite(action?.beat)).sort(compareTimingAction);
     const materializedActions = [];
     let currentBeat = 0;
     let currentSeconds = 0;
     let currentBpm = resolvedInitialBpm;
+    let reverseMeta = null;
+    let reverseBpm = null;
     for (const action of sortedActions) {
       const actionBeat = Math.max(action.beat, currentBeat);
       currentSeconds += (actionBeat - currentBeat) * 60 / currentBpm;
       currentBeat = actionBeat;
       if (action.type === "bpm") {
+        if (reverseMeta) {
+          continue;
+        }
+        if (Number.isFinite(action.bpm) && action.bpm < 0) {
+          reverseBpm = Math.abs(action.bpm);
+          reverseMeta = {
+            startBeat: actionBeat,
+            startTimeSec: currentSeconds,
+            sourceBpm: action.bpm,
+            activeBpm: reverseBpm,
+            endBeat: Math.max(Number.isFinite(terminalBeat) ? terminalBeat : actionBeat, actionBeat),
+            endTimeSec: currentSeconds
+          };
+          materializedActions.push({
+            type: "bpm",
+            beat: actionBeat,
+            timeSec: currentSeconds,
+            bpm: reverseBpm,
+            displayBpm: action.bpm,
+            effectiveBpm: reverseBpm,
+            forceMarker: true
+          });
+          currentBpm = reverseBpm;
+          continue;
+        }
         materializedActions.push({
           type: "bpm",
           beat: actionBeat,
           timeSec: currentSeconds,
-          bpm: action.bpm
+          bpm: action.bpm,
+          displayBpm: action.bpm,
+          effectiveBpm: action.bpm
         });
         currentBpm = action.bpm;
         continue;
@@ -792,23 +834,33 @@
       }
       currentSeconds += durationSec;
     }
-    return materializedActions;
+    if (reverseMeta && reverseBpm) {
+      reverseMeta.endTimeSec = currentSeconds + (reverseMeta.endBeat - currentBeat) * 60 / reverseBpm;
+    }
+    return {
+      timingActions: materializedActions,
+      reverseMeta
+    };
   }
   function buildBpmChangesFromTimingActionsForViewer(initialBpm, timingActions) {
     const changes = [];
     let currentBpm = Number.isFinite(initialBpm) && initialBpm > 0 ? initialBpm : null;
+    let currentDisplayBpm = currentBpm;
     for (const action of timingActions ?? []) {
       if (action?.type !== "bpm" || !Number.isFinite(action?.beat) || !Number.isFinite(action?.timeSec) || !Number.isFinite(action?.bpm) || action.bpm <= 0) {
         continue;
       }
-      if (action.bpm !== currentBpm) {
+      const displayBpm = Number.isFinite(action?.displayBpm) && action.displayBpm !== 0 ? action.displayBpm : action.bpm;
+      if (action.bpm !== currentBpm || displayBpm !== currentDisplayBpm || action.forceMarker === true) {
         changes.push({
           beat: action.beat,
           timeSec: action.timeSec,
-          bpm: action.bpm
+          bpm: displayBpm,
+          effectiveBpm: action.bpm
         });
       }
       currentBpm = action.bpm;
+      currentDisplayBpm = displayBpm;
     }
     return changes;
   }
@@ -955,17 +1007,21 @@
     const warps = [];
     const useWarpStops = gameProfile === "lunatic";
     let currentBpm = Number.isFinite(score?.initialBpm) && score.initialBpm > 0 ? score.initialBpm : null;
+    let currentDisplayBpm = currentBpm;
     for (const action of actions) {
       if (action?.type === "bpm") {
         if (Number.isFinite(action.beat) && Number.isFinite(action.timeSec) && Number.isFinite(action.bpm) && action.bpm > 0) {
-          if (action.bpm !== currentBpm) {
+          const displayBpm = Number.isFinite(action?.displayBpm) && action.displayBpm !== 0 ? action.displayBpm : action.bpm;
+          if (action.bpm !== currentBpm || displayBpm !== currentDisplayBpm || action.forceMarker === true) {
             bpmChanges.push({
               beat: action.beat,
               timeSec: action.timeSec,
-              bpm: action.bpm
+              bpm: displayBpm,
+              effectiveBpm: action.bpm
             });
           }
           currentBpm = action.bpm;
+          currentDisplayBpm = displayBpm;
         }
         continue;
       }
@@ -1029,11 +1085,11 @@
     pushPositiveBpm(score?.initialBpm);
     for (const action of score?.timingActions ?? []) {
       if (action?.type === "bpm") {
-        pushPositiveBpm(action?.bpm);
+        pushPositiveBpm(action?.effectiveBpm ?? action?.bpm);
       }
     }
     for (const bpmChange of score?.bpmChanges ?? []) {
-      pushPositiveBpm(bpmChange?.bpm);
+      pushPositiveBpm(bpmChange?.effectiveBpm ?? bpmChange?.bpm);
     }
     return positiveBpms;
   }
@@ -1070,14 +1126,17 @@
     }
     return statePoints;
   }
-  function createTimingActionsFromCanonicalScore(score) {
-    return [...score?.timingActions ?? []].filter((action) => Number.isFinite(action?.beat) && action.type === "bpm" && Number.isFinite(action?.bpm) && action.bpm > 0 || Number.isFinite(action?.beat) && action.type === "stop" && action?.stopResolution === "invalid" || Number.isFinite(action?.beat) && action.type === "stop" && Number.isFinite(action?.stopBeats) && action.stopBeats > 0).map((action) => {
+  function createTimingActionsFromCanonicalScore(score, { includeNegativeBpm = false } = {}) {
+    return [...score?.timingActions ?? []].filter((action) => Number.isFinite(action?.beat) && action.type === "bpm" && Number.isFinite(action?.bpm) && (action.bpm > 0 || includeNegativeBpm && action.bpm < 0) || Number.isFinite(action?.beat) && action.type === "stop" && action?.stopResolution === "invalid" || Number.isFinite(action?.beat) && action.type === "stop" && Number.isFinite(action?.stopBeats) && action.stopBeats > 0).map((action) => {
       if (action.type === "bpm") {
         return {
           type: "bpm",
           beat: action.beat,
           timeSec: action.timeSec,
-          bpm: action.bpm
+          bpm: action.bpm,
+          ...Number.isFinite(action.displayBpm) ? { displayBpm: action.displayBpm } : {},
+          ...Number.isFinite(action.effectiveBpm) ? { effectiveBpm: action.effectiveBpm } : {},
+          ...action.forceMarker === true ? { forceMarker: true } : {}
         };
       }
       return {
@@ -1121,6 +1180,30 @@
       actions.push(action);
     }
     return actions;
+  }
+  function normalizeLunaticReverseMeta(reverseMeta, gameTimeline) {
+    if (!reverseMeta || !Array.isArray(gameTimeline) || gameTimeline.length === 0) {
+      return null;
+    }
+    const normalizedStartBeat = finiteOrZero(reverseMeta.startBeat);
+    const normalizedStartTimeSec = finiteOrZero(reverseMeta.startTimeSec);
+    let firstFutureTimelineIndex = gameTimeline.length;
+    for (let index = 0; index < gameTimeline.length; index += 1) {
+      const point = gameTimeline[index];
+      const pointBeat = finiteOrZero(point?.beat);
+      const pointTimeSec = finiteOrZero(point?.timeSec);
+      if (pointBeat > normalizedStartBeat || Math.abs(pointBeat - normalizedStartBeat) < 1e-6 && pointTimeSec > normalizedStartTimeSec) {
+        firstFutureTimelineIndex = index;
+        break;
+      }
+    }
+    return {
+      ...reverseMeta,
+      startBeat: normalizedStartBeat,
+      startTimeSec: normalizedStartTimeSec,
+      startTrackPosition: normalizedStartBeat / 4,
+      firstFutureTimelineIndex
+    };
   }
   function createGameScrollIndex(scrollChanges) {
     const actions = [...scrollChanges ?? []].filter((event) => Number.isFinite(event?.beat) && Number.isFinite(event?.rate)).sort(compareTimedBeatLike);
@@ -1523,7 +1606,7 @@
   }
   function getLastEffectiveBpmFromPoint(bpmChanges, fallbackBpm) {
     for (let index = bpmChanges.length - 1; index >= 0; index -= 1) {
-      const nextBpm = bpmChanges[index]?.bpm;
+      const nextBpm = bpmChanges[index]?.effectiveBpm ?? bpmChanges[index]?.bpm;
       if (Number.isFinite(nextBpm) && nextBpm > 0) {
         return nextBpm;
       }
@@ -2309,6 +2392,11 @@
     if (!model?.gameTimeline?.length) {
       return projection;
     }
+    projection.lunaticReverseMeta = getActiveLunaticReverseMeta(model, selectedTimeSec);
+    if (projection.lunaticReverseMeta) {
+      collectLunaticReverseProjection(model, projection);
+      return projection;
+    }
     const timeline = model.gameTimeline;
     const startIndex = lowerBoundGameTimelineByTime(timeline, selectedTimeSec);
     let y = projection.judgeLineY;
@@ -2336,6 +2424,30 @@
       projection.points.push({ index, point, y });
     }
     return projection;
+  }
+  function collectLunaticReverseProjection(model, projection) {
+    const timeline = model?.gameTimeline ?? [];
+    const reverseMeta = projection.lunaticReverseMeta;
+    if (!reverseMeta || timeline.length === 0) {
+      return;
+    }
+    const pixelsPerSection = projection.judgeDistancePx * projection.hispeed;
+    const reverseOffsetSections = Math.max(projection.selectedTrackPosition - reverseMeta.startTrackPosition, 0);
+    const startIndex = Math.min(Math.max(reverseMeta.firstFutureTimelineIndex ?? timeline.length, 0), timeline.length);
+    for (let index = startIndex; index < timeline.length; index += 1) {
+      const point = timeline[index];
+      const pointSections = finiteOrZero2(point?.trackPosition) / 4;
+      const y = projection.judgeLineY - (pointSections - reverseMeta.startTrackPosition + reverseOffsetSections) * pixelsPerSection;
+      projection.pointYByIndex.set(index, y);
+      if (isGameProjectionPastUpperBound(y, projection.renderTopY, projection.scanMargin)) {
+        projection.exitPoint = { index, point, y };
+        break;
+      }
+      if (!isViewportYVisible(y, projection.renderTopY, projection.renderBottomY, projection.scanMargin)) {
+        continue;
+      }
+      projection.points.push({ index, point, y });
+    }
   }
   function getInitialGameProjectionDeltaY(point, selectedTimeSec, pixelsPerSection) {
     const pointTimeSec = finiteOrZero2(point?.timeSec);
@@ -2429,7 +2541,7 @@
   function drawLongBodiesGameMode(context, model, lanes, projection) {
     context.save();
     for (const note of model.notes) {
-      if (note.kind !== "long" || !Number.isFinite(note.endTimeSec) || note.endTimeSec <= projection.selectedTimeSec) {
+      if (!shouldDrawGameLongBody(note, projection)) {
         continue;
       }
       const lane = lanes[note.lane];
@@ -2491,7 +2603,11 @@
       if (!lane) {
         continue;
       }
-      drawRectNote(context, lane, projection.judgeLineY, lane.note);
+      const headY = getHeldLongStartHeadY(note, projection);
+      if (!isGameProjectionYWithinRenderBounds(headY, projection)) {
+        continue;
+      }
+      drawRectNote(context, lane, headY, lane.note);
     }
     if (showInvisibleNotes) {
       for (const projectedPoint of projection.points) {
@@ -2621,6 +2737,9 @@
     if (Number.isFinite(projectedStartY)) {
       return projectedStartY;
     }
+    if (isLunaticReverseHeldLongStart(note, projection)) {
+      return getLunaticReverseHeldLongStartY(projection);
+    }
     if (note.timeSec < projection.selectedTimeSec && note.endTimeSec > projection.selectedTimeSec) {
       return projection.judgeLineY;
     }
@@ -2640,11 +2759,60 @@
     if (note?.kind !== "long" || !Number.isFinite(note?.timeSec) || !Number.isFinite(note?.endTimeSec)) {
       return false;
     }
+    if (isLunaticReverseHeldLongStart(note, projection)) {
+      return true;
+    }
     if (!(note.timeSec < projection.selectedTimeSec && projection.selectedTimeSec < note.endTimeSec)) {
       return false;
     }
     const projectedStartY = projection.pointYByIndex.get(note.gameTimelineIndex);
     return !Number.isFinite(projectedStartY);
+  }
+  function shouldDrawGameLongBody(note, projection) {
+    if (note?.kind !== "long" || !Number.isFinite(note?.endTimeSec)) {
+      return false;
+    }
+    if (projection?.lunaticReverseMeta && Number.isFinite(note?.endBeat) && note.endBeat > projection.lunaticReverseMeta.startBeat) {
+      return true;
+    }
+    return note.endTimeSec > projection.selectedTimeSec;
+  }
+  function getHeldLongStartHeadY(note, projection) {
+    if (isLunaticReverseHeldLongStart(note, projection)) {
+      return getLunaticReverseHeldLongStartY(projection);
+    }
+    return projection.judgeLineY;
+  }
+  function isLunaticReverseHeldLongStart(note, projection) {
+    const reverseMeta = projection?.lunaticReverseMeta;
+    if (!reverseMeta || note?.kind !== "long") {
+      return false;
+    }
+    if (!(projection.selectedTimeSec >= reverseMeta.startTimeSec)) {
+      return false;
+    }
+    if (!Number.isFinite(note?.beat) || !Number.isFinite(note?.endBeat)) {
+      return false;
+    }
+    if (!(note.beat < reverseMeta.startBeat && note.endBeat > reverseMeta.startBeat)) {
+      return false;
+    }
+    const projectedStartY = projection.pointYByIndex.get(note.gameTimelineIndex);
+    return !Number.isFinite(projectedStartY);
+  }
+  function getLunaticReverseHeldLongStartY(projection) {
+    const reverseMeta = projection?.lunaticReverseMeta;
+    if (!reverseMeta) {
+      return projection?.judgeLineY ?? 0;
+    }
+    return projection.judgeLineY - Math.max(projection.selectedTrackPosition - reverseMeta.startTrackPosition, 0) * projection.judgeDistancePx * projection.hispeed;
+  }
+  function getActiveLunaticReverseMeta(model, selectedTimeSec) {
+    const reverseMeta = model?.lunaticReverseMeta;
+    if (!reverseMeta) {
+      return null;
+    }
+    return selectedTimeSec >= reverseMeta.startTimeSec ? reverseMeta : null;
   }
   function clipToGameRenderWindow(context, projection, viewportWidth, render) {
     const clipHeight = Math.max(projection.renderBottomY - projection.renderTopY, 0);
@@ -8509,10 +8677,13 @@
     return getViewerTimeSecForSelection(state, canonicalTimeSec, resolvedViewerMode);
   }
   function getDisplayedViewerTimeSec(state, canonicalTimeSec, resolvedViewerMode = getResolvedViewerMode(state)) {
-    if (state.isPlaying) {
+    if (state.isPlaying || shouldUseStoredViewerSelection(state, resolvedViewerMode)) {
       return getCurrentPlaybackViewerTimeSec(state, resolvedViewerMode);
     }
     return getViewerTimeSecForSelection(state, canonicalTimeSec, resolvedViewerMode);
+  }
+  function shouldUseStoredViewerSelection(state, resolvedViewerMode = getResolvedViewerMode(state)) {
+    return resolvedViewerMode === "lunatic" && state.viewerModel?.gameProfile === "lunatic" && Number.isFinite(state.playbackViewerTimeSec);
   }
   function getCanonicalTimeSecFromViewerSelection(state, viewerTimeSec, resolvedViewerMode = getResolvedViewerMode(state)) {
     if (!state.viewerModel) {

@@ -50,6 +50,29 @@ test("BMS applies extended BPM changes", () => {
   assert.equal(result.score.notes[0].timeSec, 3);
 });
 
+test("BMS preserves negative extended BPM actions without affecting canonical timing", () => {
+  const chart = [
+    "#PLAYER 1",
+    "#BPM 120",
+    "#BPM01 -240",
+    "#00108:01",
+    "#00211:01",
+  ].join("\n");
+  const result = parseScoreBytes(new TextEncoder().encode(chart), {
+    formatHint: "bms",
+    textEncoding: "utf-8",
+    sha256: "13".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.score.timingActions, [
+    { type: "bpm", beat: 4, timeSec: 2, bpm: -240 },
+  ]);
+  assert.deepEqual(result.score.bpmChanges, []);
+  assert.equal(result.score.barLines[1].timeSec, 2);
+  assert.equal(result.score.notes[0].beat, 8);
+  assert.equal(result.score.notes[0].timeSec, 4);
+});
+
 test("BMS exposes canonical timingActions and preserves reset BPM changes across source order", () => {
   const chart = [
     "#PLAYER 1",

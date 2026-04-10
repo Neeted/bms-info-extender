@@ -2798,10 +2798,16 @@ function resolveSelectionViewerTimeSec(
 }
 
 function getDisplayedViewerTimeSec(state, canonicalTimeSec, resolvedViewerMode = getResolvedViewerMode(state)) {
-  if (state.isPlaying) {
+  if (state.isPlaying || shouldUseStoredViewerSelection(state, resolvedViewerMode)) {
     return getCurrentPlaybackViewerTimeSec(state, resolvedViewerMode);
   }
   return getViewerTimeSecForSelection(state, canonicalTimeSec, resolvedViewerMode);
+}
+
+function shouldUseStoredViewerSelection(state, resolvedViewerMode = getResolvedViewerMode(state)) {
+  return resolvedViewerMode === "lunatic"
+    && state.viewerModel?.gameProfile === "lunatic"
+    && Number.isFinite(state.playbackViewerTimeSec);
 }
 
 function getCanonicalTimeSecFromViewerSelection(state, viewerTimeSec, resolvedViewerMode = getResolvedViewerMode(state)) {

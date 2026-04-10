@@ -49,6 +49,7 @@ import {
   getVisibleTimeRange,
   getViewerCursor,
   resolveViewerModeForModel,
+  shouldDrawLongEndCap,
 } from "./score-viewer-model.js";
 
 test("viewer model resolves measure and combo positions from comboEvents and bar lines", () => {
@@ -63,7 +64,7 @@ test("viewer model resolves measure and combo positions from comboEvents and bar
     noteCounts: { visible: 3, normal: 2, long: 1, invisible: 0, mine: 0, all: 3 },
     notes: [
       { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
-      { lane: 2, beat: 4, endBeat: 6, endTimeSec: 3, timeSec: 2, kind: "long" },
+      { lane: 2, beat: 4, endBeat: 6, endTimeSec: 3, timeSec: 2, kind: "long", longNoteType: "cn" },
     ],
     comboEvents: [
       { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
@@ -485,7 +486,7 @@ test("viewer model keeps invisible notes separate from visible note indexes", ()
     noteCounts: { visible: 2, normal: 1, long: 1, invisible: 2, mine: 0, all: 4 },
     notes: [
       { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
-      { lane: 2, beat: 4, endBeat: 6, endTimeSec: 3, timeSec: 2, kind: "long" },
+      { lane: 2, beat: 4, endBeat: 6, endTimeSec: 3, timeSec: 2, kind: "long", longNoteType: "cn" },
       { lane: 3, beat: 5, timeSec: 2.5, kind: "invisible" },
       { lane: 4, timeSec: 3.5, kind: "invisible" },
     ],
@@ -659,7 +660,7 @@ test("viewer model builds a Lunatic reverse profile from the first negative BPM 
     noteCounts: { visible: 3, normal: 2, long: 1, invisible: 0, mine: 0, all: 3 },
     notes: [
       { lane: 1, beat: 2, timeSec: 1, kind: "normal" },
-      { lane: 2, beat: 3, endBeat: 8, timeSec: 1.5, endTimeSec: 4, kind: "long" },
+      { lane: 2, beat: 3, endBeat: 8, timeSec: 1.5, endTimeSec: 4, kind: "long", longNoteType: "hcn" },
       { lane: 3, beat: 10, timeSec: 5, kind: "normal" },
     ],
     comboEvents: [
@@ -693,13 +694,13 @@ test("viewer model builds a Lunatic reverse profile from the first negative BPM 
     lunaticModel.comboEvents.map((event) => ({ beat: event.beat, kind: event.kind })),
     [
       { beat: 2, kind: "normal" },
-      { beat: 3, kind: "long-start" },
     ],
   );
-  assert.equal(lunaticModel.totalCombo, 2);
+  assert.equal(lunaticModel.score.notes[1].longNoteType, "ln");
+  assert.equal(lunaticModel.totalCombo, 1);
   assert.ok(Math.abs(lunaticModel.score.notes[2].timeSec - 3.5) < 0.000001);
   assert.equal(lunaticModel.score.totalDurationSec, 4);
-  assert.equal(getComboCountAtTime(lunaticModel, 3.9), 2);
+  assert.equal(getComboCountAtTime(lunaticModel, 3.9), 1);
   assert.equal(mapCanonicalTimeToViewerTime(lunaticModel, 5, "lunatic"), 3.75);
   assert.equal(mapViewerTimeToCanonicalTime(lunaticModel, 3.5, "lunatic"), 14 / 3);
 });
@@ -740,6 +741,72 @@ test("viewer model keeps a negative BPM marker in Lunatic even when its absolute
   assert.ok(reversePoint);
 });
 
+test("viewer model draws long end caps only for CN and HCN", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 3, normal: 0, long: 3, invisible: 0, mine: 0, all: 3 },
+    notes: [
+      { lane: 1, beat: 1, endBeat: 2, timeSec: 0.5, endTimeSec: 1, kind: "long", longNoteType: "ln" },
+      { lane: 2, beat: 2, endBeat: 3, timeSec: 1, endTimeSec: 1.5, kind: "long", longNoteType: "cn" },
+      { lane: 3, beat: 3, endBeat: 4, timeSec: 1.5, endTimeSec: 2, kind: "long", longNoteType: "hcn" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 2, timeSec: 1, kind: "long-end" },
+      { lane: 2, beat: 2, timeSec: 1, kind: "long-start" },
+      { lane: 2, beat: 3, timeSec: 1.5, kind: "long-end" },
+      { lane: 3, beat: 3, timeSec: 1.5, kind: "long-start" },
+      { lane: 3, beat: 4, timeSec: 2, kind: "long-end" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  assert.equal(shouldDrawLongEndCap(model, model.notes[0]), false);
+  assert.equal(shouldDrawLongEndCap(model, model.notes[1]), true);
+  assert.equal(shouldDrawLongEndCap(model, model.notes[2]), true);
+});
+
+test("viewer model fallback combo events use LN end timing and CN/HCN start plus end timing", () => {
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 2, normal: 0, long: 2, invisible: 0, mine: 0, all: 2 },
+    notes: [
+      { lane: 1, beat: 1, endBeat: 2, timeSec: 0.5, endTimeSec: 1, kind: "long", longNoteType: "ln" },
+      { lane: 2, beat: 2, endBeat: 4, timeSec: 1, endTimeSec: 2, kind: "long", longNoteType: "cn" },
+    ],
+    comboEvents: [],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  assert.deepEqual(
+    model.comboEvents.map((event) => ({ lane: event.lane, beat: event.beat, kind: event.kind })),
+    [
+      { lane: 2, beat: 2, kind: "long-start" },
+      { lane: 1, beat: 2, kind: "long-end" },
+      { lane: 2, beat: 4, kind: "long-end" },
+    ],
+  );
+});
+
 test("viewer model applies the last same-beat scroll change to subsequent game displacement", () => {
   const model = createScoreViewerModel({
     format: "bms",
@@ -777,7 +844,7 @@ test("viewer model builds a grouped game timeline with canonical STOP start time
     lastTimelineTimeSec: 5,
     noteCounts: { visible: 2, normal: 1, long: 1, invisible: 1, mine: 0, all: 3 },
     notes: [
-      { lane: 1, beat: 4, endBeat: 8, timeSec: 2, endTimeSec: 5, kind: "long" },
+      { lane: 1, beat: 4, endBeat: 8, timeSec: 2, endTimeSec: 5, kind: "long", longNoteType: "cn" },
       { lane: 2, beat: 4, timeSec: 2, kind: "invisible" },
       { lane: 3, beat: 8, timeSec: 5, kind: "normal" },
     ],
@@ -867,7 +934,7 @@ test("viewer model exposes game-mode visible slices by track position", () => {
     noteCounts: { visible: 3, normal: 2, long: 1, invisible: 1, mine: 0, all: 4 },
     notes: [
       { lane: 1, beat: 4, timeSec: 2, kind: "normal" },
-      { lane: 2, beat: 6, endBeat: 10, timeSec: 3, endTimeSec: 5, kind: "long" },
+      { lane: 2, beat: 6, endBeat: 10, timeSec: 3, endTimeSec: 5, kind: "long", longNoteType: "cn" },
       { lane: 3, beat: 7, timeSec: 3.5, kind: "normal" },
       { lane: 4, beat: 9, timeSec: 4.5, kind: "invisible" },
     ],

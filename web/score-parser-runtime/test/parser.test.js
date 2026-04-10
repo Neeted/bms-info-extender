@@ -360,7 +360,7 @@ test("BMS parses dense repeated STOP objects without exploding timing cost", () 
   assert.ok(result.score.notes[0].timeSec > 0);
 });
 
-test("BMS long note combo events count only the start for LNMODE 1", () => {
+test("BMS LNMODE 1 long notes count combo only at the end", () => {
   const chart = [
     "#PLAYER 1",
     "#BPM 120",
@@ -374,10 +374,11 @@ test("BMS long note combo events count only the start for LNMODE 1", () => {
     sha256: "8".repeat(64),
   });
   assert.equal(result.ok, true);
-  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start"]);
+  assert.equal(result.score.notes[0].longNoteType, "ln");
+  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-end"]);
 });
 
-test("BMS long note combo events count the end for LNMODE 2", () => {
+test("BMS LNMODE 2 long notes are parsed as CN", () => {
   const chart = [
     "#PLAYER 1",
     "#BPM 120",
@@ -391,6 +392,7 @@ test("BMS long note combo events count the end for LNMODE 2", () => {
     sha256: "9".repeat(64),
   });
   assert.equal(result.ok, true);
+  assert.equal(result.score.notes[0].longNoteType, "cn");
   assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start", "long-end"]);
   assert.ok(result.score.comboEvents[1].timeSec > result.score.comboEvents[0].timeSec);
 });
@@ -410,6 +412,7 @@ test("BMS LNOBJ long notes inherit combo behavior from LNMODE", () => {
   });
   assert.equal(result.ok, true);
   assert.equal(result.score.notes[0].kind, "long");
+  assert.equal(result.score.notes[0].longNoteType, "hcn");
   assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start", "long-end"]);
 });
 
@@ -629,7 +632,7 @@ test("BMSON exposes separate playable and timeline durations", () => {
   ]);
   assert.deepEqual(result.score.barLines[0], { beat: 0, timeSec: 0 });
   assert.deepEqual(result.score.barLines[1], { beat: 4, timeSec: 11 / 6 });
-  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["normal", "long-start"]);
+  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["normal", "long-end"]);
 });
 
 test("BMSON exposes scroll_events as scrollChanges", () => {
@@ -750,7 +753,7 @@ test("BMSON supports explicit popn mode hints and keeps generic 9 lanes distinct
   assert.equal(generic9kResult.score.laneCount, 9);
 });
 
-test("BMSON charge notes add a long-end combo event", () => {
+test("BMSON charge notes add both long-start and long-end combo events", () => {
   const bmson = {
     version: "1.0.0",
     info: {
@@ -774,7 +777,53 @@ test("BMSON charge notes add a long-end combo event", () => {
     sha256: "e".repeat(64),
   });
   assert.equal(result.ok, true);
+  assert.equal(result.score.notes[0].longNoteType, "cn");
   assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start", "long-end"]);
+});
+
+test("BMSON ln_type defaults long notes to LN timing while note t can override subtype", () => {
+  const bmson = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "beat-7k",
+      ln_type: 1,
+    },
+    sound_channels: [
+      {
+        name: "a.wav",
+        notes: [
+          { x: 1, y: 240, l: 240 },
+          { x: 2, y: 480, l: 240, t: 3 },
+        ],
+      },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const result = parseScoreBytes(new TextEncoder().encode(JSON.stringify(bmson)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "1".repeat(64),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.score.notes.map((note) => note.longNoteType),
+    ["ln", "hcn"],
+  );
+  assert.deepEqual(
+    result.score.comboEvents.map((event) => ({ lane: event.lane, kind: event.kind })),
+    [
+      { lane: 2, kind: "long-start" },
+      { lane: 1, kind: "long-end" },
+      { lane: 2, kind: "long-end" },
+    ],
+  );
 });
 
 test("BMSON keeps key_channels invisible and mine_channels separate from visible note count", () => {

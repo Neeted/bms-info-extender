@@ -309,12 +309,10 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
         endBeat: end.beat,
         endTimeSec: end.timeSec,
         kind: "long",
+        longNoteType,
         side: start.side,
       });
-      comboEvents.push(createComboEvent(start, "long-start"));
-      if (shouldCountLongEnd(longNoteType)) {
-        comboEvents.push(createComboEvent(end, "long-end"));
-      }
+      comboEvents.push(...createLongComboEvents(start, end, longNoteType));
       lastPlayableTimeSec = Math.max(lastPlayableTimeSec, end.timeSec);
     }
     if (group.length % 2 === 1) {
@@ -336,12 +334,10 @@ function buildNotes(timelineObjects, mode, headers, warnings) {
             endBeat: object.beat,
             endTimeSec: object.timeSec,
             kind: "long",
+            longNoteType,
             side: pendingStart.side,
-            });
-            comboEvents.push(createComboEvent(pendingStart, "long-start"));
-            if (shouldCountLongEnd(longNoteType)) {
-              comboEvents.push(createComboEvent(object, "long-end"));
-            }
+          });
+            comboEvents.push(...createLongComboEvents(pendingStart, object, longNoteType));
             lastPlayableTimeSec = Math.max(lastPlayableTimeSec, object.timeSec);
             pendingStart = null;
           }
@@ -426,11 +422,25 @@ function compareTimelineObject(left, right) {
 
 function readLongNoteType(headers) {
   const lnmode = Number.parseInt(headers.get("LNMODE") ?? "", 10);
-  return lnmode >= 1 && lnmode <= 3 ? lnmode : 0;
+  switch (lnmode) {
+    case 2:
+      return "cn";
+    case 3:
+      return "hcn";
+    case 1:
+    default:
+      return "ln";
+  }
 }
 
-function shouldCountLongEnd(longNoteType) {
-  return longNoteType === 2 || longNoteType === 3;
+function createLongComboEvents(start, end, longNoteType) {
+  if (longNoteType === "cn" || longNoteType === "hcn") {
+    return [
+      createComboEvent(start, "long-start"),
+      createComboEvent(end, "long-end"),
+    ];
+  }
+  return [createComboEvent(end, "long-end")];
 }
 
 function createComboEvent(object, kind) {

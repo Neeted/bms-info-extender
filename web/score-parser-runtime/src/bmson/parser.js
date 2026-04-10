@@ -65,6 +65,7 @@ export function parseBmsonText(text, options) {
   const notes = [];
   const comboEvents = [];
   let lastPlayableTimeSec = 0;
+  const defaultLongNoteType = readBmsonLongNoteType(bmson.info?.ln_type);
   for (const channel of bmson.sound_channels ?? []) {
     for (const note of channel.notes ?? []) {
       const mapping = mapBmsonLane(mode, note?.x);
@@ -80,6 +81,7 @@ export function parseBmsonText(text, options) {
       const endTimeSec = Number.isFinite(note.l) && note.l > 0
         ? timing.beatToSeconds(endBeat)
         : undefined;
+      const longNoteType = endTimeSec === undefined ? undefined : resolveBmsonLongNoteType(note, defaultLongNoteType);
       notes.push({
         lane: mapping.lane,
         beat,
@@ -87,15 +89,13 @@ export function parseBmsonText(text, options) {
         endBeat,
         endTimeSec,
         kind: endTimeSec === undefined ? "normal" : "long",
+        ...(longNoteType ? { longNoteType } : {}),
         side: mapping.side,
       });
       if (endTimeSec === undefined) {
         comboEvents.push(createComboEvent(mapping, beat, timeSec, "normal"));
       } else {
-        comboEvents.push(createComboEvent(mapping, beat, timeSec, "long-start"));
-        if (shouldCountBmsonLongEnd(note)) {
-          comboEvents.push(createComboEvent(mapping, endBeat, endTimeSec, "long-end"));
-        }
+        comboEvents.push(...createBmsonLongComboEvents(mapping, beat, timeSec, endBeat, endTimeSec, longNoteType));
       }
       lastPlayableTimeSec = Math.max(lastPlayableTimeSec, endTimeSec ?? timeSec);
     }
@@ -326,8 +326,33 @@ function mapBmsonLane(mode, xValue) {
   }
 }
 
-function shouldCountBmsonLongEnd(note) {
-  return note?.t === 2 || note?.t === 3;
+function readBmsonLongNoteType(value) {
+  switch (Number(value)) {
+    case 2:
+      return "cn";
+    case 3:
+      return "hcn";
+    case 1:
+    default:
+      return "ln";
+  }
+}
+
+function resolveBmsonLongNoteType(note, defaultLongNoteType) {
+  if (Number.isFinite(note?.t)) {
+    return readBmsonLongNoteType(note.t);
+  }
+  return defaultLongNoteType;
+}
+
+function createBmsonLongComboEvents(mapping, beat, timeSec, endBeat, endTimeSec, longNoteType) {
+  if (longNoteType === "cn" || longNoteType === "hcn") {
+    return [
+      createComboEvent(mapping, beat, timeSec, "long-start"),
+      createComboEvent(mapping, endBeat, endTimeSec, "long-end"),
+    ];
+  }
+  return [createComboEvent(mapping, endBeat, endTimeSec, "long-end")];
 }
 
 function appendBmsonMarkerNotes(notes, channels, kind, mode, resolution, timing, warnings) {

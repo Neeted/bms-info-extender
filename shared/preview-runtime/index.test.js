@@ -1312,7 +1312,7 @@ function createLunaticNegativeBpmParsedScore() {
     initialBpm: 120,
     noteCounts: { visible: 2, normal: 1, long: 1, invisible: 0, mine: 0, all: 2 },
     notes: [
-      { lane: 1, beat: 3, timeSec: 1.5, endBeat: 8, endTimeSec: 4, kind: "long" },
+      { lane: 1, beat: 3, timeSec: 1.5, endBeat: 8, endTimeSec: 4, kind: "long", longNoteType: "hcn" },
       { lane: 2, beat: 10, timeSec: 5, kind: "normal" },
     ],
     barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }, { beat: 12, timeSec: 6 }],

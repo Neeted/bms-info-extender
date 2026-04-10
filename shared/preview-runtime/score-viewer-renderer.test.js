@@ -1293,6 +1293,55 @@ test("renderer draws a held game-mode long-note head after the body and end cap"
   );
 });
 
+test("renderer does not draw a game-mode long-note end cap for plain LN", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel({
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 1, normal: 0, long: 1, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 4.5, endBeat: 5.5, timeSec: 2.25, endTimeSec: 2.75, kind: "long", longNoteType: "ln" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 5.5, timeSec: 2.75, kind: "long-end" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  });
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.5, {
+    viewerMode: "game",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPx: 80,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.deepEqual(
+    getNonBackgroundLaneFillOperations(context)
+      .filter((operation) => operation.x === 80)
+      .map((operation) => ({ y: operation.y, height: operation.height })),
+    [
+      { y: 200, height: 40 },
+      { y: 236, height: 4 },
+    ],
+  );
+});
+
 test("renderer removes the held game-mode long-note head once the end is reached", () => {
   const { canvas, context } = createMockCanvas();
   const renderer = createScoreViewerRenderer(canvas);
@@ -1364,6 +1413,35 @@ test("renderer keeps a Lunatic long-note head at the judge line after the start 
   assert.equal(
     context.fillRectCalls.some((call) => call.fillStyle === "#bebebe" && call.x === 80 && call.y === 236 && call.width === 15 && call.height === 4),
     true,
+  );
+});
+
+test("renderer does not draw a Lunatic long-note end cap even for CN or HCN source notes", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameHeldLongHeadScore(), { gameProfile: "lunatic" });
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.5, {
+    viewerMode: "lunatic",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPx: 80,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.deepEqual(
+    getNonBackgroundLaneFillOperations(context)
+      .filter((operation) => operation.x === 80)
+      .map((operation) => ({ y: operation.y, height: operation.height })),
+    [
+      { y: 200, height: 40 },
+      { y: 236, height: 4 },
+    ],
   );
 });
 
@@ -1548,7 +1626,7 @@ function createLunaticNegativeBpmProjectionScore() {
     lastTimelineTimeSec: 6,
     noteCounts: { visible: 2, normal: 1, long: 1, invisible: 0, mine: 0, all: 2 },
     notes: [
-      { lane: 1, beat: 3, endBeat: 8, timeSec: 1.5, endTimeSec: 4, kind: "long" },
+      { lane: 1, beat: 3, endBeat: 8, timeSec: 1.5, endTimeSec: 4, kind: "long", longNoteType: "hcn" },
       { lane: 2, beat: 6, timeSec: 3, kind: "normal" },
     ],
     comboEvents: [
@@ -1633,7 +1711,7 @@ function createScratchLongNoteScore() {
     lastTimelineTimeSec: 8,
     noteCounts: { visible: 1, normal: 0, long: 1, invisible: 0, mine: 0, all: 1 },
     notes: [
-      { lane: 0, beat: 2, endBeat: 4, timeSec: 1, endTimeSec: 2, kind: "long" },
+      { lane: 0, beat: 2, endBeat: 4, timeSec: 1, endTimeSec: 2, kind: "long", longNoteType: "cn" },
     ],
     comboEvents: [
       { lane: 0, beat: 2, timeSec: 1, kind: "long-start" },
@@ -1926,7 +2004,7 @@ function createReverseLongNoteScore() {
     lastTimelineTimeSec: 8,
     noteCounts: { visible: 1, normal: 0, long: 1, invisible: 0, mine: 0, all: 1 },
     notes: [
-      { lane: 1, beat: 4, endBeat: 6, timeSec: 2, endTimeSec: 3, kind: "long" },
+      { lane: 1, beat: 4, endBeat: 6, timeSec: 2, endTimeSec: 3, kind: "long", longNoteType: "cn" },
     ],
     comboEvents: [
       { lane: 1, beat: 4, timeSec: 2, kind: "long-start" },
@@ -2075,7 +2153,7 @@ function createGameTopClippedLongNoteScore() {
     lastTimelineTimeSec: 4,
     noteCounts: { visible: 1, normal: 0, long: 1, invisible: 0, mine: 0, all: 1 },
     notes: [
-      { lane: 1, beat: 4.5, endBeat: 5.5, timeSec: 2.25, endTimeSec: 2.75, kind: "long" },
+      { lane: 1, beat: 4.5, endBeat: 5.5, timeSec: 2.25, endTimeSec: 2.75, kind: "long", longNoteType: "cn" },
     ],
     comboEvents: [
       { lane: 1, beat: 4.5, timeSec: 2.25, kind: "long-start" },
@@ -2100,7 +2178,7 @@ function createGameHeldLongHeadScore() {
     lastTimelineTimeSec: 4,
     noteCounts: { visible: 1, normal: 0, long: 1, invisible: 0, mine: 0, all: 1 },
     notes: [
-      { lane: 1, beat: 4.5, endBeat: 5.5, timeSec: 2.25, endTimeSec: 2.75, kind: "long" },
+      { lane: 1, beat: 4.5, endBeat: 5.5, timeSec: 2.25, endTimeSec: 2.75, kind: "long", longNoteType: "cn" },
     ],
     comboEvents: [
       { lane: 1, beat: 4.5, timeSec: 2.25, kind: "long-start" },

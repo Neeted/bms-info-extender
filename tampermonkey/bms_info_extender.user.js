@@ -194,7 +194,7 @@
       combo: index + 1
     }));
     const longEndEventKeys = new Set(
-      rawAllNotes.filter((note) => note.kind === "long" && Number.isFinite(note.endTimeSec)).map((note) => ({
+      rawAllNotes.filter((note) => shouldNoteDrawLongEndCap(note)).map((note) => ({
         lane: note.lane,
         timeSec: note.endTimeSec,
         side: note.side
@@ -630,7 +630,7 @@
     return upperBoundByTime(model.comboEvents, timeSec);
   }
   function shouldDrawLongEndCap(model, note) {
-    if (!model || note?.kind !== "long" || !Number.isFinite(note?.endTimeSec)) {
+    if (!model || !shouldNoteDrawLongEndCap(note)) {
       return false;
     }
     return model.longEndEventKeys.has(createTimedLaneKey(note.lane, note.endTimeSec, note.side));
@@ -650,13 +650,41 @@
     return Math.max(model.barLines.length - 2, 0);
   }
   function createFallbackComboEvents(notes) {
-    return notes.filter((note) => note.kind === "normal" || note.kind === "long").map((note) => ({
-      lane: note.lane,
-      beat: Number.isFinite(note.beat) ? note.beat : 0,
-      timeSec: note.timeSec,
-      kind: note.kind === "long" ? "long-start" : "normal",
-      ...note.side ? { side: note.side } : {}
-    }));
+    const comboEvents = [];
+    for (const note of notes ?? []) {
+      if (note.kind === "normal") {
+        comboEvents.push({
+          lane: note.lane,
+          beat: Number.isFinite(note.beat) ? note.beat : 0,
+          timeSec: note.timeSec,
+          kind: "normal",
+          ...note.side ? { side: note.side } : {}
+        });
+        continue;
+      }
+      if (note.kind !== "long") {
+        continue;
+      }
+      if (shouldCountLongStartCombo(note)) {
+        comboEvents.push({
+          lane: note.lane,
+          beat: Number.isFinite(note.beat) ? note.beat : 0,
+          timeSec: note.timeSec,
+          kind: "long-start",
+          ...note.side ? { side: note.side } : {}
+        });
+      }
+      if (Number.isFinite(note.endTimeSec)) {
+        comboEvents.push({
+          lane: note.lane,
+          beat: Number.isFinite(note.endBeat) ? note.endBeat : Number.isFinite(note.beat) ? note.beat : 0,
+          timeSec: note.endTimeSec,
+          kind: "long-end",
+          ...note.side ? { side: note.side } : {}
+        });
+      }
+    }
+    return comboEvents;
   }
   function normalizeGameProfile(value) {
     return value === "lunatic" ? "lunatic" : "game";
@@ -711,7 +739,7 @@
       };
     }
     const notes = (score.notes ?? []).map((note) => transformLunaticNote(note, beatTimingIndex));
-    const comboEvents = (score.comboEvents ?? []).filter((event) => !reverseMeta || finiteOrZero(event?.beat) < reverseMeta.startBeat).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
+    const comboEvents = createFallbackComboEvents(notes).filter((event) => !reverseMeta || finiteOrZero(event?.beat) < reverseMeta.startBeat).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
     const barLines = (score.barLines ?? []).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
     const bpmChanges = buildBpmChangesFromTimingActionsForViewer(score.initialBpm, transformedTimingActions);
     const stops = buildStopsFromTimingActionsForViewer(transformedTimingActions);
@@ -759,7 +787,16 @@
     if (Number.isFinite(note?.endBeat)) {
       transformedNote.endTimeSec = beatTimingIndex.beatToSeconds(note.endBeat);
     }
+    if (transformedNote.kind === "long") {
+      transformedNote.longNoteType = "ln";
+    }
     return transformedNote;
+  }
+  function shouldNoteDrawLongEndCap(note) {
+    return note?.kind === "long" && Number.isFinite(note?.endTimeSec) && (note?.longNoteType === "cn" || note?.longNoteType === "hcn");
+  }
+  function shouldCountLongStartCombo(note) {
+    return note?.kind === "long" && (note?.longNoteType === "cn" || note?.longNoteType === "hcn");
   }
   function materializeTimingActionsForViewer(initialBpm, actions, terminalBeat = 0) {
     const resolvedInitialBpm = Number.isFinite(initialBpm) && initialBpm > 0 ? initialBpm : null;

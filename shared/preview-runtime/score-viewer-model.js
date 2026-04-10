@@ -214,7 +214,9 @@ export function createScoreViewerModel(score, { bpmSummary = undefined, gameProf
   const rawStops = [...profiledScore.stops].sort(compareTimedBeatLike);
   const rawScrollChanges = [...(profiledScore.scrollChanges ?? [])].sort(compareTimedBeatLike);
 
-  const comboEvents = (profiledScore.comboEvents?.length > 0 ? profiledScore.comboEvents : createFallbackComboEvents(profiledScore.notes))
+  const comboEvents = (profiledScore.comboEvents?.length > 0
+    ? profiledScore.comboEvents
+    : createFallbackComboEvents(profiledScore.notes))
     .map((event) => ({ ...event }))
     .sort(compareComboEvent)
     .map((event, index) => ({
@@ -224,7 +226,7 @@ export function createScoreViewerModel(score, { bpmSummary = undefined, gameProf
 
   const longEndEventKeys = new Set(
     rawAllNotes
-      .filter((note) => note.kind === "long" && Number.isFinite(note.endTimeSec))
+      .filter((note) => shouldNoteDrawLongEndCap(note))
       .map((note) => ({
         lane: note.lane,
         timeSec: note.endTimeSec,
@@ -834,7 +836,7 @@ export function getComboCountAtTime(model, timeSec) {
 }
 
 export function shouldDrawLongEndCap(model, note) {
-  if (!model || note?.kind !== "long" || !Number.isFinite(note?.endTimeSec)) {
+  if (!model || !shouldNoteDrawLongEndCap(note)) {
     return false;
   }
   return model.longEndEventKeys.has(createTimedLaneKey(note.lane, note.endTimeSec, note.side));
@@ -862,15 +864,41 @@ function getTotalMeasureIndex(model) {
 }
 
 function createFallbackComboEvents(notes) {
-  return notes
-    .filter((note) => note.kind === "normal" || note.kind === "long")
-    .map((note) => ({
-      lane: note.lane,
-      beat: Number.isFinite(note.beat) ? note.beat : 0,
-      timeSec: note.timeSec,
-      kind: note.kind === "long" ? "long-start" : "normal",
-      ...(note.side ? { side: note.side } : {}),
-    }));
+  const comboEvents = [];
+  for (const note of notes ?? []) {
+    if (note.kind === "normal") {
+      comboEvents.push({
+        lane: note.lane,
+        beat: Number.isFinite(note.beat) ? note.beat : 0,
+        timeSec: note.timeSec,
+        kind: "normal",
+        ...(note.side ? { side: note.side } : {}),
+      });
+      continue;
+    }
+    if (note.kind !== "long") {
+      continue;
+    }
+    if (shouldCountLongStartCombo(note)) {
+      comboEvents.push({
+        lane: note.lane,
+        beat: Number.isFinite(note.beat) ? note.beat : 0,
+        timeSec: note.timeSec,
+        kind: "long-start",
+        ...(note.side ? { side: note.side } : {}),
+      });
+    }
+    if (Number.isFinite(note.endTimeSec)) {
+      comboEvents.push({
+        lane: note.lane,
+        beat: Number.isFinite(note.endBeat) ? note.endBeat : Number.isFinite(note.beat) ? note.beat : 0,
+        timeSec: note.endTimeSec,
+        kind: "long-end",
+        ...(note.side ? { side: note.side } : {}),
+      });
+    }
+  }
+  return comboEvents;
 }
 
 function normalizeGameProfile(value) {
@@ -941,7 +969,7 @@ function createLunaticProfileScore(score) {
   }
 
   const notes = (score.notes ?? []).map((note) => transformLunaticNote(note, beatTimingIndex));
-  const comboEvents = (score.comboEvents ?? [])
+  const comboEvents = createFallbackComboEvents(notes)
     .filter((event) => !reverseMeta || finiteOrZero(event?.beat) < reverseMeta.startBeat)
     .map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
   const barLines = (score.barLines ?? []).map((event) => transformLunaticTimedBeatEvent(event, beatTimingIndex));
@@ -994,7 +1022,20 @@ function transformLunaticNote(note, beatTimingIndex) {
   if (Number.isFinite(note?.endBeat)) {
     transformedNote.endTimeSec = beatTimingIndex.beatToSeconds(note.endBeat);
   }
+  if (transformedNote.kind === "long") {
+    transformedNote.longNoteType = "ln";
+  }
   return transformedNote;
+}
+
+function shouldNoteDrawLongEndCap(note) {
+  return note?.kind === "long"
+    && Number.isFinite(note?.endTimeSec)
+    && (note?.longNoteType === "cn" || note?.longNoteType === "hcn");
+}
+
+function shouldCountLongStartCombo(note) {
+  return note?.kind === "long" && (note?.longNoteType === "cn" || note?.longNoteType === "hcn");
 }
 
 function materializeTimingActionsForViewer(initialBpm, actions, terminalBeat = 0) {

@@ -1055,18 +1055,32 @@ function drawNoteHeadsGameMode(context, model, lanes, projection, showInvisibleN
       }
       drawRectNote(context, lane, projectedPoint.y, lane.note);
     }
-    if (!showInvisibleNotes) {
+  }
+  for (const note of model.notes ?? []) {
+    if (!shouldDrawHeldLongStartHead(note, projection)) {
       continue;
     }
-    for (const note of projectedPoint.point.notes) {
-      if (note.kind !== "invisible") {
+    const lane = lanes[note.lane];
+    if (!lane) {
+      continue;
+    }
+    drawRectNote(context, lane, projection.judgeLineY, lane.note);
+  }
+  if (showInvisibleNotes) {
+    for (const projectedPoint of projection.points) {
+      if (!isGameProjectionYWithinRenderBounds(projectedPoint.y, projection)) {
         continue;
       }
-      const lane = lanes[note.lane];
-      if (!lane) {
-        continue;
+      for (const note of projectedPoint.point.notes) {
+        if (note.kind !== "invisible") {
+          continue;
+        }
+        const lane = lanes[note.lane];
+        if (!lane) {
+          continue;
+        }
+        drawOutlinedRectNote(context, lane, projectedPoint.y, INVISIBLE_NOTE_COLOR);
       }
-      drawOutlinedRectNote(context, lane, projectedPoint.y, INVISIBLE_NOTE_COLOR);
     }
   }
   context.restore();
@@ -1204,6 +1218,17 @@ function getProjectedGameLongBodyEndY(note, projection) {
     return clamp(projection.exitPoint.y, projection.renderTopY, projection.renderBottomY);
   }
   return null;
+}
+
+function shouldDrawHeldLongStartHead(note, projection) {
+  if (note?.kind !== "long" || !Number.isFinite(note?.timeSec) || !Number.isFinite(note?.endTimeSec)) {
+    return false;
+  }
+  if (!(note.timeSec < projection.selectedTimeSec && projection.selectedTimeSec < note.endTimeSec)) {
+    return false;
+  }
+  const projectedStartY = projection.pointYByIndex.get(note.gameTimelineIndex);
+  return !Number.isFinite(projectedStartY);
 }
 
 function clipToGameRenderWindow(context, projection, viewportWidth, render) {

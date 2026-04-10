@@ -779,7 +779,7 @@ test("renderer draws later game timeline mine notes over earlier invisible notes
 
   assert.deepEqual(
     getMineAndInvisibleOperations(context).map((operation) => operation.type),
-    ["strokeRect", "fillRect"],
+    ["fillRect", "strokeRect"],
   );
 });
 
@@ -1222,6 +1222,134 @@ test("renderer clamps visible game-mode long bodies to the active lane top", () 
     [
       { x: 80, y: 160, width: 15, height: 40 },
     ],
+  );
+});
+
+test("renderer keeps a game-mode long-note head at the judge line after the start passes", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameHeldLongHeadScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.5, {
+    viewerMode: "game",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPx: 80,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#bebebe" && call.x === 80 && call.y === 236 && call.width === 15 && call.height === 4),
+    true,
+  );
+});
+
+test("renderer draws a held game-mode long-note head after the body and end cap", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameHeldLongHeadScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.5, {
+    viewerMode: "game",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPx: 80,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.deepEqual(
+    getNonBackgroundLaneFillOperations(context)
+      .filter((operation) => operation.x === 80)
+      .map((operation) => ({ y: operation.y, height: operation.height })),
+    [
+      { y: 200, height: 40 },
+      { y: 196, height: 4 },
+      { y: 236, height: 4 },
+    ],
+  );
+});
+
+test("renderer removes the held game-mode long-note head once the end is reached", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameHeldLongHeadScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.76, {
+    viewerMode: "game",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPx: 80,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#bebebe" && call.x === 80 && call.y === 236 && call.width === 15 && call.height === 4),
+    false,
+  );
+});
+
+test("renderer does not double-draw a game-mode long-note head before the start passes", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameHeldLongHeadScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.2, {
+    viewerMode: "game",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPx: 80,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.deepEqual(
+    context.fillRectCalls
+      .filter((call) => call.fillStyle === "#bebebe" && call.x === 80 && call.width === 15 && call.height === 4)
+      .map(({ y }) => y),
+    [228],
+  );
+});
+
+test("renderer keeps a Lunatic long-note head at the judge line after the start passes", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createGameHeldLongHeadScore(), { gameProfile: "lunatic" });
+
+  renderer.resize(240, 320);
+  renderer.render(model, 2.5, {
+    viewerMode: "lunatic",
+    judgeLineY: 240,
+    gameTimingConfig: {
+      durationMs: 500,
+      laneHeightPx: 80,
+      laneCoverPermille: 0,
+      laneCoverVisible: true,
+      hsFixMode: "main",
+    },
+  });
+
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#bebebe" && call.x === 80 && call.y === 236 && call.width === 15 && call.height === 4),
+    true,
   );
 });
 
@@ -1848,6 +1976,31 @@ function createGameTopClippedLongNoteScore() {
   };
 }
 
+function createGameHeldLongHeadScore() {
+  return {
+    format: "bms",
+    mode: "7k",
+    laneCount: 8,
+    initialBpm: 120,
+    totalDurationSec: 4,
+    lastPlayableTimeSec: 4,
+    lastTimelineTimeSec: 4,
+    noteCounts: { visible: 1, normal: 0, long: 1, invisible: 0, mine: 0, all: 1 },
+    notes: [
+      { lane: 1, beat: 4.5, endBeat: 5.5, timeSec: 2.25, endTimeSec: 2.75, kind: "long" },
+    ],
+    comboEvents: [
+      { lane: 1, beat: 4.5, timeSec: 2.25, kind: "long-start" },
+      { lane: 1, beat: 5.5, timeSec: 2.75, kind: "long-end" },
+    ],
+    barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
 function createGameTopClippedMarkerScore() {
   return {
     format: "bms",
@@ -2032,6 +2185,16 @@ function getMineAndInvisibleOperations(context) {
   return context.operations.filter((operation) => (
     (operation.type === "fillRect" && operation.fillStyle === "#880000")
     || (operation.type === "strokeRect" && operation.strokeStyle === "#FFFF00")
+  ));
+}
+
+function getNonBackgroundLaneFillOperations(context) {
+  return context.operations.filter((operation) => (
+    operation.type === "fillRect"
+    && operation.fillStyle !== "#000000"
+    && operation.fillStyle !== "#808080"
+    && operation.fillStyle !== "#ff0000"
+    && operation.fillStyle !== "#2A2A2A"
   ));
 }
 

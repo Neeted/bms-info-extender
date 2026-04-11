@@ -697,7 +697,7 @@ test("viewer model builds a Lunatic reverse profile from the first negative BPM 
     ],
   );
   assert.equal(lunaticModel.score.notes[1].longNoteType, "ln");
-  assert.equal(lunaticModel.totalCombo, 1);
+  assert.equal(lunaticModel.totalCombo, 4);
   assert.ok(Math.abs(lunaticModel.score.notes[2].timeSec - 3.5) < 0.000001);
   assert.equal(lunaticModel.score.totalDurationSec, 4);
   assert.equal(getComboCountAtTime(lunaticModel, 3.9), 1);
@@ -805,6 +805,7 @@ test("viewer model fallback combo events use LN end timing and CN/HCN start plus
       { lane: 2, beat: 4, kind: "long-end" },
     ],
   );
+  assert.equal(model.totalCombo, 3);
 });
 
 test("viewer model applies the last same-beat scroll change to subsequent game displacement", () => {

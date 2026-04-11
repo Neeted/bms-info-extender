@@ -223,6 +223,12 @@ export function createScoreViewerModel(score, { bpmSummary = undefined, gameProf
       ...event,
       combo: index + 1,
     }));
+  const totalCombo = (
+    (score?.comboEvents?.length > 0 ? score.comboEvents : createFallbackComboEvents(score?.notes ?? []))
+      .slice()
+      .sort(compareComboEvent)
+      .length
+  );
 
   const longEndEventKeys = new Set(
     rawAllNotes
@@ -309,7 +315,7 @@ export function createScoreViewerModel(score, { bpmSummary = undefined, gameProf
     gameTimeline,
     gameTimingStatePoints,
     bpmSummary: resolvedBpmSummary,
-    totalCombo: comboEvents.length,
+    totalCombo,
     beatTimingIndex,
     canonicalBeatTimingIndex,
     gameScrollIndex,

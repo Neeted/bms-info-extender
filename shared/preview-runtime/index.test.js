@@ -47,6 +47,7 @@ import {
   getInitialRendererConfig,
 } from "./index.js";
 import {
+  getViewerCursor,
   getScoreTotalDurationSec,
   mapCanonicalTimeToViewerTime,
   mapViewerTimeToCanonicalTime,
@@ -887,6 +888,29 @@ test("manual scroll in Lunatic can stay past the canonical end when negative BPM
     assert.ok(state.playbackViewerTimeSec > 5.5);
     assert.ok(Math.abs(state.selectedTimeSec - 4) < 0.0005);
     assert.ok(scrollHost.scrollTop > 900);
+  } finally {
+    environment.restore();
+  }
+});
+
+test("Lunatic cursor keeps source total combo while current combo stops before reverse-inaccessible notes", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const score = createLunaticNegativeBpmParsedScore();
+    const { preview } = createPreviewHarness(environment.document, {
+      prefetchParsedScore: async () => {},
+      loadParsedScore: async () => score,
+    });
+
+    preview.setRecord(createNormalizedRecord("lunatic-total-combo".padEnd(64, "0")), { parsedScore: score });
+    preview.setViewerMode("lunatic");
+    preview.setSelectedTimeSec(3.9);
+    await environment.settle();
+
+    const state = preview.getState();
+    const cursor = getViewerCursor(state.viewerModel, state.selectedTimeSec, state.resolvedViewerMode);
+    assert.equal(cursor.comboCount, 2);
+    assert.equal(cursor.totalCombo, 3);
   } finally {
     environment.restore();
   }

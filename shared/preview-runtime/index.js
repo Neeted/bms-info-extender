@@ -2978,6 +2978,10 @@ function estimateViewerWidthFromNumericMode(mode, rendererConfig = DEFAULT_RENDE
       return estimateViewerWidth("10k", 12, rendererConfig, columnCount);
     case 14:
       return estimateViewerWidth("14k", 16, rendererConfig, columnCount);
+    case 25:
+      return estimateViewerWidth("24k", 26, rendererConfig, columnCount);
+    case 50:
+      return estimateViewerWidth("48k", 52, rendererConfig, columnCount);
     default:
       return estimateViewerWidth(String(mode ?? ""), getDisplayLaneCount(mode), rendererConfig, columnCount);
   }
@@ -3059,6 +3063,12 @@ function getDisplayLaneCount(mode) {
     case 14:
     case "14k":
       return 16;
+    case 25:
+    case "24k":
+      return 26;
+    case 50:
+    case "48k":
+      return 52;
     case 9:
     case "9k":
     case "popn-9k":

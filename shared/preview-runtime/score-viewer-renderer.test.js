@@ -107,6 +107,8 @@ test("estimateViewerWidth scales by column count while keeping single-column cal
   assert.equal(estimateViewerWidth("7k", 8), 240);
   assert.equal(estimateViewerWidth("7k", 8, undefined, 2), 480);
   assert.equal(estimateViewerWidth("7k", 8, { noteWidth: 20, separatorWidth: 2 }, 2), 568);
+  assert.equal(estimateViewerWidth("24k", 26), 352);
+  assert.equal(estimateViewerWidth("48k", 52), 607);
 });
 
 test("renderer wraps time-mode notes into the next column from the bottom", () => {
@@ -139,6 +141,28 @@ test("renderer wraps editor-mode notes into the next column from the bottom", ()
     context.fillRectCalls.some((call) => call.fillStyle === "#bebebe" && call.x === 320 && call.y === 220 && call.width === 15 && call.height === 4),
     true,
   );
+});
+
+test("renderer keeps editor subgrid strokes visible above lane backgrounds", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createInvisibleNoteScore());
+
+  renderer.resize(240, 320);
+  renderer.render(model, 1, { viewerMode: "editor" });
+
+  assert.equal(
+    context.strokeCalls.some((call) => call.strokeStyle === "#404040"),
+    true,
+  );
+  assert.equal(
+    context.strokeCalls.some((call) => call.strokeStyle === "#808080"),
+    true,
+  );
+  const sixteenthIndex = context.operations.findIndex((operation) => operation.type === "stroke" && operation.strokeStyle === "#404040");
+  const separatorIndex = context.operations.findIndex((operation) => operation.type === "stroke" && operation.strokeStyle === "#404040" && operation.lineWidth === 1 && sixteenthIndex !== -1 && context.operations.indexOf(operation) > sixteenthIndex);
+  assert.ok(sixteenthIndex >= 0);
+  assert.ok(separatorIndex > sixteenthIndex);
 });
 
 test("renderer draws the time-mode judge line only in the first column", () => {
@@ -243,6 +267,62 @@ test("renderer uses scratchWidth for scratch lanes independently from normal not
       .filter((call) => call.fillStyle === "#e04a4a")
       .map(({ x, y, width, height }) => ({ x, y, width, height })),
     [{ x: 57, y: 156, width: 34, height: 4 }],
+  );
+});
+
+test("renderer lays out 24k wheel, white, and black notes with shared wheel X and rounded black-key placement", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createKeyboardChordScore("24k", 26, [0, 1, 2, 3]));
+
+  renderer.resize(400, 320);
+  renderer.render(model, 1, { viewerMode: "time" });
+
+  const noteRects = context.fillRectCalls
+    .filter((call) => call.height === 4)
+    .map(({ x, y, width, height, fillStyle }) => ({ x, y, width, height, fillStyle }));
+  assert.deepEqual(noteRects, [
+    { x: 73, y: 156, width: 30, height: 4, fillStyle: "#0000ff" },
+    { x: 73, y: 156, width: 30, height: 4, fillStyle: "#ff0000" },
+    { x: 104, y: 156, width: 15, height: 4, fillStyle: "#bebebe" },
+    { x: 112, y: 156, width: 15, height: 4, fillStyle: "#5074fe" },
+  ]);
+});
+
+test("renderer draws the 24k background pattern on white and wheel columns only", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createKeyboardChordScore("24k", 26, []));
+
+  renderer.resize(400, 320);
+  renderer.render(model, 1, { viewerMode: "time" });
+
+  const backgroundRects = context.fillRectCalls
+    .filter((call) => call.height === 320 && (call.fillStyle === "#000030" || call.fillStyle === "#1a1a45"))
+    .map(({ x, width, fillStyle }) => ({ x, width, fillStyle }));
+  assert.equal(backgroundRects.length, 15);
+  assert.deepEqual(backgroundRects.slice(0, 3), [
+    { x: 73, width: 30, fillStyle: "#000030" },
+    { x: 104, width: 15, fillStyle: "#1a1a45" },
+    { x: 120, width: 15, fillStyle: "#1a1a45" },
+  ]);
+  assert.deepEqual(backgroundRects.at(-1), { x: 312, width: 15, fillStyle: "#000030" });
+});
+
+test("renderer draws a white center separator for 48k without using the DP gutter fill", () => {
+  const { canvas, context } = createMockCanvas();
+  const renderer = createScoreViewerRenderer(canvas);
+  const model = createScoreViewerModel(createKeyboardChordScore("48k", 52, []));
+
+  renderer.resize(700, 320);
+  renderer.render(model, 1, { viewerMode: "time" });
+
+  const whiteSeparatorIndex = context.strokeCalls.findIndex((call) => call.strokeStyle === "#ffffff");
+  assert.ok(whiteSeparatorIndex >= 0);
+  assert.equal(context.moveToCalls[whiteSeparatorIndex]?.x, 349.5);
+  assert.equal(
+    context.fillRectCalls.some((call) => call.fillStyle === "#808080"),
+    false,
   );
 });
 
@@ -1608,6 +1688,26 @@ function createSingleLaneScore(mode, laneCount, lane) {
     ],
     comboEvents: [{ lane, beat: 2, timeSec: 1, kind: "normal" }],
     barLines: [{ beat: 0, timeSec: 0 }, { beat: 4, timeSec: 2 }, { beat: 8, timeSec: 4 }],
+    bpmChanges: [],
+    stops: [],
+    scrollChanges: [],
+    warnings: [],
+  };
+}
+
+function createKeyboardChordScore(mode, laneCount, lanes) {
+  return {
+    format: "bmson",
+    mode,
+    laneCount,
+    initialBpm: 120,
+    totalDurationSec: 8,
+    lastPlayableTimeSec: 8,
+    lastTimelineTimeSec: 8,
+    noteCounts: { visible: lanes.length, normal: lanes.length, long: 0, invisible: 0, mine: 0, all: lanes.length },
+    notes: lanes.map((lane) => ({ lane, beat: 2, timeSec: 1, kind: "normal" })),
+    comboEvents: lanes.map((lane) => ({ lane, beat: 2, timeSec: 1, kind: "normal" })),
+    barLines: [],
     bpmChanges: [],
     stops: [],
     scrollChanges: [],

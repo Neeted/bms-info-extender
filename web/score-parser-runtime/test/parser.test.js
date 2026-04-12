@@ -753,6 +753,119 @@ test("BMSON supports explicit popn mode hints and keeps generic 9 lanes distinct
   assert.equal(generic9kResult.score.laneCount, 9);
 });
 
+test("BMSON supports explicit keyboard-24k and keyboard-24k-double mode hints", () => {
+  const keyboard24k = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "keyboard-24k",
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 25, y: 0, l: 0, c: false }, { x: 26, y: 240, l: 0, c: false }, { x: 1, y: 480, l: 0, c: false }, { x: 24, y: 720, l: 0, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const keyboard48k = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "keyboard-24k-double",
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 27, y: 0, l: 0, c: false }, { x: 50, y: 240, l: 0, c: false }, { x: 51, y: 480, l: 0, c: false }, { x: 52, y: 720, l: 0, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+
+  const keyboard24kResult = parseScoreBytes(new TextEncoder().encode(JSON.stringify(keyboard24k)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "24".repeat(32),
+  });
+  assert.equal(keyboard24kResult.ok, true);
+  assert.equal(keyboard24kResult.score.mode, "24k");
+  assert.equal(keyboard24kResult.score.laneCount, 26);
+  assert.deepEqual(keyboard24kResult.score.notes.map((note) => note.lane), [0, 1, 2, 25]);
+
+  const keyboard48kResult = parseScoreBytes(new TextEncoder().encode(JSON.stringify(keyboard48k)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "48".repeat(32),
+  });
+  assert.equal(keyboard48kResult.ok, true);
+  assert.equal(keyboard48kResult.score.mode, "48k");
+  assert.equal(keyboard48kResult.score.laneCount, 52);
+  assert.deepEqual(keyboard48kResult.score.notes.map((note) => ({ lane: note.lane, side: note.side })), [
+    { lane: 26, side: "p2" },
+    { lane: 49, side: "p2" },
+    { lane: 50, side: "p2" },
+    { lane: 51, side: "p2" },
+  ]);
+});
+
+test("BMSON auto-detects keyboard-24k and keyboard-24k-double from lane ranges", () => {
+  const keyboard24k = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 17, y: 0, l: 0, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const keyboard48k = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 27, y: 0, l: 0, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+
+  const keyboard24kResult = parseScoreBytes(new TextEncoder().encode(JSON.stringify(keyboard24k)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "26".repeat(32),
+  });
+  assert.equal(keyboard24kResult.ok, true);
+  assert.equal(keyboard24kResult.score.mode, "24k");
+
+  const keyboard48kResult = parseScoreBytes(new TextEncoder().encode(JSON.stringify(keyboard48k)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "52".repeat(32),
+  });
+  assert.equal(keyboard48kResult.ok, true);
+  assert.equal(keyboard48kResult.score.mode, "48k");
+});
+
 test("BMSON charge notes add both long-start and long-end combo events", () => {
   const bmson = {
     version: "1.0.0",
@@ -871,6 +984,136 @@ test("BMSON keeps key_channels invisible and mine_channels separate from visible
   assert.ok(result.score.notes.some((note) => note.kind === "mine"));
 });
 
+test("BMSON collapses layered normal notes at the same x and y into one playable note", () => {
+  const bmson = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "keyboard-24k",
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 1, y: 240, l: 0, c: false }] },
+      { name: "b.wav", notes: [{ x: 1, y: 240, l: 0, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const result = parseScoreBytes(new TextEncoder().encode(JSON.stringify(bmson)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "61".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.noteCounts.visible, 1);
+  assert.equal(result.score.notes.length, 1);
+  assert.equal(result.score.comboEvents.length, 1);
+  assert.deepEqual(result.score.warnings, []);
+});
+
+test("BMSON collapses layered long notes with the same start and end into one playable note", () => {
+  const bmson = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "keyboard-24k",
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 1, y: 240, l: 240, c: false, t: 2 }] },
+      { name: "b.wav", notes: [{ x: 1, y: 240, l: 240, c: false, t: 3 }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const result = parseScoreBytes(new TextEncoder().encode(JSON.stringify(bmson)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "62".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.noteCounts.visible, 1);
+  assert.equal(result.score.notes.length, 1);
+  assert.deepEqual(result.score.comboEvents.map((event) => event.kind), ["long-start", "long-end"]);
+  assert.deepEqual(result.score.warnings, []);
+});
+
+test("BMSON ignores x=0 sound, key, and mine notes without warnings", () => {
+  const bmson = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "keyboard-24k",
+    },
+    sound_channels: [
+      { name: "bg.wav", notes: [{ x: 0, y: 240, l: 0, c: false }] },
+      { name: "play.wav", notes: [{ x: 1, y: 480, l: 0, c: false }] },
+    ],
+    key_channels: [
+      { name: "hidden.wav", notes: [{ x: 0, y: 720, damage: 0 }] },
+    ],
+    mine_channels: [
+      { name: "mine.wav", notes: [{ x: 0, y: 960, damage: 1 }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const result = parseScoreBytes(new TextEncoder().encode(JSON.stringify(bmson)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "63".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.noteCounts.visible, 1);
+  assert.equal(result.score.noteCounts.invisible, 0);
+  assert.equal(result.score.noteCounts.mine, 0);
+  assert.deepEqual(result.score.warnings, []);
+});
+
+test("BMSON warns on conflicting duplicate shapes at the same position and keeps only the first playable note", () => {
+  const bmson = {
+    version: "1.0.0",
+    info: {
+      title: "test",
+      artist: "test",
+      genre: "test",
+      chart_name: "test",
+      level: 1,
+      init_bpm: 120,
+      resolution: 240,
+      mode_hint: "keyboard-24k",
+    },
+    sound_channels: [
+      { name: "a.wav", notes: [{ x: 1, y: 240, l: 0, c: false }] },
+      { name: "b.wav", notes: [{ x: 1, y: 240, l: 240, c: false }] },
+    ],
+    bga: { bga_header: [], bga_events: [], layer_events: [], poor_events: [] },
+  };
+  const result = parseScoreBytes(new TextEncoder().encode(JSON.stringify(bmson)), {
+    formatHint: "bmson",
+    textEncoding: "utf-8",
+    sha256: "64".repeat(32),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.noteCounts.visible, 1);
+  assert.equal(result.score.notes.length, 1);
+  assert.equal(result.score.comboEvents.length, 1);
+  assert.match(result.score.warnings[0]?.message ?? "", /Ignored conflicting duplicate BMSON note/);
+});
+
 test("BMSON auto-detects mode from key_channels and mine_channels", () => {
   const bmson = {
     version: "1.0.0",
@@ -953,6 +1196,26 @@ test("oracle regression: BMSON mine_channels are exposed as mine notes", { skip:
   assert.equal(
     result.score.noteCounts.all,
     result.score.noteCounts.visible + result.score.noteCounts.invisible + result.score.noteCounts.mine,
+  );
+});
+
+test("oracle regression: BMSON keyboard-24k layered notes collapse to beatoraja note counts", { skip: !scoreFileExists("31f8cede4b5b3dd2d99f2e60d3e9a070ac6fadaaf8d826300addc5a9493a6b82") }, () => {
+  const sha256 = "31f8cede4b5b3dd2d99f2e60d3e9a070ac6fadaaf8d826300addc5a9493a6b82";
+  const gzipPath = path.join(REPO_ROOT, "site", "score", sha256.slice(0, 2), `${sha256}.gz`);
+  const result = parseScoreBytes(gunzipSync(readFileSync(gzipPath)), {
+    formatHint: "bmson",
+    sha256,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.score.mode, "24k");
+  assert.equal(result.score.noteCounts.visible, 1280);
+  assert.equal(
+    result.score.warnings.some((warning) => warning.message.includes("x=0 for mode 24k")),
+    false,
+  );
+  assert.equal(
+    result.score.notes.filter((note) => note.kind === "normal" && note.lane === 2 && Math.abs(note.timeSec - 7 / 6) < 1e-9).length,
+    1,
   );
 });
 

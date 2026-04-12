@@ -64,13 +64,20 @@ export function parseBmsonText(text, options) {
   const timingActions = materializeTimingActions(timing);
   const notes = [];
   const comboEvents = [];
+  const playableNotesByStartKey = new Map();
   let lastPlayableTimeSec = 0;
   const defaultLongNoteType = readBmsonLongNoteType(bmson.info?.ln_type);
   for (const channel of bmson.sound_channels ?? []) {
     for (const note of channel.notes ?? []) {
+      if (!Number.isFinite(note?.x) || note.x <= 0) {
+        continue;
+      }
       const mapping = mapBmsonLane(mode, note?.x);
       if (!mapping) {
-        warnings.push(createUnsupportedBmsonLaneWarning(note?.x, mode));
+        continue;
+      }
+      if (!Number.isFinite(note?.y)) {
+        warnings.push(createWarning("parse_warning", "Ignored invalid bmson sound_channel note."));
         continue;
       }
       const beat = note.y / resolution;
@@ -81,17 +88,27 @@ export function parseBmsonText(text, options) {
       const endTimeSec = Number.isFinite(note.l) && note.l > 0
         ? timing.beatToSeconds(endBeat)
         : undefined;
+      const kind = endTimeSec === undefined ? "normal" : "long";
       const longNoteType = endTimeSec === undefined ? undefined : resolveBmsonLongNoteType(note, defaultLongNoteType);
-      notes.push({
+      const nextNote = {
         lane: mapping.lane,
         beat,
         timeSec,
         endBeat,
         endTimeSec,
-        kind: endTimeSec === undefined ? "normal" : "long",
+        kind,
         ...(longNoteType ? { longNoteType } : {}),
         side: mapping.side,
-      });
+      };
+      const duplicateDisposition = registerBmsonPlayableNote(playableNotesByStartKey, nextNote);
+      if (duplicateDisposition === "layered") {
+        continue;
+      }
+      if (duplicateDisposition === "conflict") {
+        warnings.push(createConflictingBmsonNoteWarning(note));
+        continue;
+      }
+      notes.push(nextNote);
       if (endTimeSec === undefined) {
         comboEvents.push(createComboEvent(mapping, beat, timeSec, "normal"));
       } else {
@@ -100,8 +117,8 @@ export function parseBmsonText(text, options) {
       lastPlayableTimeSec = Math.max(lastPlayableTimeSec, endTimeSec ?? timeSec);
     }
   }
-  appendBmsonMarkerNotes(notes, bmson.key_channels, "invisible", mode, resolution, timing, warnings);
-  appendBmsonMarkerNotes(notes, bmson.mine_channels, "mine", mode, resolution, timing, warnings);
+  appendBmsonMarkerNotes(notes, bmson.key_channels, "invisible", mode, resolution, timing);
+  appendBmsonMarkerNotes(notes, bmson.mine_channels, "mine", mode, resolution, timing);
 
   notes.sort((left, right) => {
     if (left.timeSec !== right.timeSec) {
@@ -219,6 +236,12 @@ function detectBmsonMode(bmson) {
   if (modeHint === "beat-14k") {
     return "14k";
   }
+  if (modeHint === "keyboard-24k") {
+    return "24k";
+  }
+  if (modeHint === "keyboard-24k-double") {
+    return "48k";
+  }
 
   const xs = [];
   appendBmsonLaneXs(xs, bmson.sound_channels);
@@ -226,6 +249,12 @@ function detectBmsonMode(bmson) {
   appendBmsonLaneXs(xs, bmson.mine_channels);
   if (xs.length === 0) {
     return "unknown";
+  }
+  if (xs.some((x) => x >= 27 && x <= 52)) {
+    return "48k";
+  }
+  if (xs.some((x) => x >= 17 && x <= 26)) {
+    return "24k";
   }
   if (xs.every((x) => x >= 1 && x <= 9)) {
     return "9k";
@@ -254,6 +283,10 @@ function laneCountForBmsonMode(mode) {
       return 12;
     case "14k":
       return 16;
+    case "24k":
+      return 26;
+    case "48k":
+      return 52;
     default:
       return 0;
   }
@@ -321,6 +354,37 @@ function mapBmsonLane(mode, xValue) {
         return { lane: x, side: "p2" };
       }
       return null;
+    case "24k":
+      if (x === 25) {
+        return { lane: 0, side: "p1" };
+      }
+      if (x === 26) {
+        return { lane: 1, side: "p1" };
+      }
+      if (x >= 1 && x <= 24) {
+        return { lane: x + 1, side: "p1" };
+      }
+      return null;
+    case "48k":
+      if (x === 25) {
+        return { lane: 0, side: "p1" };
+      }
+      if (x === 26) {
+        return { lane: 1, side: "p1" };
+      }
+      if (x >= 1 && x <= 24) {
+        return { lane: x + 1, side: "p1" };
+      }
+      if (x >= 27 && x <= 50) {
+        return { lane: x - 1, side: "p2" };
+      }
+      if (x === 51) {
+        return { lane: 50, side: "p2" };
+      }
+      if (x === 52) {
+        return { lane: 51, side: "p2" };
+      }
+      return null;
     default:
       return null;
   }
@@ -355,12 +419,17 @@ function createBmsonLongComboEvents(mapping, beat, timeSec, endBeat, endTimeSec,
   return [createComboEvent(mapping, endBeat, endTimeSec, "long-end")];
 }
 
-function appendBmsonMarkerNotes(notes, channels, kind, mode, resolution, timing, warnings) {
+function appendBmsonMarkerNotes(notes, channels, kind, mode, resolution, timing) {
   for (const channel of channels ?? []) {
     for (const note of channel.notes ?? []) {
+      if (!Number.isFinite(note?.x) || note.x <= 0) {
+        continue;
+      }
       const mapping = mapBmsonLane(mode, note?.x);
       if (!mapping) {
-        warnings.push(createUnsupportedBmsonLaneWarning(note?.x, mode));
+        continue;
+      }
+      if (!Number.isFinite(note?.y)) {
         continue;
       }
       const beat = note.y / resolution;
@@ -376,6 +445,40 @@ function appendBmsonMarkerNotes(notes, channels, kind, mode, resolution, timing,
   }
 }
 
+function registerBmsonPlayableNote(playableNotesByStartKey, note) {
+  const startKey = createBmsonPlayableNoteStartKey(note);
+  const existing = playableNotesByStartKey.get(startKey);
+  if (!existing) {
+    playableNotesByStartKey.set(startKey, note);
+    return "new";
+  }
+  if (canLayerBmsonPlayableNote(existing, note)) {
+    return "layered";
+  }
+  return "conflict";
+}
+
+function createBmsonPlayableNoteStartKey(note) {
+  return `${note.side ?? ""}|${note.lane}|${note.beat}`;
+}
+
+function canLayerBmsonPlayableNote(existing, next) {
+  if (existing.kind !== next.kind) {
+    return false;
+  }
+  if (existing.kind === "normal") {
+    return true;
+  }
+  return existing.endBeat === next.endBeat;
+}
+
+function createConflictingBmsonNoteWarning(note) {
+  return createWarning(
+    "parse_warning",
+    `Ignored conflicting duplicate BMSON note at x=${String(note?.x)} y=${String(note?.y)}.`,
+  );
+}
+
 function appendBmsonLaneXs(xs, channels) {
   for (const channel of channels ?? []) {
     for (const note of channel.notes ?? []) {
@@ -384,10 +487,6 @@ function appendBmsonLaneXs(xs, channels) {
       }
     }
   }
-}
-
-function createUnsupportedBmsonLaneWarning(xValue, mode) {
-  return createWarning("parse_warning", `Ignored unsupported BMSON lane x=${String(xValue)} for mode ${mode}.`);
 }
 
 function createComboEvent(mapping, beat, timeSec, kind) {

@@ -1671,6 +1671,13 @@ var STOP_MARKER = "#ff00ff";
 var SCROLL_MARKER = "#ff0";
 var MINE_COLOR = "#880000";
 var INVISIBLE_NOTE_COLOR = "#FFFF00";
+var KEYBOARD_LANE_BACKGROUND_PRIMARY = "#000030";
+var KEYBOARD_LANE_BACKGROUND_SECONDARY = "#1a1a45";
+var KEYBOARD_WHEEL_UP_COLOR = "#0000ff";
+var KEYBOARD_WHEEL_DOWN_COLOR = "#ff0000";
+var KEYBOARD_WHITE_KEY_COLOR = "#bebebe";
+var KEYBOARD_BLACK_KEY_COLOR = "#5074fe";
+var KEYBOARD_DOUBLE_SEPARATOR_COLOR = "#ffffff";
 var NOTE_HEAD_HEIGHT = 4;
 var TEMPO_MARKER_HEIGHT = 1;
 var JUDGE_LINE_HEIGHT = 2;
@@ -1722,6 +1729,98 @@ var POPN_LANE_COLORS = /* @__PURE__ */ new Map([
   ["p7", "#fff500"],
   ["p8", "#c4c4c4"]
 ]);
+var KEYBOARD_24_BASE_COLUMNS = [
+  { widthType: "scratch", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY }
+];
+var KEYBOARD_48_BASE_COLUMNS = [
+  ...KEYBOARD_24_BASE_COLUMNS,
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_SECONDARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "note", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY },
+  { widthType: "scratch", backgroundFill: KEYBOARD_LANE_BACKGROUND_PRIMARY }
+];
+var KEYBOARD_24_LANE_SPECS = [
+  { lane: 0, position: 0, widthType: "scratch", note: KEYBOARD_WHEEL_UP_COLOR },
+  { lane: 1, position: 0, widthType: "scratch", note: KEYBOARD_WHEEL_DOWN_COLOR },
+  { lane: 2, position: 1, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 3, position: 1.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 4, position: 2, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 5, position: 2.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 6, position: 3, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 7, position: 4, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 8, position: 4.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 9, position: 5, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 10, position: 5.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 11, position: 6, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 12, position: 6.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 13, position: 7, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 14, position: 8, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 15, position: 8.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 16, position: 9, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 17, position: 9.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 18, position: 10, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 19, position: 11, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 20, position: 11.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 21, position: 12, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 22, position: 12.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 23, position: 13, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR },
+  { lane: 24, position: 13.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR },
+  { lane: 25, position: 14, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR }
+];
+var KEYBOARD_48_LANE_SPECS = [
+  ...KEYBOARD_24_LANE_SPECS.map((spec) => ({ ...spec, side: "p1" })),
+  { lane: 26, position: 15, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 27, position: 15.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 28, position: 16, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 29, position: 16.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 30, position: 17, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 31, position: 18, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 32, position: 18.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 33, position: 19, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 34, position: 19.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 35, position: 20, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 36, position: 20.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 37, position: 21, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 38, position: 22, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 39, position: 22.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 40, position: 23, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 41, position: 23.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 42, position: 24, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 43, position: 25, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 44, position: 25.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 45, position: 26, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 46, position: 26.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 47, position: 27, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 48, position: 27.5, widthType: "note", note: KEYBOARD_BLACK_KEY_COLOR, side: "p2" },
+  { lane: 49, position: 28, widthType: "note", note: KEYBOARD_WHITE_KEY_COLOR, side: "p2" },
+  { lane: 50, position: 29, widthType: "scratch", note: KEYBOARD_WHEEL_UP_COLOR, side: "p2" },
+  { lane: 51, position: 29, widthType: "scratch", note: KEYBOARD_WHEEL_DOWN_COLOR, side: "p2" }
+];
 var DEFAULT_RENDERER_CONFIG = Object.freeze({
   noteWidth: NOTE_WIDTH,
   scratchWidth: SCRATCH_WIDTH,
@@ -1851,8 +1950,9 @@ function createScoreViewerRenderer(canvas) {
     };
   }
   function renderEditorMode(model, laneLayout, editorFrameState, pixelsPerBeat, showInvisibleNotes, judgeLineY, columnCount) {
+    drawColumnLaneBackgrounds(context, laneLayout.columns, height);
     drawEditorSubGrid(context, model.measureRanges, laneLayout, editorFrameState, pixelsPerBeat, judgeLineY, columnCount);
-    drawColumnLaneLayouts(context, laneLayout.columns, height);
+    drawColumnLaneForegrounds(context, laneLayout.columns, height);
     drawBarLinesEditorMode(context, model.barLines, laneLayout, editorFrameState, pixelsPerBeat, judgeLineY, columnCount);
     drawMeasureLabelsEditorMode(context, model.barLines, laneLayout, editorFrameState, pixelsPerBeat, judgeLineY, columnCount);
     drawTempoMarkersEditorMode(
@@ -1887,6 +1987,7 @@ function createScoreViewerRenderer(canvas) {
       gameTimingConfig: normalizedGameTimingConfig,
       laneGeometry
     });
+    drawLaneBackgrounds(context, lanes, height, laneGeometry.laneTopY, laneGeometry.laneBottomY);
     drawDpGutter(context, laneLayout, height, laneGeometry.laneTopY, laneGeometry.laneBottomY);
     drawLaneSeparators(context, lanes, height, laneGeometry.laneTopY, laneGeometry.laneBottomY);
     clipToGameRenderWindow(context, projection, width, () => {
@@ -1997,9 +2098,15 @@ function getDpGutterWidth() {
   return getNoteWidth() * DP_GUTTER_UNITS;
 }
 function getLaneContentLeftX(lane) {
+  if (Number.isFinite(lane?.contentLeftX)) {
+    return lane.contentLeftX;
+  }
   return lane.x + getSeparatorWidth();
 }
 function getLaneContentWidth(lane) {
+  if (Number.isFinite(lane?.contentWidth)) {
+    return Math.max(lane.contentWidth, 0);
+  }
   return Math.max(lane.width - getSeparatorWidth(), 0);
 }
 function getLaneRightEdgeWithSeparator(lane) {
@@ -2037,6 +2144,15 @@ function getExtendedEditorFrameState(frameState, model, viewportHeight, pixelsPe
   };
 }
 function drawColumnLaneLayouts(context, columns, viewportHeight, topY = 0, bottomY = viewportHeight) {
+  drawColumnLaneBackgrounds(context, columns, viewportHeight, topY, bottomY);
+  drawColumnLaneForegrounds(context, columns, viewportHeight, topY, bottomY);
+}
+function drawColumnLaneBackgrounds(context, columns, viewportHeight, topY = 0, bottomY = viewportHeight) {
+  for (const column of columns ?? []) {
+    drawLaneBackgrounds(context, column.lanes, viewportHeight, topY, bottomY);
+  }
+}
+function drawColumnLaneForegrounds(context, columns, viewportHeight, topY = 0, bottomY = viewportHeight) {
   for (const column of columns ?? []) {
     drawDpGutter(context, column, viewportHeight, topY, bottomY);
     drawLaneSeparators(context, column.lanes, viewportHeight, topY, bottomY);
@@ -3270,7 +3386,8 @@ function drawTempoMarkerLabel(context, marker) {
   context.restore();
 }
 function drawLaneSeparators(context, lanes, viewportHeight, topY = 0, bottomY = viewportHeight) {
-  if (lanes.length === 0) {
+  const visualColumns = getVisualColumns(lanes);
+  if (visualColumns.length === 0) {
     return;
   }
   const separatorWidth = getSeparatorWidth();
@@ -3278,7 +3395,6 @@ function drawLaneSeparators(context, lanes, viewportHeight, topY = 0, bottomY = 
     return;
   }
   context.save();
-  context.strokeStyle = SEPARATOR_COLOR;
   context.lineWidth = separatorWidth;
   const startY = Math.max(Number.isFinite(topY) ? topY : 0, 0);
   const endY = Math.min(Number.isFinite(bottomY) ? bottomY : viewportHeight, viewportHeight);
@@ -3287,12 +3403,14 @@ function drawLaneSeparators(context, lanes, viewportHeight, topY = 0, bottomY = 
     return;
   }
   const uniqueBoundaries = /* @__PURE__ */ new Set();
-  uniqueBoundaries.add(Math.round(lanes[0].x));
-  for (const lane of lanes) {
-    uniqueBoundaries.add(Math.round(lane.x));
-    uniqueBoundaries.add(Math.round(lane.x + lane.width));
+  uniqueBoundaries.add(Math.round(visualColumns[0].x));
+  for (const column of visualColumns) {
+    uniqueBoundaries.add(Math.round(column.x));
+    uniqueBoundaries.add(Math.round(column.x + column.width));
   }
+  const separatorOverrides = lanes?.separatorOverrides ?? null;
   for (const x of [...uniqueBoundaries].sort((left, right) => left - right)) {
+    context.strokeStyle = separatorOverrides?.get?.(x) ?? SEPARATOR_COLOR;
     context.beginPath();
     const strokeCenterX = getSeparatorStrokeCenterX(x);
     context.moveTo(strokeCenterX, startY);
@@ -3301,8 +3419,32 @@ function drawLaneSeparators(context, lanes, viewportHeight, topY = 0, bottomY = 
   }
   context.restore();
 }
+function drawLaneBackgrounds(context, lanes, viewportHeight, topY = 0, bottomY = viewportHeight) {
+  const visualColumns = getVisualColumns(lanes);
+  if (visualColumns.length === 0) {
+    return;
+  }
+  const startY = Math.max(Number.isFinite(topY) ? topY : 0, 0);
+  const endY = Math.min(Number.isFinite(bottomY) ? bottomY : viewportHeight, viewportHeight);
+  if (endY <= startY) {
+    return;
+  }
+  context.save();
+  for (const column of visualColumns) {
+    if (!column?.backgroundFill) {
+      continue;
+    }
+    const contentWidth = getLaneContentWidth(column);
+    if (!(contentWidth > 0)) {
+      continue;
+    }
+    context.fillStyle = column.backgroundFill;
+    context.fillRect(getLaneContentLeftX(column), startY, contentWidth, endY - startY);
+  }
+  context.restore();
+}
 function getLaneBounds(laneLayout) {
-  const lanes = laneLayout?.columns?.flatMap((column) => column.lanes.filter(Boolean)) ?? laneLayout?.lanes ?? [];
+  const lanes = laneLayout?.columns?.flatMap((column) => getVisualColumns(column.lanes)) ?? getVisualColumns(laneLayout?.lanes ?? []);
   const { leftLane, rightLane } = getVisualLaneEdges(lanes);
   if (!leftLane || !rightLane) {
     return {
@@ -3331,7 +3473,7 @@ function drawDpGutter(context, laneLayout, viewportHeight, topY = 0, bottomY = v
   context.restore();
 }
 function getVisualLaneEdges(lanes) {
-  const visibleLanes = lanes.filter(Boolean);
+  const visibleLanes = getVisualColumns(lanes);
   if (visibleLanes.length === 0) {
     return { leftLane: null, rightLane: null };
   }
@@ -3347,6 +3489,15 @@ function getVisualLaneEdges(lanes) {
   }
   return { leftLane, rightLane };
 }
+function getVisualColumns(lanes) {
+  if (Array.isArray(lanes?.visualColumns)) {
+    return lanes.visualColumns.filter(Boolean);
+  }
+  if (Array.isArray(lanes)) {
+    return lanes.filter(Boolean);
+  }
+  return [];
+}
 function createEmptyRenderResult() {
   return {
     markers: [],
@@ -3358,6 +3509,9 @@ function createEmptyRenderResult() {
 }
 function createLaneLayout(mode, laneCount, viewportWidth, columnCount = 1) {
   const layout = getModeLayout(mode, laneCount);
+  if (typeof layout.buildColumns === "function") {
+    return layout.buildColumns(viewportWidth, columnCount, laneCount);
+  }
   const gutterWidth = layout.splitAfter === null ? 0 : getDpGutterWidth();
   const contentWidth = getDisplayLaneAreaWidth(layout.display) + gutterWidth;
   const normalizedColumnCount = normalizeColumnCount(columnCount);
@@ -3422,6 +3576,10 @@ function getModeLayout(mode, laneCount) {
         (slotIndex) => getBeatNoteColor(String(slotIndex)),
         (slotIndex) => String(slotIndex)
       );
+    case "24k":
+      return createKeyboardModeLayout(KEYBOARD_24_BASE_COLUMNS, KEYBOARD_24_LANE_SPECS);
+    case "48k":
+      return createKeyboardModeLayout(KEYBOARD_48_BASE_COLUMNS, KEYBOARD_48_LANE_SPECS, 14);
     case "popn-5k":
       return createDisplayLayout([0, 1, 2, 3, 4], null, (slotIndex) => getPopnNoteColor(slotIndex), (slotIndex) => `p${slotIndex}`);
     case "popn-9k":
@@ -3440,6 +3598,84 @@ function getModeLayout(mode, laneCount) {
         (_slotIndex, actualLane) => String(actualLane)
       );
   }
+}
+function createKeyboardModeLayout(baseColumns, laneSpecs, highlightedSeparatorAfterIndex = null) {
+  return {
+    splitAfter: null,
+    display: baseColumns.map((column, index) => ({
+      actualLane: index,
+      laneKey: `kbd-${index}`,
+      isScratch: column.widthType === "scratch",
+      note: KEYBOARD_WHITE_KEY_COLOR
+    })),
+    buildColumns(viewportWidth, columnCount = 1, laneCount = laneSpecs.length) {
+      const contentWidth = getDisplayLaneAreaWidth(this.display);
+      const normalizedColumnCount = normalizeColumnCount(columnCount);
+      const columnWidth = Math.max(Math.floor(viewportWidth / normalizedColumnCount), 1);
+      const columns = [];
+      for (let columnIndex = 0; columnIndex < normalizedColumnCount; columnIndex += 1) {
+        const columnLeftX = Math.max(columnWidth * columnIndex, 0);
+        const startX = columnLeftX + Math.max(VIEWER_LANE_SIDE_PADDING, Math.floor((columnWidth - contentWidth) / 2));
+        const visualColumns = [];
+        let cursorX = startX;
+        for (const column of baseColumns) {
+          const slotWidth = getLaneSlotWidth(column.widthType === "scratch");
+          visualColumns.push({
+            x: cursorX,
+            width: slotWidth,
+            contentLeftX: cursorX + getSeparatorWidth(),
+            contentWidth: getLaneNoteWidth(column.widthType === "scratch"),
+            backgroundFill: column.backgroundFill ?? null
+          });
+          cursorX += slotWidth;
+        }
+        const lanes = new Array(Math.max(1, laneCount));
+        for (const spec of laneSpecs) {
+          const contentWidthForLane = getLaneNoteWidth(spec.widthType === "scratch");
+          let contentLeftX;
+          if (Number.isInteger(spec.position)) {
+            contentLeftX = visualColumns[spec.position]?.contentLeftX;
+          } else {
+            const leftColumn = visualColumns[Math.floor(spec.position)];
+            const centerX = leftColumn ? leftColumn.x + leftColumn.width + getSeparatorWidth() / 2 : NaN;
+            contentLeftX = Number.isFinite(centerX) ? Math.round(centerX - contentWidthForLane / 2) : NaN;
+          }
+          if (!Number.isFinite(contentLeftX)) {
+            continue;
+          }
+          lanes[spec.lane] = {
+            lane: spec.lane,
+            x: contentLeftX - getSeparatorWidth(),
+            width: contentWidthForLane + getSeparatorWidth(),
+            contentLeftX,
+            contentWidth: contentWidthForLane,
+            note: spec.note,
+            side: spec.side
+          };
+        }
+        lanes.visualColumns = visualColumns;
+        if (Number.isInteger(highlightedSeparatorAfterIndex) && visualColumns[highlightedSeparatorAfterIndex]) {
+          lanes.separatorOverrides = /* @__PURE__ */ new Map([
+            [Math.round(visualColumns[highlightedSeparatorAfterIndex].x + visualColumns[highlightedSeparatorAfterIndex].width), KEYBOARD_DOUBLE_SEPARATOR_COLOR]
+          ]);
+        }
+        columns.push({
+          columnIndex,
+          leftX: columnLeftX,
+          width: columnWidth,
+          lanes,
+          visualColumns,
+          gutterRect: null
+        });
+      }
+      return {
+        lanes: columns[0]?.lanes ?? [],
+        gutterRect: null,
+        columns,
+        columnWidth
+      };
+    }
+  };
 }
 function createDisplayLayout(displayOrder, splitAfter, getColor, getLaneKey = (_slotIndex, actualLane) => String(actualLane)) {
   return {
@@ -8854,6 +9090,10 @@ function estimateViewerWidthFromNumericMode(mode, rendererConfig = DEFAULT_RENDE
       return estimateViewerWidth("10k", 12, rendererConfig, columnCount);
     case 14:
       return estimateViewerWidth("14k", 16, rendererConfig, columnCount);
+    case 25:
+      return estimateViewerWidth("24k", 26, rendererConfig, columnCount);
+    case 50:
+      return estimateViewerWidth("48k", 52, rendererConfig, columnCount);
     default:
       return estimateViewerWidth(String(mode ?? ""), getDisplayLaneCount(mode), rendererConfig, columnCount);
   }
@@ -8925,6 +9165,12 @@ function getDisplayLaneCount(mode) {
     case 14:
     case "14k":
       return 16;
+    case 25:
+    case "24k":
+      return 26;
+    case 50:
+    case "48k":
+      return 52;
     case 9:
     case "9k":
     case "popn-9k":

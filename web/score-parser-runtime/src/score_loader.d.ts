@@ -1,5 +1,5 @@
 export type ScoreFormat = "bms" | "bmson";
-export type ScoreMode = "5k" | "7k" | "9k" | "10k" | "14k" | "popn-5k" | "popn-9k" | "unknown";
+export type ScoreMode = "5k" | "7k" | "9k" | "10k" | "14k" | "24k" | "48k" | "popn-5k" | "popn-9k" | "unknown";
 export type ParsedNoteKind = "normal" | "long" | "mine" | "invisible";
 export type ParsedLongNoteType = "ln" | "cn" | "hcn";
 export type ParsedComboEventKind = "normal" | "long-start" | "long-end";

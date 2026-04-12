@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.2
+// @version      2.3.3
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -19,6 +19,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.3 Lunatic負数BPM解釈追加、LN/CN・HCNコンボ加算タイミング調整、Game/LunaticでLN中始点が判定ラインに残るよう描画を調整、24key/48key対応とそれに伴うパーサーの変更(v0.6.6)
 // 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正、手作りの温かみのある1.1.0では正常だったが、Codexを過信した2.0.0で埋め込んでいたバグ
 // 2.3.1 TABLESのデータが更新されにくい場合があるので修正。
 //       メタデータの配信にCache-Controlを付与していなかったため、ヒューリスティックキャッシュが長期間効いてしまう問題があった。
@@ -9289,9 +9290,9 @@
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-    const SCORE_PARSER_VERSION = "0.6.5";
+    const SCORE_PARSER_VERSION = "0.6.6";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.2";
+    const SCRIPT_VERSION_FALLBACK = "2.3.3";
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
     const VERSION_NOTIFICATION_STORAGE_KEYS = {
       lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",

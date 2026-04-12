@@ -59,6 +59,7 @@ LR2IR、MinIR、Mocha、STELLAVERSE で BMS の詳細情報を補完表示する
 - 生成物の整合確認は `npm run check:generated` で行えます。
 - score-parser の source of truth は `web/score-parser-runtime/` です。
 - `site/score-parser/current/` は Git 管理対象外の開発用ミラーで、`script/sync_score_parser_current.ps1` で同期します。
+- 固定版 `site/score-parser/vX.Y.Z/` の release は `script/release_score_parser.ps1 -ParserVersion x.y.z -UserscriptVersion a.b.c` で行います。
 - Python 系スクリプトの設定は `config.ini.sample` を `data/config.ini` へコピーして調整する想定です。
 
 ## データと実装の前提

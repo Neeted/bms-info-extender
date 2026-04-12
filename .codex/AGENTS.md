@@ -49,6 +49,15 @@
 - Time モード / Editor モードは preview 独自都合を許容するが、Game モードの描画差異は原則として beatoraja を基準に判断する。
 
 ## リリース運用
-- `site/score-parser/vx.x.x/` の生成はリリース作業としてのみ行う。
-- 既存の `v*` snapshot は凍結扱いとし、通常の不具合修正では更新しない。
-- 新版公開時は、正常な source を基準に snapshot を生成する。
+- 日常開発で parser を変更したときは、`web/score-parser-runtime` を更新し、関連テスト後に `script/sync_score_parser_current.ps1` を実行して `site/score-parser/current/` だけを同期する。
+- 日常開発では `web/score-parser-runtime/package.json` の version は原則上げない。固定版 `site/score-parser/vx.x.x/` の生成も行わない。
+- `site/score-parser/vx.x.x/` の生成はリリース作業としてのみ行い、既存の `v*` snapshot は凍結扱いとする。
+- fixed version の公開は `script/release_score_parser.ps1 -ParserVersion x.y.z -UserscriptVersion a.b.c` を使う。
+- release script は以下をまとめて行う。
+  - `web/score-parser-runtime/package.json` の version 更新
+  - `site/score-parser/vx.x.x/` の新規生成
+  - 既存の同名 `v*` がある場合の上書き禁止ガード
+  - `script/sync_score_parser_current.ps1` による `current` の再同期
+  - userscript が参照する parser version の更新
+  - userscript 自体の version 更新と再 build
+- userscript や本番向け参照先は常に固定版 `/score-parser/vx.x.x/` を使い、`current` は dev viewer 用と考える。

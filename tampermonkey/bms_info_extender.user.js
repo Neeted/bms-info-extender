@@ -5550,6 +5550,10 @@
       laneCount = 6;
     } else if (mode === 10) {
       laneCount = 12;
+    } else if (mode === 25) {
+      laneCount = 26;
+    } else if (mode === 50) {
+      laneCount = 52;
     }
     const lanenotesArr = [];
     for (let index = 0; index < laneCount; index += 1) {
@@ -5568,6 +5572,11 @@
       const move = lanenotesArr.splice(5, 1)[0];
       if (move) {
         lanenotesArr.unshift(move);
+      }
+    } else if (mode === 25 || mode === 50) {
+      const move = lanenotesArr.splice(24, 2);
+      if (move) {
+        lanenotesArr.unshift(move[0], move[1]);
       }
     }
     return lanenotesArr;
@@ -5607,6 +5616,9 @@
     }
     if (mode === 7 || mode === 14) {
       return String(laneIndex);
+    }
+    if (mode === 25 || mode === 50) {
+      return `k${laneIndex}`;
     }
     return "1";
   }
@@ -6506,6 +6518,58 @@
   .bd-lanenote[lane="p6"] { background: #99ff67; color: #000; }
   .bd-lanenote[lane="p7"] { background: #fff500; color: #000; }
   .bd-lanenote[lane="p8"] { background: #c4c4c4; color: #000; }
+  .bd-lanenote[lane="k0"] { background: #0000ff; color: #fff; }
+  .bd-lanenote[lane="k1"] { background: #ff0000; color: #fff; }
+  .bd-lanenote[lane="k2"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k3"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k4"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k5"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k6"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k7"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k8"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k9"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k10"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k11"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k12"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k13"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k14"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k15"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k16"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k17"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k18"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k19"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k20"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k21"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k22"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k23"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k24"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k25"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k26"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k27"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k28"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k29"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k30"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k31"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k32"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k33"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k34"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k35"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k36"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k37"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k38"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k39"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k40"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k41"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k42"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k43"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k44"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k45"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k46"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k47"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k48"] { background: #5074fe; color: #fff; }
+  .bd-lanenote[lane="k49"] { background: #bebebe; color: #000; }
+  .bd-lanenote[lane="k50"] { background: #0000ff; color: #fff; }
+  .bd-lanenote[lane="k51"] { background: #ff0000; color: #fff; }
 `;
   var ISOLATED_UI_FONT_FAMILY = '"Inconsolata", "Noto Sans JP"';
   var ISOLATED_UI_HOST_CLASS = "bmsie-surface-host";

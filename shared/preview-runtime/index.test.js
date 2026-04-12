@@ -324,7 +324,7 @@ test("viewer model dirty render also reapplies persisted viewer chrome", () => {
   );
 });
 
-test("preview renders unsupported mode lane notes with the white-key fallback lane attribute", async () => {
+test("preview renders 24keys lane notes with k-prefixed lane attributes", async () => {
   const environment = installPreviewTestEnvironment();
   try {
     const { preview, elements } = createPreviewHarness(environment.document);
@@ -339,6 +339,57 @@ test("preview renders unsupported mode lane notes with the white-key fallback la
 
     const laneNotes = elements.container.querySelector("#bd-lanenotes-div").children;
     assert.equal(laneNotes.length, 25);
+    assert.equal(laneNotes[0].getAttribute("lane"), "k0");
+    assert.equal(laneNotes[24].getAttribute("lane"), "k24");
+
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("preview renders 48keys lane notes with k-prefixed lane attributes", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview, elements } = createPreviewHarness(environment.document);
+    const record = {
+      ...createNormalizedRecord("e".repeat(64)),
+      mode: 50,
+      lanenotesArr: Array.from({ length: 50 }, (_, index) => [index, 0, 0, index]),
+    };
+
+    preview.setRecord(record);
+    await environment.settle();
+
+    const laneNotes = elements.container.querySelector("#bd-lanenotes-div").children;
+    assert.equal(laneNotes.length, 50);
+    assert.equal(laneNotes[0].getAttribute("lane"), "k0");
+    assert.equal(laneNotes[25].getAttribute("lane"), "k25");
+    assert.equal(laneNotes[49].getAttribute("lane"), "k49");
+ 
+    preview.destroy();
+    await environment.settle();
+  } finally {
+    environment.restore();
+  }
+});
+
+test("preview renders unsupported mode lane notes with the white-key fallback lane attribute", async () => {
+  const environment = installPreviewTestEnvironment();
+  try {
+    const { preview, elements } = createPreviewHarness(environment.document);
+    const record = {
+      ...createNormalizedRecord("d".repeat(64)),
+      mode: 24,
+      lanenotesArr: Array.from({ length: 24 }, (_, index) => [index, 0, 0, index]),
+    };
+
+    preview.setRecord(record);
+    await environment.settle();
+
+    const laneNotes = elements.container.querySelector("#bd-lanenotes-div").children;
+    assert.equal(laneNotes.length, 24);
     for (const laneNote of laneNotes) {
       assert.equal(laneNote.getAttribute("lane"), "1");
     }

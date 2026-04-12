@@ -56,49 +56,6 @@ export const DISTRIBUTION_NOTE_NAMES = [
   "MINE",
 ];
 
-const BEAT_LANE_COLORS = new Map([
-  ["0", "#e04a4a"],
-  ["1", "#bebebe"],
-  ["2", "#5074fe"],
-  ["3", "#bebebe"],
-  ["4", "#5074fe"],
-  ["5", "#bebebe"],
-  ["6", "#5074fe"],
-  ["7", "#bebebe"],
-  ["8", "#bebebe"],
-  ["9", "#5074fe"],
-  ["10", "#bebebe"],
-  ["11", "#5074fe"],
-  ["12", "#bebebe"],
-  ["13", "#5074fe"],
-  ["14", "#bebebe"],
-  ["15", "#e04a4a"],
-  ["g0", "#e04a4a"],
-  ["g1", "#bebebe"],
-  ["g2", "#5074fe"],
-  ["g3", "#bebebe"],
-  ["g4", "#5074fe"],
-  ["g5", "#bebebe"],
-  ["g6", "#bebebe"],
-  ["g7", "#5074fe"],
-  ["g8", "#bebebe"],
-  ["g9", "#5074fe"],
-  ["g10", "#bebebe"],
-  ["g11", "#e04a4a"],
-]);
-
-const POPN_LANE_COLORS = new Map([
-  ["p0", "#c4c4c4"],
-  ["p1", "#fff500"],
-  ["p2", "#99ff67"],
-  ["p3", "#30b9f9"],
-  ["p4", "#ff6c6c"],
-  ["p5", "#30b9f9"],
-  ["p6", "#99ff67"],
-  ["p7", "#fff500"],
-  ["p8", "#c4c4c4"],
-]);
-
 export async function fetchBmsInfoRecord(sha256) {
   return fetchBmsInfoRecordByLookupKey(sha256);
 }
@@ -190,6 +147,12 @@ export function parseLaneNotes(mode, lanenotes) {
     laneCount = 6;
   } else if (mode === 10) {
     laneCount = 12;
+  } else if (mode === 25) {
+    // 24 レーン + 1 ホイールUP + 1 ホイールDown
+    laneCount = 26;
+  } else if (mode === 50) {
+    // 24keys DP
+    laneCount = 52;
   }
 
   const lanenotesArr = [];
@@ -210,6 +173,12 @@ export function parseLaneNotes(mode, lanenotes) {
     const move = lanenotesArr.splice(5, 1)[0];
     if (move) {
       lanenotesArr.unshift(move);
+    }
+  } else if (mode === 25 || mode === 50) {
+    // 1P側のホイールUPとホイールダウンを先頭に移動
+    const move = lanenotesArr.splice(24, 2);
+    if (move) {
+      lanenotesArr.unshift(move[0], move[1]);
     }
   }
 
@@ -261,18 +230,8 @@ export function getLaneChipKey(mode, laneIndex) {
   if (mode === 7 || mode === 14) {
     return String(laneIndex);
   }
-  return "1";
-}
-
-export function getLaneChipColor(mode, laneIndex) {
-  const key = getLaneChipKey(mode, laneIndex);
-  if (key.startsWith("p")) {
-    return POPN_LANE_COLORS.get(key) ?? "#c4c4c4";
+  if (mode === 25 || mode === 50) {
+    return `k${laneIndex}`;
   }
-  return BEAT_LANE_COLORS.get(key) ?? "#bebebe";
-}
-
-export function getLaneChipTextColor(mode, laneIndex) {
-  const color = getLaneChipColor(mode, laneIndex).toLowerCase();
-  return color === "#e04a4a" || color === "#5074fe" ? "#ffffff" : "#000000";
+  return "1";
 }

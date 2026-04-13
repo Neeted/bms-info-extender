@@ -19,12 +19,9 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
-// 2.3.3 Lunatic負数BPM解釈追加、LN/CN・HCNコンボ加算タイミング調整、Game/LunaticでLN中始点が判定ラインに残るよう描画を調整、24key/48key対応とそれに伴うパーサーの変更(v0.6.6)
-// 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正、手作りの温かみのある1.1.0では正常だったが、Codexを過信した2.0.0で埋め込んでいたバグ
-// 2.3.1 TABLESのデータが更新されにくい場合があるので修正。
-//       メタデータの配信にCache-Controlを付与していなかったため、ヒューリスティックキャッシュが長期間効いてしまう問題があった。
-//       配信にCache-Controlを付与するとともに、ユーザースクリプト側では暫定的にキャッシュバスターを付与ししばらく様子見。
-//       BMS Info Extenderが公開から8ヶ月程度経っているので、1カ月程度はキャッシュバスター付きバージョンを配布し、ヒューリスティックキャッシュが切れてから元のクエリに戻す予定。
+// 2.3.3 Lunatic負数BPM解釈追加、LN/CN・HCNコンボ加算タイミング調整、Game/LunaticでLN中始点が判定ラインに滞留するよう描画を調整、24keys/48keys対応とそれに伴うパーサーの変更(v0.6.6)
+// 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正
+// 2.3.1 TABLESのデータが更新されにくい場合があるので修正
 // 2.3.0 譜面ビューア描画を調整、設定項目を調整
 // 2.2.0 操作や設定値の変更、Gameモードをよりbeatoraja寄りに、LR2風(負数STOPワープ、SCROLL無視)のLunaticモード追加
 // 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更

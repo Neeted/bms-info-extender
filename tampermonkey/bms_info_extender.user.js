@@ -19,12 +19,9 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
-// 2.3.3 Lunatic負数BPM解釈追加、LN/CN・HCNコンボ加算タイミング調整、Game/LunaticでLN中始点が判定ラインに残るよう描画を調整、24key/48key対応とそれに伴うパーサーの変更(v0.6.6)
-// 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正、手作りの温かみのある1.1.0では正常だったが、Codexを過信した2.0.0で埋め込んでいたバグ
-// 2.3.1 TABLESのデータが更新されにくい場合があるので修正。
-//       メタデータの配信にCache-Controlを付与していなかったため、ヒューリスティックキャッシュが長期間効いてしまう問題があった。
-//       配信にCache-Controlを付与するとともに、ユーザースクリプト側では暫定的にキャッシュバスターを付与ししばらく様子見。
-//       BMS Info Extenderが公開から8ヶ月程度経っているので、1カ月程度はキャッシュバスター付きバージョンを配布し、ヒューリスティックキャッシュが切れてから元のクエリに戻す予定。
+// 2.3.3 Lunatic負数BPM解釈追加、LN/CN・HCNコンボ加算タイミング調整、Game/LunaticでLN中始点が判定ラインに滞留するよう描画を調整、24keys/48keys対応とそれに伴うパーサーの変更(v0.6.6)
+// 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正
+// 2.3.1 TABLESのデータが更新されにくい場合があるので修正
 // 2.3.0 譜面ビューア描画を調整、設定項目を調整
 // 2.2.0 操作や設定値の変更、Gameモードをよりbeatoraja寄りに、LR2風(負数STOPワープ、SCROLL無視)のLunaticモード追加
 // 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更
@@ -9458,7 +9455,46 @@
       cursor: pointer;
     }
   `;
-    const RELEASE_NOTES_JA = `# v2.3.0
+    const RELEASE_NOTES_JA = `# v2.3.3 (通知スキップ)
+
+## 24keys/48keys対応とそれに伴うパーサーの更新
+- パーサーを更新しました(v0.6.5→v0.6.6)
+- LANENOTESの色分けを24keys/48keysに対応させました
+- 譜面ビューアを24keys/48keysに対応させました
+
+## Lunaticモードに負数BPMの解釈を追加
+- 負数BPMが登場した時点でスクロール方向を反転させるようにしました
+- 以降は、最後に定義された小節までBPMの絶対値でスクロールした場合を仮定し、それが残り再生時間となります
+- 負数BPM以降に定義されたBPM変更といったイベントは判定ラインに到達することがないという解釈を採用しているので、通常BPMに復帰することはありません
+
+## LN/CN/HCNのコンボ加算タイミングを調整
+- 今までは、LNは始点で1コンボ加算、CN/HCNは始点で2コンボ加算という状態でした
+- LNでは、LNの終端でコンボが加算されるようにしました
+- CN/HCNでは、始点と終端でそれぞれコンボを加算するようにしました
+- この変更の目的は、オートプレイ動画とコンボ加算のタイミングを合わせて、譜面の位置を把握しやすくすることにあります
+
+## Game/Lunaticモードで、LN中の始点ノーツが判定ラインに滞留する描画に調整
+- 少なくともLR2やbeatorajaではこのような描画になっているのでそれに合わせた形です
+- 似たような音ゲーでも始点が普通に通り過ぎる描画のものもあると思いますが、今回はこのようにしました
+
+---
+
+# v2.3.2 (通知スキップ)
+
+## LANENOTESにおいて、24keys/48keysの時に14keys配色になってしまう色分け回帰を修正
+- 手作りの温かみのあるv1.1.0では正常だったが、Codexを過信した2.0.0で埋め込んでいたバグ
+
+---
+
+# v2.3.1 (通知スキップ)
+
+## TABLESのデータが更新されにくい場合があるので修正
+- メタデータの配信にCache-Controlを付与していなかったため、ヒューリスティックキャッシュが長期間効いてしまう問題があった
+- 配信にCache-Controlを付与するとともに、ユーザースクリプト側では暫定的にキャッシュバスターを付与ししばらく様子見
+
+---
+
+# v2.3.0
 
 ## 譜面ビューアの描画を調整しました
 - 横線系のオブジェクトは下端がタイミングとして正しくなるように整理しました
@@ -9501,7 +9537,46 @@
 
 ## 従来からの挙動について補足
 - 譜面ビューアはドラッグやホイールでも動かすことができます`;
-    const RELEASE_NOTES_EN = `# v2.3.0
+    const RELEASE_NOTES_EN = `# v2.3.3 (notification skipped)
+
+## Added 24keys/48keys support and updated the parser accordingly
+- Updated the parser from v0.6.5 to v0.6.6
+- Updated LANENOTES color assignment to support 24keys/48keys
+- Added 24keys/48keys support to the score viewer
+
+## Added negative BPM interpretation to Lunatic mode
+- Scrolling now reverses direction when a negative BPM appears
+- After that point, the remaining playback time is interpreted as if the chart continues scrolling at the absolute BPM value until the last defined measure
+- Events defined after a negative BPM, such as later BPM changes, are interpreted as never reaching the judge line, so playback does not return to normal BPM flow
+
+## Adjusted combo timing for LN/CN/HCN
+- Previously, LN added 1 combo at the start, while CN/HCN added 2 combos at the start
+- LN now adds combo at the end of the long note
+- CN/HCN now add combo separately at the start and at the end
+- The goal of this change is to match combo timing with autoplay videos so chart positions are easier to follow
+
+## Adjusted Game/Lunatic rendering so LN start notes stay on the judge line while held
+- This matches how at least LR2 and beatoraja render them
+- Some similar rhythm games let the start note pass through normally, but this project now follows the retained-head style
+
+---
+
+# v2.3.2 (notification skipped)
+
+## Fixed a regression where LANENOTES used 14keys colors in 24keys/48keys mode
+- This worked correctly in the lovingly hand-crafted v1.1.0, but the bug was introduced in v2.0.0 when I trusted Codex too much
+
+---
+
+# v2.3.1 (notification skipped)
+
+## Fixed an issue where TABLES data could be slow to update
+- Metadata responses were missing Cache-Control, so heuristic caching could persist for a long time
+- Cache-Control is now added on the delivery side, and the userscript also temporarily adds a cache buster while monitoring the situation
+
+---
+
+# v2.3.0
 
 ## Adjusted the score viewer rendering
 - Horizontal-line style objects are now arranged so their bottom edge is the correct timing reference

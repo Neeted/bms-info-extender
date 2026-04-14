@@ -19,6 +19,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.4 STELLAVERSEのDOM操作を微調整、投票ページでIRリンク行の代わりに曲コメント行が削除される問題を修正
 // 2.3.3 Lunatic負数BPM解釈追加、LN/CN・HCNコンボ加算タイミング調整、Game/LunaticでLN中始点が判定ラインに滞留するよう描画を調整、24keys/48keys対応とそれに伴うパーサーの変更(v0.6.6)
 // 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正
 // 2.3.1 TABLESのデータが更新されにくい場合があるので修正
@@ -9661,9 +9662,19 @@
       anchor: "a"
     };
     const STELLAVERSE_INDEXES = {
-      notesCell: 1,
-      totalCell: 3,
-      removeRowsAfterSuccess: [4, 0]
+      levelCell: 0,
+      keyCell: 1,
+      bpmCell: 2,
+      notesCell: 3,
+      judgeCell: 4,
+      totalCell: 5,
+      songUrlCell: 6,
+      chartUrlCell: 7,
+      commentCell: 8,
+      irLinksCell: 9,
+      viewerLinkCell: 10,
+      // 0:レベル行、1:BPM行、2:判定行、3:曲URL行、4:差分URL行、5:コメント行、6:IRリンク行
+      removeRowsAfterSuccess: [0, 1, 6]
     };
     const MINIR_SELECTORS = {
       targetElement: "#root > div > div > div > div.compact.tabulator"
@@ -10129,8 +10140,7 @@
           console.info("前回の拡張情報がまだ残っているためスキップします");
           return;
         }
-        const stellaverseRefs = getStellaverseDomRefs();
-        const { datetimeElem, targetElem, tableContainer, anchors } = stellaverseRefs;
+        const { datetimeElem, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors } = getStellaverseDomRefs();
         if (!datetimeElem || !targetElem || !tableContainer) {
           console.info("処理対象エレメントのいずれかが見つかりません");
           return;
@@ -10151,17 +10161,6 @@
         elapsedTimeElement.textContent = elapsedText;
         targetElem.insertAdjacentElement("afterend", elapsedTimeElement);
         markUpdated();
-        const firstTableRow = stellaverseRefs.tableRows[0];
-        if (!firstTableRow) {
-          console.info("処理対象のテーブル行が見つかりません");
-          return;
-        }
-        const removedHeadCount = firstTableRow.querySelectorAll(STELLAVERSE_SELECTORS.tableHead).length;
-        const removedCellCount = firstTableRow.querySelectorAll(STELLAVERSE_SELECTORS.tableCell).length;
-        const tableRows = stellaverseRefs.tableRows.slice(1);
-        const tableHeads = stellaverseRefs.tableHeads.slice(removedHeadCount);
-        const tableCells = stellaverseRefs.tableCells.slice(removedCellCount);
-        firstTableRow.remove();
         tableRows.forEach((el) => {
           el.style.borderBottomWidth = "0";
         });

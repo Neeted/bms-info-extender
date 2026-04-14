@@ -1,31 +1,4 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
-// 2.3.3 score-parser v0.6.6 をリリース
-// 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正、手作りの温かみのある1.1.0では正常だったが、Codexを過信した2.0.0で埋め込んでいたバグ
-// 2.3.1 TABLESのデータが更新されにくい場合があるので修正。
-//       メタデータの配信にCache-Controlを付与していなかったため、ヒューリスティックキャッシュが長期間効いてしまう問題があった。
-//       配信にCache-Controlを付与するとともに、ユーザースクリプト側では暫定的にキャッシュバスターを付与ししばらく様子見。
-//       BMS Info Extenderが公開から8ヶ月程度経っているので、1カ月程度はキャッシュバスター付きバージョンを配布し、ヒューリスティックキャッシュが切れてから元のクエリに戻す予定。
-// 2.3.0 譜面ビューア描画を調整、設定項目を調整、Lunaticモードの再生時間マッピング機能追加、Time/Editorモードで複数列表示に対応
-// 2.2.0 操作や設定値の変更、Gameモードをよりbeatoraja寄りに、LR2風(負数STOPワープ、SCROLL無視)のLunaticモード追加
-// 2.1.0 譜面 gzip の取得元を Netlify 優先 + R2 フォールバックへ変更
-// 2.0.1 STELLAVERSE SPA遷移時、前回URLの拡張情報DOMが残っている場合にスキップするガードを追加
-// 2.0.0 Gameモードを beatoraja 寄りの前方スイープ描画へ切り替え
-// 1.7.1 Game モード再生の hot path を軽量化し、graph の static/dynamic 分離と shared persistence helper を追加
-// 1.7.0 Game モードへ SCROLL 対応を追加し、beatoraja 寄りの signed displacement 描画を実装
-// 1.6.7 Editor メニュー行の select を border-box 化し、重なりとはみ出しを修正
-// 1.6.6 Editor メニュー行のドロップダウンを 2:3 配分で横並び表示に調整
-// 1.6.5 不可視ノーツ可視化の枠線座標を調整し、セパレーターへのはみ出しを修正
-// 1.6.4 不可視ノーツ可視化の左枠がセパレーターで欠ける不具合を修正
-// 1.6.3 譜面ビューアへ不可視ノーツ表示トグルを追加
-// 1.6.2 LNOBJ 譜面で Editor モードにだけ出る誤ノーツや欠落ノーツを修正
-// 1.6.1 Editor モードの timing を parser 由来の正規 action に切り替え、ギミック譜面で停止する不具合を修正
-// 1.6.0 譜面ビューアへ Time / Editor / Game モード切替を追加
-// 1.5.0 preview/runtime の source を shared/dev/userscript へ分離し、build 生成へ移行
-// 1.4.0 preview runtime を dev page と共通化し、graph hover 時の無駄な再描画を削減
-// 1.3.0 譜面ビューアへ SCROLL マーカー表示を追加
-// 1.2.0 譜面ビューアを userscript 本体へ統合し、グラフ hover/click 連携を追加
-// 1.1.0 外部データ取得失敗時のフォールバック処理を追加(LR2IR、MochaでMD5や譜面ビューアへのリンクを表示)
-// 1.0.5 誤字修正
 
 // @run-at document-startでとにかく最速でスクリプトを起動して、ページが書き換え処理可能な状態かどうかはサイトごとに固有の判定を行う
 
@@ -372,9 +345,19 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
     anchor: "a"
   };
   const STELLAVERSE_INDEXES = {
-    notesCell: 1,
-    totalCell: 3,
-    removeRowsAfterSuccess: [4, 0]
+    levelCell: 0,
+    keyCell: 1,
+    bpmCell: 2,
+    notesCell: 3,
+    judgeCell: 4,
+    totalCell: 5,
+    songUrlCell: 6,
+    chartUrlCell: 7,
+    commentCell: 8,
+    irLinksCell: 9,
+    viewerLinkCell: 10,
+    // 0:レベル行、1:BPM行、2:判定行、3:曲URL行、4:差分URL行、5:コメント行、6:IRリンク行
+    removeRowsAfterSuccess: [0, 1, 6]
   };
   const MINIR_SELECTORS = {
     targetElement: "#root > div > div > div > div.compact.tabulator"
@@ -1072,8 +1055,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         return;
       }
       // 投稿日時、経過時間の差し込み先、譜面情報テーブルをまとめて取得する。
-      const stellaverseRefs = getStellaverseDomRefs();
-      const { datetimeElem, targetElem, tableContainer, anchors } = stellaverseRefs;
+      const { datetimeElem, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors } = getStellaverseDomRefs();
 
       if (!datetimeElem || !targetElem || !tableContainer) { console.info("処理対象エレメントのいずれかが見つかりません"); return; }
 
@@ -1094,15 +1076,6 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
       targetElem.insertAdjacentElement('afterend', elapsedTimeElement);
       markUpdated(); // 経過時間表示が済めば、その URL での再実行は不要になる。
 
-      // 先頭行を消した後も従来どおりの index を保つため、削除前配列を「削除後相当」に切り直して使う。
-      const firstTableRow = stellaverseRefs.tableRows[0];
-      if (!firstTableRow) { console.info("処理対象のテーブル行が見つかりません"); return; }
-      const removedHeadCount = firstTableRow.querySelectorAll(STELLAVERSE_SELECTORS.tableHead).length;
-      const removedCellCount = firstTableRow.querySelectorAll(STELLAVERSE_SELECTORS.tableCell).length;
-      const tableRows = stellaverseRefs.tableRows.slice(1);
-      const tableHeads = stellaverseRefs.tableHeads.slice(removedHeadCount);
-      const tableCells = stellaverseRefs.tableCells.slice(removedCellCount);
-      firstTableRow.remove();
       // テーブルをツメツメにして高さを削減
       tableRows.forEach(el => {
         el.style.borderBottomWidth = '0';
@@ -1118,7 +1091,8 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         el.style.padding = '0.1rem 0.2rem';
         el.style.fontFamily = '"Inconsolata"';
       });
-      // TOTAL と NOTES は後段の補正計算でも使うため、削除後相当の配列から拾う。
+
+      // TOTAL と NOTES は後段の計算で使うので変数に取っておく。
       const totalCellElement = tableCells[STELLAVERSE_INDEXES.totalCell];
       const notesCellElement = tableCells[STELLAVERSE_INDEXES.notesCell];
       if (!totalCellElement || !notesCellElement) { console.info("TOTALかNOTESのセルが見つかりません"); return; }

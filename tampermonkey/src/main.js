@@ -1004,12 +1004,17 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
             md5Row.innerHTML = `<th>MD5</th><td colspan="7">${targetmd5}</td>`;
             const viewerRow = document.createElement("tr");
             viewerRow.innerHTML = `<th>VIEWER</th><td colspan="7"><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td>`;
+            const EZ2PATTERNRow = document.createElement("tr");
+            EZ2PATTERNRow.innerHTML = `<th>EZ2PATTERN</th><td colspan="7"><a href="https://ez2pattern.kr/bms/chart?md5=${targetmd5}">https://ez2pattern.kr/bms/chart?md5=${targetmd5}</a></td>`;
             tbody.appendChild(md5Row);
             tbody.appendChild(viewerRow);
+            tbody.appendChild(EZ2PATTERNRow);
           } else {
             // IR未登録の場合
             const table_element = document.createElement("table");
-            table_element.innerHTML = `<tr><th>MD5</th><td>${targetmd5}</td></tr><tr><th>VIEWER</th><td><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td></tr>`;
+            table_element.innerHTML = 
+              `<tr><th>MD5</th><td>${targetmd5}</td></tr><tr><th>VIEWER</th><td><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td></tr>
+              <tr><th>EZ2PATTERN</th><td><a href="https://ez2pattern.kr/bms/chart?md5=${targetmd5}">https://ez2pattern.kr/bms/chart?md5=${targetmd5}</a></td></tr>`;
             const searchElement = document.querySelector(LR2IR_SELECTORS.search);
             if (searchElement) {
               searchElement.after(table_element);
@@ -1333,8 +1338,14 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
               viewerLink.href = `https://bms-score-viewer.pages.dev/view?md5=${md5}`;
               viewerLink.target = "_blank";
               viewerLink.textContent = "Viewer";
+              const EZ2PATTERNLink = document.createElement("a");
+              EZ2PATTERNLink.href = `https://ez2pattern.kr/bms/chart?md5=${md5}`;
+              EZ2PATTERNLink.target = "_blank";
+              EZ2PATTERNLink.textContent = "EZ2PATTERN";
               targetTd.appendChild(document.createTextNode("　"));
               targetTd.appendChild(viewerLink);
+              targetTd.appendChild(document.createTextNode("　"));
+              targetTd.appendChild(EZ2PATTERNLink);
               void appendBmsSearchLinkIfAvailable(targetTd, targetsha256);
             } else {
               console.error("❌ Mochaのリンク追加先セルが見つかりませんでした");

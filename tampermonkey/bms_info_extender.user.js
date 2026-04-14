@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.4
+// @version      2.3.5
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -19,6 +19,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.5 EZ2PATTERNへのリンクを追加
 // 2.3.4 STELLAVERSEのDOM操作を微調整、投票ページでIRリンク行の代わりに曲コメント行が削除される問題を修正
 // 2.3.3 Lunatic負数BPM解釈追加、LN/CN・HCNコンボ加算タイミング調整、Game/LunaticでLN中始点が判定ラインに滞留するよう描画を調整、24keys/48keys対応とそれに伴うパーサーの変更(v0.6.6)
 // 2.3.2 LANENOTESの色分け回帰(24/48keyで14key配色になってしまう)を修正
@@ -7574,7 +7575,7 @@
         <tr>
           <td class="bd-header-cell">LINK</td>
           <td colspan="3">
-            <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
+            <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
           </td>
         </tr>
         <tr>
@@ -8836,6 +8837,7 @@
     if (normalizedRecord.sha256) {
       showLink(getById("bd-minir"), `https://www.gaftalk.com/minir/#/viewer/song/${normalizedRecord.sha256}/0`);
       showLink(getById("bd-mocha"), `https://mocha-repository.info/song.php?sha256=${normalizedRecord.sha256}`);
+      showLink(getById("bd-ez2pattern"), `https://ez2pattern.kr/bms/chart?sha256=${normalizedRecord.sha256}`);
     }
     if (normalizedRecord.stella) {
       showLink(getById("bd-stellaverse"), `https://stellabms.xyz/song/${normalizedRecord.stella}`);
@@ -10106,11 +10108,15 @@
               md5Row.innerHTML = `<th>MD5</th><td colspan="7">${targetmd5}</td>`;
               const viewerRow = document.createElement("tr");
               viewerRow.innerHTML = `<th>VIEWER</th><td colspan="7"><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td>`;
+              const EZ2PATTERNRow = document.createElement("tr");
+              EZ2PATTERNRow.innerHTML = `<th>EZ2PATTERN</th><td colspan="7"><a href="https://ez2pattern.kr/bms/chart?md5=${targetmd5}">https://ez2pattern.kr/bms/chart?md5=${targetmd5}</a></td>`;
               tbody.appendChild(md5Row);
               tbody.appendChild(viewerRow);
+              tbody.appendChild(EZ2PATTERNRow);
             } else {
               const table_element = document.createElement("table");
-              table_element.innerHTML = `<tr><th>MD5</th><td>${targetmd5}</td></tr><tr><th>VIEWER</th><td><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td></tr>`;
+              table_element.innerHTML = `<tr><th>MD5</th><td>${targetmd5}</td></tr><tr><th>VIEWER</th><td><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td></tr>
+              <tr><th>EZ2PATTERN</th><td><a href="https://ez2pattern.kr/bms/chart?md5=${targetmd5}">https://ez2pattern.kr/bms/chart?md5=${targetmd5}</a></td></tr>`;
               const searchElement = document.querySelector(LR2IR_SELECTORS.search);
               if (searchElement) {
                 searchElement.after(table_element);
@@ -10352,8 +10358,14 @@
                 viewerLink.href = `https://bms-score-viewer.pages.dev/view?md5=${md5}`;
                 viewerLink.target = "_blank";
                 viewerLink.textContent = "Viewer";
+                const EZ2PATTERNLink = document.createElement("a");
+                EZ2PATTERNLink.href = `https://ez2pattern.kr/bms/chart?md5=${md5}`;
+                EZ2PATTERNLink.target = "_blank";
+                EZ2PATTERNLink.textContent = "EZ2PATTERN";
                 targetTd.appendChild(document.createTextNode("　"));
                 targetTd.appendChild(viewerLink);
+                targetTd.appendChild(document.createTextNode("　"));
+                targetTd.appendChild(EZ2PATTERNLink);
                 void appendBmsSearchLinkIfAvailable(targetTd, targetsha256);
               } else {
                 console.error("❌ Mochaのリンク追加先セルが見つかりませんでした");

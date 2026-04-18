@@ -99,92 +99,216 @@ CACHE_SCHEMA: dict[str, pl.DataType] = {
     "bmsid": pl.Int64,
 }
 
-QUERY = """
-WITH entrys AS (
+QUERY_SETUP_SQL = """
+-- 再実行しやすいように一旦削除
+DROP TABLE IF EXISTS temp.temp_songs;
+DROP TABLE IF EXISTS temp.temp_entrys;
+DROP TABLE IF EXISTS temp.temp_matched_tables;
+DROP TABLE IF EXISTS temp.temp_tables;
+
+------------------------------------------------------------
+-- 1. 所持譜面を sha256 単位に正規化し、bmson の空 md5 を補完
+------------------------------------------------------------
+CREATE TEMP TABLE temp.temp_songs AS
+WITH bmson_md5 AS (
   SELECT
-    playlist_id,
-    md5,
-    CASE playlist_id
-      -- AI難易度表
-      WHEN 97 THEN
-        CASE
-          WHEN level < 0 THEN 'AI難易度表 ☆'||(level + 11)||--ピーク難易度が★以上の場合の対策
-                                                            CASE
-                                                              WHEN 0 <= CAST(REPLACE(REPLACE(comment, '(Max:', ''), ')', '') AS REAL) THEN ' (Peak:★'||REPLACE(REPLACE(comment, '(Max:', ''), ')', '')||')'
-                                                              ELSE ' (Peak:☆'||(CAST(REPLACE(REPLACE(comment, '(Max:', ''), ')', '') AS REAL) + 11)||')'
-                                                            END
-          WHEN level > 100 THEN 'AI難易度表 ◆'||(level - 100)||' (Peak:◆'||(CAST(REPLACE(REPLACE(comment, '(Max:', ''), ')', '') AS REAL) - 100)||')'
-          ELSE 'AI難易度表 ★'||level||' (Peak:★'||REPLACE(REPLACE(comment, '(Max:', ''), ')', '')||')'
-        END
-      -- ≒slst推定難易度表
-      WHEN 98 THEN org_name||' '||replace(folder,compat_prefix,'')||' ('||comment||')'
-      -- --癖譜面コレクション(サブ)
-      WHEN 160 THEN org_name||' ¿¡'||replace(folder,compat_prefix,'')
-      ELSE org_name||' '||org_symbol||replace(folder,compat_prefix,'')
-    END AS folder
-  FROM
-    playlist_entry INNER JOIN playlist USING(playlist_id)
-  WHERE
-    is_removed = 0
-    AND playlist_id >= 97
+    sha256,
+    MAX(NULLIF(md5, '')) AS md5
+  FROM bmson_song
+  WHERE sha256 IS NOT NULL
+    AND sha256 <> ''
+  GROUP BY sha256
 ),
-ordered_tables AS (
+song_base AS (
   SELECT
     md5,
-    folder
-  FROM entrys
-  WHERE md5 IS NOT NULL AND md5 <> ''
-  ORDER BY md5 ASC, playlist_id ASC, folder ASC
-),
-tables AS (
-  SELECT
-    md5,
-    '['||group_concat('"'||replace(folder, '"', '\\"')||'"', ',')||']' AS tables
-  FROM ordered_tables
-  GROUP BY md5
+    sha256,
+    maxbpm,
+    minbpm,
+    length,
+    mode,
+    judge,
+    feature,
+    notes
+  FROM songdata.song
+  GROUP BY sha256
 )
 SELECT
-  -- songdata.song
-  md5,
-  sha256,
-  maxbpm,
-  minbpm,
-  length,
-  mode,
-  judge,
-  feature,
-  notes,
-  -- songinfo.information
-  n,
-  ln,
-  s,
-  ls,
-  total,
-  density,
-  peakdensity,
-  enddensity,
-  mainbpm,
-  distribution,
-  speedchange,
-  lanenotes,
-  tables
-FROM
-  (
-    SELECT
-      NULLIF(md5, '') AS md5,
-      sha256,
-      maxbpm,
-      minbpm,
-      length,
-      mode,
-      judge,
-      feature,
-      notes
-    FROM songdata.song
-    GROUP BY sha256
+  COALESCE(NULLIF(s.md5, ''), b.md5) AS md5,
+  s.sha256,
+  s.maxbpm,
+  s.minbpm,
+  s.length,
+  s.mode,
+  s.judge,
+  s.feature,
+  s.notes
+FROM song_base s
+LEFT JOIN bmson_md5 b
+  ON b.sha256 = s.sha256
+;
+
+CREATE INDEX temp.idx_temp_songs_md5
+  ON temp_songs(md5);
+
+CREATE INDEX temp.idx_temp_songs_sha256
+  ON temp_songs(sha256);
+
+------------------------------------------------------------
+-- 2. 難易度表エントリーを先に整形して一時表へ
+--    playlist JOIN / CASE をここで一度だけ済ませる
+------------------------------------------------------------
+CREATE TEMP TABLE temp.temp_entrys AS
+SELECT
+  NULLIF(pe.md5, '')    AS md5,
+  NULLIF(pe.sha256, '') AS sha256,
+  pe.playlist_id,
+  CASE pe.playlist_id
+    -- AI難易度表
+    WHEN 97 THEN
+      CASE
+        WHEN pe.level < 0 THEN
+          'AI難易度表 ☆' || (pe.level + 11) ||
+          CASE
+            WHEN 0 <= CAST(REPLACE(REPLACE(pe.comment, '(Max:', ''), ')', '') AS REAL)
+              THEN ' (Peak:★' || REPLACE(REPLACE(pe.comment, '(Max:', ''), ')', '') || ')'
+            ELSE ' (Peak:☆' || (CAST(REPLACE(REPLACE(pe.comment, '(Max:', ''), ')', '') AS REAL) + 11) || ')'
+          END
+        WHEN pe.level > 100 THEN
+          'AI難易度表 ◆' || (pe.level - 100) ||
+          ' (Peak:◆' || (CAST(REPLACE(REPLACE(pe.comment, '(Max:', ''), ')', '') AS REAL) - 100) || ')'
+        ELSE
+          'AI難易度表 ★' || pe.level ||
+          ' (Peak:★' || REPLACE(REPLACE(pe.comment, '(Max:', ''), ')', '') || ')'
+      END
+
+    -- ≒slst推定難易度表
+    WHEN 98 THEN
+      pl.org_name || ' ' || REPLACE(pe.folder, pl.compat_prefix, '') || ' (' || pe.comment || ')'
+
+    -- --癖譜面コレクション(サブ)
+    WHEN 160 THEN
+      pl.org_name || ' ¿¡' || REPLACE(pe.folder, pl.compat_prefix, '')
+
+    ELSE
+      pl.org_name || ' ' || pl.org_symbol || REPLACE(pe.folder, pl.compat_prefix, '')
+  END AS folder
+FROM playlist_entry pe
+JOIN playlist pl
+  USING (playlist_id)
+WHERE pe.is_removed = 0
+  AND pe.playlist_id >= 97
+  AND (
+    (pe.md5    IS NOT NULL AND pe.md5    <> '')
+    OR
+    (pe.sha256 IS NOT NULL AND pe.sha256 <> '')
   )
-  INNER JOIN songinfo.information USING(sha256)
-  LEFT OUTER JOIN tables USING(md5)
+;
+
+CREATE INDEX temp.idx_temp_entrys_md5
+  ON temp_entrys(md5);
+
+CREATE INDEX temp.idx_temp_entrys_sha256
+  ON temp_entrys(sha256);
+
+------------------------------------------------------------
+-- 3. md5 / sha256 の両経路でマッチした難易度表を一時表へ
+--    重複は UNIQUE + INSERT OR IGNORE で排除
+------------------------------------------------------------
+CREATE TEMP TABLE temp.temp_matched_tables (
+  sha256      TEXT    NOT NULL,
+  playlist_id INTEGER NOT NULL,
+  folder      TEXT    NOT NULL
+);
+
+CREATE UNIQUE INDEX temp.idx_temp_matched_tables_uq
+  ON temp_matched_tables(sha256, playlist_id, folder);
+
+-- md5 経由
+INSERT OR IGNORE INTO temp.temp_matched_tables (
+  sha256,
+  playlist_id,
+  folder
+)
+SELECT
+  s.sha256,
+  e.playlist_id,
+  e.folder
+FROM temp.temp_songs s
+JOIN temp.temp_entrys e
+  ON e.md5 = s.md5
+WHERE s.md5 IS NOT NULL
+  AND s.md5 <> ''
+;
+
+-- sha256 経由
+INSERT OR IGNORE INTO temp.temp_matched_tables (
+  sha256,
+  playlist_id,
+  folder
+)
+SELECT
+  s.sha256,
+  e.playlist_id,
+  e.folder
+FROM temp.temp_songs s
+JOIN temp.temp_entrys e
+  ON e.sha256 = s.sha256
+WHERE e.sha256 IS NOT NULL
+  AND e.sha256 <> ''
+;
+
+------------------------------------------------------------
+-- 4. sha256 ごとに JSON 風配列へ集約
+--    順序は playlist_id 優先、同一 playlist_id 内は folder で安定化
+------------------------------------------------------------
+CREATE TEMP TABLE temp.temp_tables AS
+SELECT
+  sha256,
+  '[' || group_concat('"' || REPLACE(folder, '"', '\\"') || '"', ',') || ']' AS tables
+FROM (
+  SELECT
+    sha256,
+    folder
+  FROM temp.temp_matched_tables
+  ORDER BY sha256, playlist_id, folder
+)
+GROUP BY sha256
+;
+
+CREATE INDEX temp.idx_temp_tables_sha256
+  ON temp_tables(sha256);
+"""
+
+QUERY_SELECT_SQL = """
+SELECT
+  s.md5,
+  s.sha256,
+  s.maxbpm,
+  s.minbpm,
+  s.length,
+  s.mode,
+  s.judge,
+  s.feature,
+  s.notes,
+  i.n,
+  i.ln,
+  i.s,
+  i.ls,
+  i.total,
+  i.density,
+  i.peakdensity,
+  i.enddensity,
+  i.mainbpm,
+  i.distribution,
+  i.speedchange,
+  i.lanenotes,
+  t.tables
+FROM temp.temp_songs s
+JOIN songinfo.information i
+  USING (sha256)
+LEFT JOIN temp.temp_tables t
+  USING (sha256)
 ;
 """
 
@@ -273,7 +397,8 @@ def load_current_dataset(main_db: str, songdata_db: str, songinfo_db: str) -> pl
         # Pandas経由で読み込む理由:
         # Polarsの read_database_uri() は ATTACH DATABASE をサポートしていないため、
         # sqlite3.connect() で接続してATTACH後、Pandas経由でPolarsに変換する必要がある
-        df_pandas = pd.read_sql_query(QUERY, conn)
+        conn.executescript(QUERY_SETUP_SQL)
+        df_pandas = pd.read_sql_query(QUERY_SELECT_SQL, conn)
     finally:
         conn.close()
 

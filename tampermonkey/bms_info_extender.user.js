@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.5
+// @version      2.3.6
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -19,6 +19,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.6 STELLAVERSEのセレクターを修正
 // 2.3.5 EZ2PATTERNへのリンクを追加
 // 2.3.4 STELLAVERSEのDOM操作を微調整、投票ページでIRリンク行の代わりに曲コメント行が削除される問題を修正
 // 2.3.3 Lunatic負数BPM解釈追加、LN/CN・HCNコンボ加算タイミング調整、Game/LunaticでLN中始点が判定ラインに滞留するよう描画を調整、24keys/48keys対応とそれに伴うパーサーの変更(v0.6.6)
@@ -9655,7 +9656,7 @@
       registeredSongFallbackBody: "#box > table:nth-child(10) > tbody"
     };
     const STELLAVERSE_SELECTORS = {
-      datetimeElem: "#thread-1 > div:nth-child(1) > div > div:nth-child(1) > div:nth-child(1) > p:last-of-type",
+      threadRoot: "#thread-1",
       targetElem: "#scroll-area > section > main > h2",
       tableContainer: '[data-slot="table-container"]',
       tableRow: '[data-slot="table-row"]',
@@ -10048,14 +10049,24 @@
       return matchedAnchor;
     }
     function getStellaverseDomRefs() {
-      const datetimeElem = document.querySelector(STELLAVERSE_SELECTORS.datetimeElem);
+      const threadRoot = document.querySelector(STELLAVERSE_SELECTORS.threadRoot);
       const targetElem = document.querySelector(STELLAVERSE_SELECTORS.targetElem);
       const tableContainer = document.querySelector(STELLAVERSE_SELECTORS.tableContainer);
       const tableRows = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableRow)) : [];
       const tableHeads = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableHead)) : [];
       const tableCells = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableCell)) : [];
       const anchors = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.anchor)) : [];
-      return { datetimeElem, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors };
+      return { threadRoot, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors };
+    }
+    function extractStellaversePostedDatetime(threadRoot) {
+      const datePattern = /@\s*(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})/;
+      for (const paragraph of threadRoot.querySelectorAll("p")) {
+        const match = paragraph.textContent.match(datePattern);
+        if (match) {
+          return match[1];
+        }
+      }
+      return null;
     }
     function getMochaSongInfoRefs() {
       const songInfoTable = document.querySelector(MOCHA_SELECTORS.songInfoTable);
@@ -10146,17 +10157,17 @@
           console.info("前回の拡張情報がまだ残っているためスキップします");
           return;
         }
-        const { datetimeElem, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors } = getStellaverseDomRefs();
-        if (!datetimeElem || !targetElem || !tableContainer) {
+        const { threadRoot, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors } = getStellaverseDomRefs();
+        if (!threadRoot || !targetElem || !tableContainer) {
           console.info("処理対象エレメントのいずれかが見つかりません");
           return;
         }
-        const match = datetimeElem.textContent.trim().match(/@ (\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2})/);
-        if (!match) {
+        const postedDatetime = extractStellaversePostedDatetime(threadRoot);
+        if (!postedDatetime) {
           console.info("❌ 投稿日時がパースできませんでした");
           return;
         }
-        const postedDate = new Date(match[1].replace(/\//g, "-"));
+        const postedDate = new Date(postedDatetime.replace(/\//g, "-"));
         const now = /* @__PURE__ */ new Date();
         const diffMs = now - postedDate;
         const diffDays = Math.floor(diffMs / (1e3 * 60 * 60 * 24));
@@ -10201,9 +10212,9 @@
         for (const a of anchors) {
           if (a.textContent.trim() === "LR2IR") {
             const href = a.href;
-            const match2 = href.match(/[a-f0-9]{32}$/i);
-            if (match2) {
-              targetmd5 = match2[0];
+            const match = href.match(/[a-f0-9]{32}$/i);
+            if (match) {
+              targetmd5 = match[0];
             }
           } else if (a.textContent.trim() === "Bokutachi") {
             bokutachi = a.href;

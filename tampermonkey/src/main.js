@@ -336,7 +336,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
     registeredSongFallbackBody: "#box > table:nth-child(10) > tbody"
   };
   const STELLAVERSE_SELECTORS = {
-    datetimeElem: "#thread-1 > div:nth-child(1) > div > div:nth-child(1) > div:nth-child(1) > p:last-of-type",
+    threadRoot: "#thread-1",
     targetElem: "#scroll-area > section > main > h2",
     tableContainer: '[data-slot="table-container"]',
     tableRow: '[data-slot="table-row"]',
@@ -431,7 +431,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   /**
    * STELLAVERSE 側でまとめて取得する DOM 参照群。
    * @typedef {Object} StellaverseDomRefs
-   * @property {Element|null} datetimeElem
+   * @property {Element|null} threadRoot
    * @property {Element|null} targetElem
    * @property {Element|null} tableContainer
    * @property {Element[]} tableRows
@@ -911,7 +911,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
    * @returns {StellaverseDomRefs}
    */
   function getStellaverseDomRefs() {
-    const datetimeElem = document.querySelector(STELLAVERSE_SELECTORS.datetimeElem);
+    const threadRoot = document.querySelector(STELLAVERSE_SELECTORS.threadRoot);
     const targetElem = document.querySelector(STELLAVERSE_SELECTORS.targetElem);
     const tableContainer = document.querySelector(STELLAVERSE_SELECTORS.tableContainer);
     const tableRows = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableRow)) : [];
@@ -919,7 +919,23 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
     const tableCells = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableCell)) : [];
     const anchors = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.anchor)) : [];
 
-    return { datetimeElem, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors };
+    return { threadRoot, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors };
+  }
+
+  /**
+   * STELLAVERSE の thread 内から投稿日時文字列を抽出する。
+   * @param {Element} threadRoot
+   * @returns {string|null}
+   */
+  function extractStellaversePostedDatetime(threadRoot) {
+    const datePattern = /@\s*(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})/;
+    for (const paragraph of threadRoot.querySelectorAll("p")) {
+      const match = paragraph.textContent.match(datePattern);
+      if (match) {
+        return match[1];
+      }
+    }
+    return null;
   }
 
   /**
@@ -1060,14 +1076,14 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         return;
       }
       // 投稿日時、経過時間の差し込み先、譜面情報テーブルをまとめて取得する。
-      const { datetimeElem, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors } = getStellaverseDomRefs();
+      const { threadRoot, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors } = getStellaverseDomRefs();
 
-      if (!datetimeElem || !targetElem || !tableContainer) { console.info("処理対象エレメントのいずれかが見つかりません"); return; }
+      if (!threadRoot || !targetElem || !tableContainer) { console.info("処理対象エレメントのいずれかが見つかりません"); return; }
 
-      const match = datetimeElem.textContent.trim().match(/@ (\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2})/);
-      if (!match) { console.info("❌ 投稿日時がパースできませんでした"); return; }
+      const postedDatetime = extractStellaversePostedDatetime(threadRoot);
+      if (!postedDatetime) { console.info("❌ 投稿日時がパースできませんでした"); return; }
 
-      const postedDate = new Date(match[1].replace(/\//g, '-'));
+      const postedDate = new Date(postedDatetime.replace(/\//g, '-'));
       const now = new Date();
       const diffMs = now - postedDate;
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));

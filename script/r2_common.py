@@ -37,6 +37,11 @@ def create_r2_client(max_workers: int) -> tuple[Any, str]:
         config=Config(
             signature_version="s3v4",
             max_pool_connections=max_workers,
+            retries={
+                "max_attempts": 10,
+                "mode": "adaptive",
+            },
+            tcp_keepalive=True,
         ),
         region_name="auto",
     )

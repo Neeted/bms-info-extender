@@ -15,6 +15,7 @@ Cloudflare R2 オブジェクトストレージにアップロードします。
 import logging
 import shutil
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -32,6 +33,8 @@ UPLOADED_DIR = DATA_DIR / "compressed" / "brotli_uploaded"
 
 # 並列アップロード数（回線とR2の制限次第で調整可）
 MAX_WORKERS = 32
+UPLOAD_MAX_ATTEMPTS = 3
+UPLOAD_RETRY_DELAYS = (2, 5, 10)
 
 # 1時間後は再検証を促しつつ、障害時のみ stale を許容する
 CACHE_CONTROL = "public, max-age=3600, s-maxage=3600, must-revalidate, stale-if-error=86400"
@@ -56,29 +59,42 @@ def upload_single_file(file_path: Path, progress_bar) -> bool:
         成功時True、失敗時False
     """
     key = file_path.name
-    success = False
 
     try:
-        s3.upload_file(
-            str(file_path),
-            bucket_name,
-            key,
-            ExtraArgs={
-                'ContentType': 'text/plain; charset=utf-8',
-                'ContentEncoding': 'br',
-                'CacheControl': CACHE_CONTROL,
-            }
-        )
-        success = True
+        for attempt in range(1, UPLOAD_MAX_ATTEMPTS + 1):
+            try:
+                s3.upload_file(
+                    str(file_path),
+                    bucket_name,
+                    key,
+                    ExtraArgs={
+                        'ContentType': 'text/plain; charset=utf-8',
+                        'ContentEncoding': 'br',
+                        'CacheControl': CACHE_CONTROL,
+                    }
+                )
+                return True
+            except Exception as e:
+                if attempt >= UPLOAD_MAX_ATTEMPTS:
+                    logging.error(f"Error uploading {file_path}: {e}")
+                    with progress_lock:
+                        failed_files.append(file_path)
+                    return False
+
+                delay = UPLOAD_RETRY_DELAYS[min(attempt - 1, len(UPLOAD_RETRY_DELAYS) - 1)]
+                logging.warning(
+                    f"Retrying upload {file_path} after error "
+                    f"(attempt {attempt}/{UPLOAD_MAX_ATTEMPTS}, wait {delay}s): {e}"
+                )
+                time.sleep(delay)
     except Exception as e:
-        logging.error(f"Error uploading {file_path}: {e}")
+        logging.error(f"Unexpected error uploading {file_path}: {e}")
         with progress_lock:
             failed_files.append(file_path)
+        return False
     finally:
         with progress_lock:
             progress_bar.update(1)
-    
-    return success
 
 
 def move_files_to_uploaded(files: list[Path]) -> int:
@@ -137,7 +153,7 @@ def main():
         logging.error(f"アップロード失敗: {len(failed_files)}件のファイルが失敗しました。ファイルは移動されません。")
         for f in failed_files:
             logging.error(f"  - {f.name}")
-        return
+        raise SystemExit(1)
 
     # 全件成功時のみファイルを移動
     logging.info("全件アップロード成功。ファイルを brotli_uploaded/ に移動します...")

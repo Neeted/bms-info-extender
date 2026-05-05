@@ -443,6 +443,21 @@ export const BMSDATA_CSS = `
   .bd-table-scroll { overflow: auto; flex: 1 1 auto; scrollbar-color: var(--bd-hdbk) white; scrollbar-width: thin; }
   .bd-table-list ul { padding: 0.1rem 0.2rem; margin: 0; }
   .bd-table-list li { margin-bottom: 0.2rem; line-height: 1rem; font-size: 0.875rem; white-space: nowrap; list-style-type: none; }
+  .bd-metadata-tooltip {
+    position: fixed;
+    z-index: 2147483003;
+    display: none;
+    padding: 1px 4px;
+    border: 1px solid var(--bd-dctx);
+    background: var(--bd-dcbk);
+    color: var(--bd-dctx);
+    border-radius: 0;
+    font-size: 0.875rem;
+    line-height: 1;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: none;
+  }
   .bd-lanenote[lane="0"] { background: #e04a4a; color: #fff; }
   .bd-lanenote[lane="1"] { background: #bebebe; color: #000; }
   .bd-lanenote[lane="2"] { background: #5074fe; color: #fff; }
@@ -1345,6 +1360,7 @@ export function createBmsDataContainer({ documentRef = document, theme }) {
     container.style.setProperty("--bd-hdtx", theme.hdtx);
     container.style.setProperty("--bd-hdbk", theme.hdbk);
   }
+  ensureMetadataTooltip(container, documentRef);
   return container;
 }
 
@@ -1413,14 +1429,31 @@ export function renderBmsData(container, normalizedRecord) {
   getById("bd-sha256").textContent = normalizedRecord.sha256;
   getById("bd-md5").textContent = normalizedRecord.md5;
   getById("bd-bmsid").textContent = normalizedRecord.bmsid ? normalizedRecord.bmsid : "Undefined";
-  getById("bd-mainbpm").textContent = formatCompactNumber(normalizedRecord.mainbpm);
-  getById("bd-maxbpm").textContent = formatCompactNumber(normalizedRecord.maxbpm);
-  getById("bd-minbpm").textContent = formatCompactNumber(normalizedRecord.minbpm);
+  ensureMetadataTooltip(container);
+  renderTextWithTooltip(
+    getById("bd-mainbpm"),
+    normalizedRecord.mainbpmDisplay ?? formatCompactNumber(normalizedRecord.mainbpm),
+    normalizedRecord.mainbpmTitle,
+  );
+  renderTextWithTooltip(
+    getById("bd-maxbpm"),
+    normalizedRecord.maxbpmDisplay ?? formatCompactNumber(normalizedRecord.maxbpm),
+    normalizedRecord.maxbpmTitle,
+  );
+  renderTextWithTooltip(
+    getById("bd-minbpm"),
+    normalizedRecord.minbpmDisplay ?? formatCompactNumber(normalizedRecord.minbpm),
+    normalizedRecord.minbpmTitle,
+  );
   getById("bd-mode").textContent = normalizedRecord.mode;
   getById("bd-feature").textContent = normalizedRecord.featureNames.join(", ");
   getById("bd-judgerank").textContent = normalizedRecord.judge;
   getById("bd-notes").textContent = normalizedRecord.notesStr;
-  getById("bd-total").textContent = normalizedRecord.totalStr;
+  renderTextWithTooltip(
+    getById("bd-total"),
+    normalizedRecord.totalDisplay ?? normalizedRecord.totalStr,
+    normalizedRecord.totalTitle,
+  );
   getById("bd-avgdensity").textContent = normalizedRecord.density.toFixed(3);
   getById("bd-peakdensity").textContent = formatCompactNumber(normalizedRecord.peakdensity);
   getById("bd-enddensity").textContent = formatCompactNumber(normalizedRecord.enddensity);
@@ -1429,6 +1462,96 @@ export function renderBmsData(container, normalizedRecord) {
   renderTables(container, normalizedRecord);
   container.style.display = "block";
   void renderBmsSearchLinkIfAvailable(container, normalizedRecord.sha256);
+}
+
+function renderTextWithTooltip(element, text, tooltipText) {
+  element.textContent = text;
+  if (typeof element.removeAttribute === "function") {
+    element.removeAttribute("title");
+  } else {
+    element.title = "";
+  }
+
+  const normalizedTooltipText = tooltipText || "";
+  if (normalizedTooltipText) {
+    element.classList?.add?.("bd-tooltip-target");
+    element.setAttribute("data-bmsie-tooltip", normalizedTooltipText);
+  } else {
+    element.classList?.remove?.("bd-tooltip-target");
+    if (typeof element.removeAttribute === "function") {
+      element.removeAttribute("data-bmsie-tooltip");
+    }
+  }
+}
+
+function ensureMetadataTooltip(container, documentRef = container.ownerDocument ?? document) {
+  let tooltip = container.querySelector("#bd-metadata-tooltip");
+  if (!tooltip) {
+    tooltip = documentRef.createElement("div");
+    tooltip.id = "bd-metadata-tooltip";
+    tooltip.className = "bd-metadata-tooltip";
+    tooltip.style.display = "none";
+    container.appendChild(tooltip);
+  }
+
+  if (container.__bmsMetadataTooltipInitialized) {
+    return tooltip;
+  }
+  container.__bmsMetadataTooltipInitialized = true;
+
+  const showFromEvent = (event) => {
+    const target = findTooltipTarget(event.target, container);
+    if (!target) {
+      hideMetadataTooltip(tooltip);
+      return;
+    }
+    const text = target.getAttribute("data-bmsie-tooltip") || "";
+    if (!text) {
+      hideMetadataTooltip(tooltip);
+      return;
+    }
+    tooltip.textContent = text;
+    positionMetadataTooltip(tooltip, event, documentRef);
+    tooltip.style.display = "block";
+  };
+
+  container.addEventListener("pointerover", showFromEvent);
+  container.addEventListener("pointermove", showFromEvent);
+  container.addEventListener("pointerout", () => hideMetadataTooltip(tooltip));
+  container.addEventListener("focusin", showFromEvent);
+  container.addEventListener("focusout", () => hideMetadataTooltip(tooltip));
+
+  return tooltip;
+}
+
+function findTooltipTarget(startElement, container) {
+  let current = startElement;
+  while (current && current !== container) {
+    if (typeof current.getAttribute === "function" && current.getAttribute("data-bmsie-tooltip")) {
+      return current;
+    }
+    current = current.parentNode;
+  }
+  return null;
+}
+
+function positionMetadataTooltip(tooltip, event, documentRef = document) {
+  const offset = 10;
+  const viewportWidth = documentRef.documentElement?.clientWidth || window.innerWidth || 0;
+  const viewportHeight = documentRef.documentElement?.clientHeight || window.innerHeight || 0;
+  const rect = typeof tooltip.getBoundingClientRect === "function" ? tooltip.getBoundingClientRect() : null;
+  const tooltipWidth = Number.isFinite(rect?.width) ? rect.width : 0;
+  const tooltipHeight = Number.isFinite(rect?.height) ? rect.height : 0;
+  const clientX = Number.isFinite(event.clientX) ? event.clientX : 0;
+  const clientY = Number.isFinite(event.clientY) ? event.clientY : 0;
+  const maxLeft = Math.max(viewportWidth - tooltipWidth - offset, 0);
+  const maxTop = Math.max(viewportHeight - tooltipHeight - offset, 0);
+  tooltip.style.left = `${Math.min(clientX + offset, maxLeft)}px`;
+  tooltip.style.top = `${Math.min(clientY + offset, maxTop)}px`;
+}
+
+function hideMetadataTooltip(tooltip) {
+  tooltip.style.display = "none";
 }
 
 export function createBmsInfoPreview({

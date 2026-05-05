@@ -2,7 +2,7 @@
 BMS情報データをマージ・圧縮して保存するスクリプト
 
 入力データ:
-- BMSプレイヤーのDBデータ (song.db, songdata.db, songinfo.db)
+- BMSプレイヤーのDBデータ (song.db)
 - bmsid_to_md5.arrow (LR2 BMSID マッピング)
 - stella_songid.arrow (Stella SongID マッピング)
 
@@ -75,8 +75,8 @@ OUTPUT_COLUMNS = [
 CACHE_SCHEMA: dict[str, pl.DataType] = {
     "md5": pl.Utf8,
     "sha256": pl.Utf8,
-    "maxbpm": pl.Int64,
-    "minbpm": pl.Int64,
+    "maxbpm": pl.Float64,
+    "minbpm": pl.Float64,
     "length": pl.Int64,
     "mode": pl.Int64,
     "judge": pl.Int64,
@@ -106,46 +106,37 @@ DROP TABLE IF EXISTS temp.temp_entrys;
 DROP TABLE IF EXISTS temp.temp_matched_tables;
 DROP TABLE IF EXISTS temp.temp_tables;
 
-------------------------------------------------------------
--- 1. 所持譜面を sha256 単位に正規化し、bmson の空 md5 を補完
+-- 1. chart_info を source of truth として所持譜面を取得
 ------------------------------------------------------------
 CREATE TEMP TABLE temp.temp_songs AS
-WITH bmson_md5 AS (
-  SELECT
-    sha256,
-    MAX(NULLIF(md5, '')) AS md5
-  FROM bmson_song
-  WHERE sha256 IS NOT NULL
-    AND sha256 <> ''
-  GROUP BY sha256
-),
-song_base AS (
-  SELECT
-    md5,
-    sha256,
-    maxbpm,
-    minbpm,
-    length,
-    mode,
-    judge,
-    feature,
-    notes
-  FROM songdata.song
-  GROUP BY sha256
-)
 SELECT
-  COALESCE(NULLIF(s.md5, ''), b.md5) AS md5,
-  s.sha256,
-  s.maxbpm,
-  s.minbpm,
-  s.length,
-  s.mode,
-  s.judge,
-  s.feature,
-  s.notes
-FROM song_base s
-LEFT JOIN bmson_md5 b
-  ON b.sha256 = s.sha256
+  NULLIF(md5, '') AS md5,
+  sha256,
+  maxbpm,
+  minbpm,
+  length,
+  mode,
+  judge,
+  feature,
+  notes,
+  n,
+  ln,
+  s,
+  ls,
+  CASE
+    WHEN total_defined = 0 THEN NULL
+    ELSE total
+  END AS total,
+  density,
+  peakdensity,
+  enddensity,
+  mainbpm,
+  distribution,
+  speedchange,
+  lanenotes
+FROM chart_info
+WHERE sha256 IS NOT NULL
+  AND sha256 <> ''
 ;
 
 CREATE INDEX temp.idx_temp_songs_md5
@@ -291,22 +282,20 @@ SELECT
   s.judge,
   s.feature,
   s.notes,
-  i.n,
-  i.ln,
-  i.s,
-  i.ls,
-  i.total,
-  i.density,
-  i.peakdensity,
-  i.enddensity,
-  i.mainbpm,
-  i.distribution,
-  i.speedchange,
-  i.lanenotes,
+  s.n,
+  s.ln,
+  s.s,
+  s.ls,
+  s.total,
+  s.density,
+  s.peakdensity,
+  s.enddensity,
+  s.mainbpm,
+  s.distribution,
+  s.speedchange,
+  s.lanenotes,
   t.tables
 FROM temp.temp_songs s
-JOIN songinfo.information i
-  USING (sha256)
 LEFT JOIN temp.temp_tables t
   USING (sha256)
 ;
@@ -329,7 +318,7 @@ def normalize_hash(value: Any) -> str | None:
     return text or None
 
 
-def serialize_value(value: Any) -> str:
+def canonical_output_value(column: str, value: Any) -> str:
     """圧縮出力と差分比較で共有するセル文字列化。"""
     if value is None:
         return ""
@@ -338,6 +327,18 @@ def serialize_value(value: Any) -> str:
             return ""
     except (TypeError, ValueError):
         pass
+
+    if isinstance(value, bool):
+        return str(int(value))
+
+    if isinstance(value, int):
+        return str(value)
+
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return str(value)
+
     return str(value)
 
 
@@ -387,16 +388,11 @@ def validate_sha256_key(df: pl.DataFrame, dataset_name: str) -> None:
         raise ValueError(f"{dataset_name}: sha256 重複が見つかりました。例: {duplicate_sha}")
 
 
-def load_current_dataset(main_db: str, songdata_db: str, songinfo_db: str) -> pl.DataFrame:
+def load_current_dataset(main_db: str) -> pl.DataFrame:
     """SQLite から最新の BMS 情報データを取得する。"""
     logger.info("SQLiteに接続してデータを取得します...")
     conn = sqlite3.connect(main_db)
     try:
-        conn.execute(f"ATTACH DATABASE '{songdata_db}' AS songdata")
-        conn.execute(f"ATTACH DATABASE '{songinfo_db}' AS songinfo")
-        # Pandas経由で読み込む理由:
-        # Polarsの read_database_uri() は ATTACH DATABASE をサポートしていないため、
-        # sqlite3.connect() で接続してATTACH後、Pandas経由でPolarsに変換する必要がある
         conn.executescript(QUERY_SETUP_SQL)
         df_pandas = pd.read_sql_query(QUERY_SELECT_SQL, conn)
     finally:
@@ -470,9 +466,11 @@ def comparison_key_expr(columns: list[str], alias: str) -> pl.Expr:
     """差分比較用に、出力と同じ空文字表現へ寄せた比較キーを作る。"""
     return pl.concat_str(
         [
-            pl.when(pl.col(column).is_null())
-            .then(pl.lit(""))
-            .otherwise(pl.col(column).cast(pl.Utf8, strict=False))
+            pl.col(column).map_elements(
+                lambda value, column=column: canonical_output_value(column, value),
+                return_dtype=pl.Utf8,
+                skip_nulls=False,
+            )
             for column in columns
         ],
         separator=SEPARATOR,
@@ -502,7 +500,7 @@ def extract_diff_df(new_df: pl.DataFrame, prev_df: pl.DataFrame) -> pl.DataFrame
 
 def build_row_string(row_dict: dict[str, Any]) -> str:
     """出力列順を固定して 1 行を文字列化する。"""
-    return SEPARATOR.join(serialize_value(row_dict.get(column)) for column in OUTPUT_COLUMNS)
+    return SEPARATOR.join(canonical_output_value(column, row_dict.get(column)) for column in OUTPUT_COLUMNS)
 
 
 def is_valid_identifier(value: Any) -> bool:
@@ -586,10 +584,8 @@ def main() -> None:
 
     config = load_config()
     main_db = config.get("database", "main_db")
-    songdata_db = config.get("database", "songdata_db")
-    songinfo_db = config.get("database", "songinfo_db")
 
-    new_df = load_current_dataset(main_db, songdata_db, songinfo_db)
+    new_df = load_current_dataset(main_db)
     new_df = join_mapper_columns(new_df)
 
     if not PREV_DATASET_PATH.exists() or args.force_init:

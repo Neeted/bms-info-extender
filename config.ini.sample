@@ -3,6 +3,7 @@
 
 [database]
 # LR2のsong.dbのパス
+# bms_data_compressor.py では chart_info テーブルが取り込まれている必要があります
 main_db = D:\LR2beta3\LR2files\Database\song.db
 
 # beatorajaのsongdata.dbのパス

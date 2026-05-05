@@ -56,6 +56,8 @@ export const DISTRIBUTION_NOTE_NAMES = [
   "MINE",
 ];
 
+const DECIMAL_DISPLAY_PLACES = 2;
+
 export async function fetchBmsInfoRecord(sha256) {
   return fetchBmsInfoRecordByLookupKey(sha256);
 }
@@ -86,16 +88,28 @@ export function normalizeBmsInfoRecord(rawRecord) {
   const ln = Number(rawRecord.ln);
   const s = Number(rawRecord.s);
   const ls = Number(rawRecord.ls);
-  const total = Number(rawRecord.total);
+  const totalIsUndefined = isBlankValue(rawRecord.total);
+  const total = totalIsUndefined ? null : Number(rawRecord.total);
   const feature = Number(rawRecord.feature);
   const lengthMs = Number(rawRecord.length);
+  const mainbpm = Number(rawRecord.mainbpm);
+  const maxbpm = Number(rawRecord.maxbpm);
+  const minbpm = Number(rawRecord.minbpm);
+  const mainbpmFormatted = formatMetadataNumber(rawRecord.mainbpm, mainbpm);
+  const maxbpmFormatted = formatMetadataNumber(rawRecord.maxbpm, maxbpm);
+  const minbpmFormatted = formatMetadataNumber(rawRecord.minbpm, minbpm);
+  const totalFormatted = totalIsUndefined
+    ? { text: "undefined", title: formatUndefinedTotalTitle(notes) }
+    : formatMetadataNumber(rawRecord.total, total);
+  const totalRatioStr = !totalIsUndefined && notes > 0 ? (total / notes).toFixed(3) : "0.000";
+  const totalStr = totalIsUndefined ? "undefined" : `${totalFormatted.text} (${totalRatioStr} T/N)`;
 
   return {
     md5: rawRecord.md5,
     sha256: rawRecord.sha256,
-    maxbpm: Number(rawRecord.maxbpm),
-    minbpm: Number(rawRecord.minbpm),
-    mainbpm: Number(rawRecord.mainbpm),
+    maxbpm,
+    minbpm,
+    mainbpm,
     lengthMs,
     durationSec: lengthMs / 1000,
     mode,
@@ -120,9 +134,57 @@ export function normalizeBmsInfoRecord(rawRecord) {
     bmsid: Number(rawRecord.bmsid),
     stella: Number(rawRecord.stella),
     notesStr: `${notes} (N:${n}, LN:${ln}, SCR:${s}, LNSCR:${ls})`,
-    totalStr: `${total % 1 === 0 ? Math.round(total) : total} (${notes > 0 ? (total / notes).toFixed(3) : "0.000"} T/N)`,
+    mainbpmDisplay: mainbpmFormatted.text,
+    mainbpmTitle: mainbpmFormatted.title,
+    maxbpmDisplay: maxbpmFormatted.text,
+    maxbpmTitle: maxbpmFormatted.title,
+    minbpmDisplay: minbpmFormatted.text,
+    minbpmTitle: minbpmFormatted.title,
+    totalDisplay: totalStr,
+    totalTitle: totalFormatted.title,
+    totalStr,
     durationStr: `${(lengthMs / 1000).toFixed(2)} s`,
   };
+}
+
+function isBlankValue(value) {
+  return value === null || value === undefined || String(value).trim() === "";
+}
+
+function formatMetadataNumber(rawValue, numericValue = Number(rawValue)) {
+  if (!Number.isFinite(numericValue)) {
+    return { text: "-", title: "" };
+  }
+
+  const canonicalText = canonicalizeNumericText(rawValue, numericValue);
+  const decimalMatch = canonicalText.match(/^([+-]?\d+)\.(\d+)$/);
+  if (decimalMatch && decimalMatch[2].length > DECIMAL_DISPLAY_PLACES) {
+    return {
+      text: `${decimalMatch[1]}.${decimalMatch[2].slice(0, DECIMAL_DISPLAY_PLACES)}...`,
+      title: canonicalText,
+    };
+  }
+
+  return { text: canonicalText, title: "" };
+}
+
+function canonicalizeNumericText(rawValue, numericValue) {
+  if (Number.isInteger(numericValue)) {
+    return String(Math.trunc(numericValue));
+  }
+
+  const rawText = String(rawValue ?? "").trim();
+  return rawText || String(numericValue);
+}
+
+function formatUndefinedTotalTitle(notes) {
+  if (!Number.isFinite(notes) || notes <= 0) {
+    return "beatoraja: unavailable, LR2: unavailable";
+  }
+
+  const beatorajaTotal = Math.max(260.0, 7.605 * notes / (0.01 * notes + 6.5));
+  const lr2Total = 160.0 + (notes + Math.min(Math.max(notes - 400, 0), 200)) * 0.16;
+  return `beatoraja: ${beatorajaTotal.toFixed(2)} (${(beatorajaTotal / notes).toFixed(3)} T/N), LR2: ${lr2Total.toFixed(2)} (${(lr2Total / notes).toFixed(3)} T/N)`;
 }
 
 export function parseTables(tablesRaw) {

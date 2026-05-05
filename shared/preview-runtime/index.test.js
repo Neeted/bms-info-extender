@@ -35,6 +35,7 @@ import {
   SPACING_PX_STORAGE_KEYS,
   SPACING_SCALE_STORAGE_KEYS,
   VIEWER_MODE_STORAGE_KEY,
+  BMSDATA_CSS,
   OVERLAY_SURFACE_CSS,
   expandPreviewRenderMask,
   getInitialGraphInteractionMode,
@@ -45,6 +46,7 @@ import {
   getInitialJudgeLinePositionRatio,
   getInitialGameTimingConfig,
   getInitialRendererConfig,
+  renderBmsData,
 } from "./index.js";
 import {
   getViewerCursor,
@@ -399,6 +401,75 @@ test("preview renders unsupported mode lane notes with the white-key fallback la
   } finally {
     environment.restore();
   }
+});
+
+test("renderBmsData applies metadata display text and custom tooltip metadata", () => {
+  const documentRef = new MockDocument();
+  const { container } = createPreviewContainerElements(documentRef);
+  const record = {
+    ...createNormalizedRecord("a".repeat(64)),
+    mainbpmDisplay: "123.45...",
+    mainbpmTitle: "123.4567",
+    maxbpmDisplay: "180",
+    maxbpmTitle: "",
+    minbpmDisplay: "90.5",
+    minbpmTitle: "",
+    totalDisplay: "undefined",
+    totalTitle: "beatoraja: 260.00 (0.520 T/N), LR2: 240.00 (0.480 T/N)",
+  };
+
+  renderBmsData(container, record);
+
+  const mainBpm = container.querySelector("#bd-mainbpm");
+  const maxBpm = container.querySelector("#bd-maxbpm");
+  const total = container.querySelector("#bd-total");
+  const tooltip = container.querySelector("#bd-metadata-tooltip");
+
+  assert.equal(mainBpm.textContent, "123.45...");
+  assert.equal(mainBpm.getAttribute("title"), null);
+  assert.equal(mainBpm.getAttribute("data-bmsie-tooltip"), "123.4567");
+  assert.equal(mainBpm.classList.contains("bd-tooltip-target"), true);
+  assert.equal(maxBpm.textContent, "180");
+  assert.equal(maxBpm.getAttribute("data-bmsie-tooltip"), null);
+  assert.equal(maxBpm.classList.contains("bd-tooltip-target"), false);
+  assert.equal(total.textContent, "undefined");
+  assert.equal(total.getAttribute("title"), null);
+  assert.equal(total.getAttribute("data-bmsie-tooltip"), "beatoraja: 260.00 (0.520 T/N), LR2: 240.00 (0.480 T/N)");
+  assert.ok(tooltip);
+});
+
+test("metadata custom tooltip appears immediately, follows the pointer, and hides on leave", () => {
+  const documentRef = new MockDocument();
+  const { container } = createPreviewContainerElements(documentRef);
+  const record = {
+    ...createNormalizedRecord("a".repeat(64)),
+    mainbpmDisplay: "123.45...",
+    mainbpmTitle: "123.4567",
+  };
+
+  renderBmsData(container, record);
+
+  const mainBpm = container.querySelector("#bd-mainbpm");
+  const tooltip = container.querySelector("#bd-metadata-tooltip");
+  container.dispatchEvent({ type: "pointerover", target: mainBpm, clientX: 120, clientY: 34 });
+
+  assert.equal(tooltip.textContent, "123.4567");
+  assert.equal(tooltip.style.left, "130px");
+  assert.equal(tooltip.style.top, "44px");
+  assert.equal(tooltip.style.display, "block");
+
+  container.dispatchEvent({ type: "pointermove", target: mainBpm, clientX: 140, clientY: 50 });
+
+  assert.equal(tooltip.style.left, "150px");
+  assert.equal(tooltip.style.top, "60px");
+
+  container.dispatchEvent({ type: "pointerout", target: mainBpm });
+
+  assert.equal(tooltip.style.display, "none");
+});
+
+test("metadata tooltip CSS uses the panel theme colors with a simple title-like style", () => {
+  assert.match(BMSDATA_CSS, /\.bd-metadata-tooltip \{[^}]*position: fixed;[^}]*display: none;[^}]*border: 1px solid var\(--bd-dctx\);[^}]*background: var\(--bd-dcbk\);[^}]*color: var\(--bd-dctx\);[^}]*border-radius: 0;[^}]*box-shadow: none;[^}]*\}/);
 });
 
 test("graph hover mode opens the viewer and updates the selected time", async () => {
@@ -1609,6 +1680,13 @@ class MockElement {
     return this.attributes.get(name) ?? null;
   }
 
+  removeAttribute(name) {
+    this.attributes.delete(name);
+    if (name === "title") {
+      this.title = "";
+    }
+  }
+
   addEventListener(type, callback) {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(callback);
@@ -1694,7 +1772,8 @@ class MockContainerElement extends MockElement {
     if (!selector.startsWith("#")) {
       return null;
     }
-    return this._elementsById.get(selector.slice(1)) ?? null;
+    const id = selector.slice(1);
+    return this._elementsById.get(id) ?? findMockElementById(this, id);
   }
 }
 
@@ -1783,6 +1862,23 @@ class MockClassList {
     this.values.add(token);
     return true;
   }
+
+  contains(token) {
+    return this.values.has(token);
+  }
+}
+
+function findMockElementById(root, id) {
+  if (root.id === id) {
+    return root;
+  }
+  for (const child of root.children ?? []) {
+    const match = findMockElementById(child, id);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
 }
 
 function createMockStyle() {

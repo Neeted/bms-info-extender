@@ -15,7 +15,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
   const SCORE_PARSER_VERSION = "0.6.6";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.3";
+  const SCRIPT_VERSION_FALLBACK = "2.3.8";
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
   const VERSION_NOTIFICATION_STORAGE_KEYS = {
     lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",
@@ -1133,14 +1133,14 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
       let bokutachi;
       let targetmd5 = null;
       for (const a of anchors) {
-        if (a.textContent.trim() === 'LR2IR') {
+        if (a.textContent.trim() === "Bokutachi") {
+          bokutachi = a.href;
+        } else {
           const href = a.href;
-          const match = href.match(/[a-f0-9]{32}$/i); // 末尾の32桁16進数
+          const match = href.match(/[a-f0-9]{32}$/i); // 末尾の32桁16進数、譜面ビューアリンクから抽出
           if (match) {
             targetmd5 = match[0];
           }
-        } else if (a.textContent.trim() === 'Bokutachi') {
-          bokutachi = a.href;
         }
         // 必要な 2 本が揃ったら探索を打ち切る。
         if (targetmd5 && bokutachi) break;

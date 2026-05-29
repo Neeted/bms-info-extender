@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.7
+// @version      2.3.8
 // @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
@@ -19,6 +19,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.8 STELLAVERSEにおいてMD5の抽出をLR2IRではなく譜面ビューアリンクから行うように変更
 // 2.3.7 BPMのMIN、MAXにおいて小数に対応。TOTAL、BPMで小数点以下3桁以降は省略表示しツールチップに全量表示。TOTAL未定義はundefined表示しツールチップにLR2、beatoraja相当の計算値を表示。
 // 2.3.6 STELLAVERSEのセレクターを修正
 // 2.3.5 EZ2PATTERNへのリンクを追加
@@ -9503,7 +9504,7 @@
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
     const SCORE_PARSER_VERSION = "0.6.6";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.3";
+    const SCRIPT_VERSION_FALLBACK = "2.3.8";
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
     const VERSION_NOTIFICATION_STORAGE_KEYS = {
       lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",
@@ -10375,14 +10376,14 @@
         let bokutachi;
         let targetmd5 = null;
         for (const a of anchors) {
-          if (a.textContent.trim() === "LR2IR") {
+          if (a.textContent.trim() === "Bokutachi") {
+            bokutachi = a.href;
+          } else {
             const href = a.href;
             const match = href.match(/[a-f0-9]{32}$/i);
             if (match) {
               targetmd5 = match[0];
             }
-          } else if (a.textContent.trim() === "Bokutachi") {
-            bokutachi = a.href;
           }
           if (targetmd5 && bokutachi) break;
         }

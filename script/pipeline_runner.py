@@ -41,9 +41,9 @@ def run_parallel_stage(lr2_mode: str) -> int:
         "stella_songid_mapper.py": subprocess.Popen(
             script_command("stella_songid_mapper.py")
         ),
-        "lr2_bmsid_mapper.py": subprocess.Popen(
-            script_command("lr2_bmsid_mapper.py", "--mode", lr2_mode)
-        ),
+        # "lr2_bmsid_mapper.py": subprocess.Popen(
+        #     script_command("lr2_bmsid_mapper.py", "--mode", lr2_mode)
+        # ),
     }
 
     exit_codes: dict[str, int] = {}

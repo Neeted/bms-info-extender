@@ -2,9 +2,10 @@
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
 // @version      2.3.8
-// @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
+// @description  LR2ALT、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
-// @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
+// @match        http://www.dream-pro.info/new/song*
+// @match        http://126.71.110.56/new/song*
 // @match        https://stellabms.xyz/*
 // @match        https://www.gaftalk.com/minir/*
 // @match        https://mocha-repository.info/song.php*
@@ -6457,6 +6458,8 @@
 
   // shared/preview-runtime/index.js
   var BMSDATA_STYLE_ID = "bms-info-extender-style";
+  var LR2ALT_HOST = "126.71.110.56";
+  var LR2ALT_SONG_BASE_URL = `http://${LR2ALT_HOST}/new/song`;
   var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
   var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
@@ -6800,14 +6803,16 @@
     --bd-dcbk: #fff;
     --bd-hdtx: #eef;
     --bd-hdbk: #669;
+    --bd-link-color: #155dfc;
+    --bd-link-hover-color: red;
   }
   .bmsdata * { line-height: 100%; color: var(--bd-dctx); background-color: var(--bd-dcbk); font-family: "Inconsolata", "Noto Sans JP"; vertical-align: middle; box-sizing: content-box; }
   .bd-info { display: flex; border: 0px; height: 9.6rem; }
-  .bd-info a { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border: 1px solid; border-radius: 2px; font-size: 0.750rem; color: #155dfc; text-decoration: none; }
-  .bd-info a:hover { color: red; }
+  .bd-info a { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border: 1px solid; border-radius: 2px; font-size: 0.750rem; color: var(--bd-link-color); text-decoration: none; }
+  .bd-info a:hover { color: var(--bd-link-hover-color); }
   .bd-icon { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border-radius: 2px; background: var(--bd-dctx); color: var(--bd-dcbk); font-size: 0.750rem; }
   .bd-icon:nth-child(n+2) { margin-left: 0.4rem; }
-  .bd-info .bd-info-table { flex: 1; border-collapse: collapse; height: 100%; }
+  .bd-info .bd-info-table { flex: 1; border-collapse: collapse; height: 100%; margin: 0; }
   .bd-info td { border: unset; padding: 0.1rem 0.2rem; height: 1rem; white-space: nowrap; font-size: 0.875rem; }
   .bd-info .bd-header-cell { background-color: var(--bd-hdbk); color: var(--bd-hdtx); }
   .bd-info .bd-lanenote { margin-right: 0.2rem; padding: 0.1rem 0.2rem; border-radius: 2px; font-size: 0.750rem; }
@@ -7644,7 +7649,7 @@
         <tr>
           <td class="bd-header-cell">LINK</td>
           <td colspan="3">
-            <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
+            <a href="" id="bd-lr2ir" style="display: none;">LR2ALT</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
           </td>
         </tr>
         <tr>
@@ -7721,13 +7726,21 @@
       throw new Error("BMS preview template did not create a container.");
     }
     if (theme) {
-      container.style.setProperty("--bd-dctx", theme.dctx);
-      container.style.setProperty("--bd-dcbk", theme.dcbk);
-      container.style.setProperty("--bd-hdtx", theme.hdtx);
-      container.style.setProperty("--bd-hdbk", theme.hdbk);
+      setThemeProperty(container, "--bd-dctx", theme.dctx);
+      setThemeProperty(container, "--bd-dcbk", theme.dcbk);
+      setThemeProperty(container, "--bd-hdtx", theme.hdtx);
+      setThemeProperty(container, "--bd-hdbk", theme.hdbk);
+      setThemeProperty(container, "--bd-link-color", theme.linkColor);
+      setThemeProperty(container, "--bd-link-hover-color", theme.linkHoverColor);
     }
     ensureMetadataTooltip(container, documentRef);
     return container;
+  }
+  function setThemeProperty(container, propertyName, value) {
+    if (value === void 0 || value === null) {
+      return;
+    }
+    container.style.setProperty(propertyName, value);
   }
   function insertBmsDataContainer({ documentRef = document, insertion, theme }) {
     const container = createBmsDataContainer({ documentRef, theme });
@@ -8998,7 +9011,7 @@
   function renderLinks(container, normalizedRecord) {
     const getById = (id) => container.querySelector(`#${id}`);
     if (normalizedRecord.md5) {
-      showLink(getById("bd-lr2ir"), `http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsmd5=${normalizedRecord.md5}`);
+      showLink(getById("bd-lr2ir"), createLr2altSongUrl(normalizedRecord.md5));
       showLink(getById("bd-viewer"), `https://bms-score-viewer.pages.dev/view?md5=${normalizedRecord.md5}`);
     }
     if (normalizedRecord.sha256) {
@@ -9035,6 +9048,9 @@
       item.textContent = text;
       tableList.appendChild(item);
     });
+  }
+  function createLr2altSongUrl(md5) {
+    return `${LR2ALT_SONG_BASE_URL}?songmd5=${encodeURIComponent(md5)}&view=both`;
   }
   function showLink(linkElement, href) {
     if (!linkElement) {
@@ -9815,11 +9831,47 @@
     };
     let scoreLoaderContextPromise = null;
     let activeBmsPreviewRuntime = null;
-    const LR2IR_SELECTORS = {
-      allAnchors: "a",
-      registeredSongHeading: "#box > h2",
-      search: "#search",
-      registeredSongFallbackBody: "#box > table:nth-child(10) > tbody"
+    const LR2ALT_HOST2 = "126.71.110.56";
+    const LR2ALT_HOSTS = /* @__PURE__ */ new Set(["www.dream-pro.info", LR2ALT_HOST2]);
+    const LR2ALT_SONG_PATH = "/new/song";
+    const LR2ALT_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
+    const LR2ALT_SELECTORS = {
+      displaySwitcherCandidates: "#box > p",
+      displaySwitcherButton: "a.button"
+    };
+    const LR2ALT_THEME = {
+      dctx: "#cfcfcf",
+      dcbk: "#090909",
+      hdtx: "#ddd",
+      hdbk: "#252525",
+      linkColor: "#9fc7ff",
+      linkHoverColor: "#fff"
+    };
+    const STELLAVERSE_THEMES = {
+      dark: {
+        dctx: "#fafafa",
+        dcbk: "#09090b",
+        hdtx: "#fafafa",
+        hdbk: "#18191d",
+        linkColor: "#93c5fd",
+        linkHoverColor: "#bfdbfe"
+      },
+      light: {
+        dctx: "#09090b",
+        dcbk: "#ffffff",
+        hdtx: "#09090b",
+        hdbk: "#e9eaed",
+        linkColor: "#2563eb",
+        linkHoverColor: "#1d4ed8"
+      }
+    };
+    const MOCHA_THEME = {
+      dctx: "#ffffff",
+      dcbk: "#333333",
+      hdtx: "#ffffff",
+      hdbk: "#666666",
+      linkColor: "#8888ff",
+      linkHoverColor: "#ff88ff"
     };
     const STELLAVERSE_SELECTORS = {
       threadRoot: "#thread-1",
@@ -10068,10 +10120,11 @@
       contentElement.textContent = bodyText;
     }
     function bootstrap() {
+      if (isLr2altSongUrl(location.href)) {
+        lr2alt();
+        return;
+      }
       switch (location.hostname) {
-        case "www.dream-pro.info":
-          lr2ir();
-          break;
         case "stellabms.xyz":
           stellaverse();
           break;
@@ -10083,6 +10136,14 @@
           break;
         default:
           break;
+      }
+    }
+    function isLr2altSongUrl(url) {
+      try {
+        const parsedUrl = new URL(url);
+        return LR2ALT_HOSTS.has(parsedUrl.hostname) && parsedUrl.pathname === LR2ALT_SONG_PATH;
+      } catch {
+        return false;
       }
     }
     function installLocationChangeHookOnce() {
@@ -10240,8 +10301,8 @@
       const songInfoRows = songInfoBody ? Array.from(songInfoBody.children) : [];
       return { songInfoTable, songInfoBody, songInfoRows };
     }
-    async function lr2ir() {
-      console.info("LR2IRの処理に入りました");
+    async function lr2alt() {
+      console.info("LR2ALTの処理に入りました");
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", async (event) => {
           console.info("🔥 DOMContentLoadedイベントが発火しました");
@@ -10252,59 +10313,45 @@
         await updatePage();
       }
       async function updatePage() {
-        if (!location.href.startsWith("http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking")) {
+        if (!isLr2altSongUrl(location.href)) {
           return;
         }
-        console.info("LR2IR曲ページの書き換え処理に入りました");
-        let targetbmsid = null;
-        const anchors = Array.from(document.querySelectorAll(LR2IR_SELECTORS.allAnchors));
-        const historyAnchor = findAnchorByText(anchors, "更新履歴");
-        if (historyAnchor) {
-          targetbmsid = new URL(historyAnchor.href).searchParams.get("bmsid");
-        }
-        const targetmd5 = new URL(window.location.href).searchParams.get("bmsmd5");
-        let htmlTargetElement = document.querySelector(LR2IR_SELECTORS.registeredSongHeading);
-        let htmlTargetDest = "afterend";
-        if (!htmlTargetElement) {
-          htmlTargetElement = document.querySelector(LR2IR_SELECTORS.search);
-        }
-        if ((targetmd5 || targetbmsid) && htmlTargetElement && htmlTargetDest) {
+        console.info("LR2ALT曲ページの書き換え処理に入りました");
+        const targetmd5 = new URL(window.location.href).searchParams.get("songmd5");
+        const displaySwitcherElement = findLr2altDisplaySwitcherElement();
+        if (LR2ALT_MD5_PATTERN.test(targetmd5 ?? "") && displaySwitcherElement) {
           const pageContext = {
-            identifiers: { md5: targetmd5, sha256: null, bmsid: targetbmsid },
-            insertion: { element: htmlTargetElement, position: htmlTargetDest },
-            theme: { dctx: "#333", dcbk: "#fff", hdtx: "#eef", hdbk: "#669" }
+            identifiers: { md5: targetmd5, sha256: null, bmsid: null },
+            insertion: { element: displaySwitcherElement, position: "beforebegin" },
+            theme: LR2ALT_THEME
           };
           const container = insertBmsDataTemplate(pageContext);
           if (await insertBmsData(pageContext, container)) {
             console.info("✅ 外部データの取得とページの書き換えが成功しました");
           } else {
             console.error("❌ 外部データの取得とページの書き換えが失敗しました");
-            const tbody = document.querySelector(LR2IR_SELECTORS.registeredSongFallbackBody);
-            if (tbody) {
-              const md5Row = document.createElement("tr");
-              md5Row.innerHTML = `<th>MD5</th><td colspan="7">${targetmd5}</td>`;
-              const viewerRow = document.createElement("tr");
-              viewerRow.innerHTML = `<th>VIEWER</th><td colspan="7"><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td>`;
-              const EZ2PATTERNRow = document.createElement("tr");
-              EZ2PATTERNRow.innerHTML = `<th>EZ2PATTERN</th><td colspan="7"><a href="https://ez2pattern.kr/bms/chart?md5=${targetmd5}">https://ez2pattern.kr/bms/chart?md5=${targetmd5}</a></td>`;
-              tbody.appendChild(md5Row);
-              tbody.appendChild(viewerRow);
-              tbody.appendChild(EZ2PATTERNRow);
-            } else {
-              const table_element = document.createElement("table");
-              table_element.innerHTML = `<tr><th>MD5</th><td>${targetmd5}</td></tr><tr><th>VIEWER</th><td><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td></tr>
-              <tr><th>EZ2PATTERN</th><td><a href="https://ez2pattern.kr/bms/chart?md5=${targetmd5}">https://ez2pattern.kr/bms/chart?md5=${targetmd5}</a></td></tr>`;
-              const searchElement = document.querySelector(LR2IR_SELECTORS.search);
-              if (searchElement) {
-                searchElement.after(table_element);
-              } else {
-                console.error("❌ LR2IRの検索フォームが見つかりませんでした");
-              }
-            }
           }
         } else {
-          console.info("❌ LR2IRのページ書き換えはスキップされました。MD5/BMSIDかターゲット要素が取得できませんでした");
+          console.info("❌ LR2ALTのページ書き換えはスキップされました。MD5か表示切替要素が取得できませんでした");
         }
+      }
+    }
+    function findLr2altDisplaySwitcherElement() {
+      const candidates = Array.from(document.querySelectorAll(LR2ALT_SELECTORS.displaySwitcherCandidates));
+      return candidates.find((element) => {
+        if (!element.textContent.trim().startsWith("表示:")) {
+          return false;
+        }
+        const buttons = Array.from(element.querySelectorAll(LR2ALT_SELECTORS.displaySwitcherButton));
+        return ["new", "old", "both"].every((view) => buttons.some((button) => isLr2altViewButton(button, view)));
+      }) ?? null;
+    }
+    function isLr2altViewButton(button, view) {
+      try {
+        const url = new URL(button.getAttribute("href") ?? button.href, location.href);
+        return url.pathname === LR2ALT_SONG_PATH && url.searchParams.get("view") === view;
+      } catch {
+        return false;
       }
     }
     async function stellaverse() {
@@ -10392,7 +10439,7 @@
           const pageContext = {
             identifiers: { md5: targetmd5, sha256: null, bmsid: null },
             insertion: { element: tableContainer, position: "beforeend" },
-            theme: isDarkMode ? { dctx: "#fafafa", dcbk: "#09090b", hdtx: "#fafafa", hdbk: "#18191d" } : { dctx: "#09090b", dcbk: "#ffffff", hdtx: "#09090b", hdbk: "#e9eaed" }
+            theme: isDarkMode ? STELLAVERSE_THEMES.dark : STELLAVERSE_THEMES.light
           };
           const container = insertBmsDataTemplate(pageContext);
           if (await insertBmsData(pageContext, container)) {
@@ -10483,7 +10530,7 @@
           const pageContext = {
             identifiers: { md5: null, sha256: targetsha256, bmsid: null },
             insertion: { element: htmlTargetElement, position: htmlTargetDest },
-            theme: { dctx: "#ffffff", dcbk: "#333333", hdtx: "#ffffff", hdbk: "#666666" }
+            theme: MOCHA_THEME
           };
           const container = insertBmsDataTemplate(pageContext);
           if (await insertBmsData(pageContext, container)) {

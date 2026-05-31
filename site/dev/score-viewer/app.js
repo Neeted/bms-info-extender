@@ -6419,6 +6419,8 @@ function clamp4(value, minValue, maxValue) {
 
 // shared/preview-runtime/index.js
 var BMSDATA_STYLE_ID = "bms-info-extender-style";
+var LR2ALT_HOST = "126.71.110.56";
+var LR2ALT_SONG_BASE_URL = `http://${LR2ALT_HOST}/new/song`;
 var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
@@ -6762,14 +6764,16 @@ var BMSDATA_CSS = `
     --bd-dcbk: #fff;
     --bd-hdtx: #eef;
     --bd-hdbk: #669;
+    --bd-link-color: #155dfc;
+    --bd-link-hover-color: red;
   }
   .bmsdata * { line-height: 100%; color: var(--bd-dctx); background-color: var(--bd-dcbk); font-family: "Inconsolata", "Noto Sans JP"; vertical-align: middle; box-sizing: content-box; }
   .bd-info { display: flex; border: 0px; height: 9.6rem; }
-  .bd-info a { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border: 1px solid; border-radius: 2px; font-size: 0.750rem; color: #155dfc; text-decoration: none; }
-  .bd-info a:hover { color: red; }
+  .bd-info a { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border: 1px solid; border-radius: 2px; font-size: 0.750rem; color: var(--bd-link-color); text-decoration: none; }
+  .bd-info a:hover { color: var(--bd-link-hover-color); }
   .bd-icon { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border-radius: 2px; background: var(--bd-dctx); color: var(--bd-dcbk); font-size: 0.750rem; }
   .bd-icon:nth-child(n+2) { margin-left: 0.4rem; }
-  .bd-info .bd-info-table { flex: 1; border-collapse: collapse; height: 100%; }
+  .bd-info .bd-info-table { flex: 1; border-collapse: collapse; height: 100%; margin: 0; }
   .bd-info td { border: unset; padding: 0.1rem 0.2rem; height: 1rem; white-space: nowrap; font-size: 0.875rem; }
   .bd-info .bd-header-cell { background-color: var(--bd-hdbk); color: var(--bd-hdtx); }
   .bd-info .bd-lanenote { margin-right: 0.2rem; padding: 0.1rem 0.2rem; border-radius: 2px; font-size: 0.750rem; }
@@ -7606,7 +7610,7 @@ var BMSDATA_TEMPLATE_HTML = `
         <tr>
           <td class="bd-header-cell">LINK</td>
           <td colspan="3">
-            <a href="" id="bd-lr2ir" style="display: none;">LR2IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
+            <a href="" id="bd-lr2ir" style="display: none;">LR2ALT</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
           </td>
         </tr>
         <tr>
@@ -7683,13 +7687,21 @@ function createBmsDataContainer({ documentRef = document, theme }) {
     throw new Error("BMS preview template did not create a container.");
   }
   if (theme) {
-    container.style.setProperty("--bd-dctx", theme.dctx);
-    container.style.setProperty("--bd-dcbk", theme.dcbk);
-    container.style.setProperty("--bd-hdtx", theme.hdtx);
-    container.style.setProperty("--bd-hdbk", theme.hdbk);
+    setThemeProperty(container, "--bd-dctx", theme.dctx);
+    setThemeProperty(container, "--bd-dcbk", theme.dcbk);
+    setThemeProperty(container, "--bd-hdtx", theme.hdtx);
+    setThemeProperty(container, "--bd-hdbk", theme.hdbk);
+    setThemeProperty(container, "--bd-link-color", theme.linkColor);
+    setThemeProperty(container, "--bd-link-hover-color", theme.linkHoverColor);
   }
   ensureMetadataTooltip(container, documentRef);
   return container;
+}
+function setThemeProperty(container, propertyName, value) {
+  if (value === void 0 || value === null) {
+    return;
+  }
+  container.style.setProperty(propertyName, value);
 }
 async function fetchBmsInfoRecordByIdentifiers({ md5 = null, sha256 = null, bmsid = null }) {
   const lookupKey = md5 ?? sha256 ?? bmsid;
@@ -8955,7 +8967,7 @@ function createBmsInfoPreview({
 function renderLinks(container, normalizedRecord) {
   const getById = (id) => container.querySelector(`#${id}`);
   if (normalizedRecord.md5) {
-    showLink(getById("bd-lr2ir"), `http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsmd5=${normalizedRecord.md5}`);
+    showLink(getById("bd-lr2ir"), createLr2altSongUrl(normalizedRecord.md5));
     showLink(getById("bd-viewer"), `https://bms-score-viewer.pages.dev/view?md5=${normalizedRecord.md5}`);
   }
   if (normalizedRecord.sha256) {
@@ -8992,6 +9004,9 @@ function renderTables(container, normalizedRecord) {
     item.textContent = text;
     tableList.appendChild(item);
   });
+}
+function createLr2altSongUrl(md5) {
+  return `${LR2ALT_SONG_BASE_URL}?songmd5=${encodeURIComponent(md5)}&view=both`;
 }
 function showLink(linkElement, href) {
   if (!linkElement) {

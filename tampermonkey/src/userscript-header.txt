@@ -2,9 +2,10 @@
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
 // @version      2.3.8
-// @description  LR2IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
+// @description  LR2ALT、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
-// @match        http://www.dream-pro.info/~lavalse/LR2IR/search.cgi*
+// @match        http://www.dream-pro.info/new/song*
+// @match        http://126.71.110.56/new/song*
 // @match        https://stellabms.xyz/*
 // @match        https://www.gaftalk.com/minir/*
 // @match        https://mocha-repository.info/song.php*

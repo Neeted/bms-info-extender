@@ -36,8 +36,10 @@ import {
   SPACING_SCALE_STORAGE_KEYS,
   VIEWER_MODE_STORAGE_KEY,
   BMSDATA_CSS,
+  BMSDATA_TEMPLATE_HTML,
   OVERLAY_SURFACE_CSS,
   expandPreviewRenderMask,
+  createBmsDataContainer,
   getInitialGraphInteractionMode,
   getInitialSpacingPx,
   getInitialSpacingPxByMode,
@@ -470,6 +472,62 @@ test("metadata custom tooltip appears immediately, follows the pointer, and hide
 
 test("metadata tooltip CSS uses the panel theme colors with a simple title-like style", () => {
   assert.match(BMSDATA_CSS, /\.bd-metadata-tooltip \{[^}]*position: fixed;[^}]*display: none;[^}]*border: 1px solid var\(--bd-dctx\);[^}]*background: var\(--bd-dcbk\);[^}]*color: var\(--bd-dctx\);[^}]*border-radius: 0;[^}]*box-shadow: none;[^}]*\}/);
+});
+
+test("metadata panel CSS keeps fixed layout and supports themed link colors", () => {
+  assert.match(BMSDATA_CSS, /\.bmsdata \{[^}]*--bd-link-color: #155dfc;[^}]*--bd-link-hover-color: red;[^}]*\}/);
+  assert.match(BMSDATA_CSS, /\.bd-info \{[^}]*height: 9\.6rem;[^}]*\}/);
+  assert.match(BMSDATA_CSS, /\.bd-info a \{[^}]*color: var\(--bd-link-color\);[^}]*\}/);
+  assert.match(BMSDATA_CSS, /\.bd-info a:hover \{[^}]*color: var\(--bd-link-hover-color\);[^}]*\}/);
+  assert.match(BMSDATA_CSS, /\.bd-info \.bd-info-table \{[^}]*height: 100%;[^}]*margin: 0;[^}]*\}/);
+});
+
+test("createBmsDataContainer applies optional link theme variables", () => {
+  const documentRef = new MockDocument();
+  documentRef.getElementById = (id) => findMockElementById(documentRef.head, id) ?? findMockElementById(documentRef.body, id);
+  const originalCreateElement = documentRef.createElement.bind(documentRef);
+  const templateContainer = new MockContainerElement(documentRef);
+  documentRef.createElement = (tagName) => {
+    if (tagName !== "template") {
+      return originalCreateElement(tagName);
+    }
+    return {
+      content: {
+        firstElementChild: templateContainer,
+      },
+      set innerHTML(_value) {},
+    };
+  };
+  const container = createBmsDataContainer({
+    documentRef,
+    theme: {
+      dctx: "#cfcfcf",
+      dcbk: "#090909",
+      hdtx: "#ddd",
+      hdbk: "#252525",
+      linkColor: "#9fc7ff",
+      linkHoverColor: "#fff",
+    },
+  });
+
+  assert.equal(container.style.getPropertyValue("--bd-link-color"), "#9fc7ff");
+  assert.equal(container.style.getPropertyValue("--bd-link-hover-color"), "#fff");
+});
+
+test("renderBmsData links MD5 records to LR2ALT", () => {
+  const documentRef = new MockDocument();
+  const { container } = createPreviewContainerElements(documentRef);
+  const record = {
+    ...createNormalizedRecord("a".repeat(64)),
+    md5: "f8dcdfe070630bbb365323c662561a1a",
+  };
+
+  renderBmsData(container, record);
+
+  const lr2altLink = container.querySelector("#bd-lr2ir");
+  assert.match(BMSDATA_TEMPLATE_HTML, /id="bd-lr2ir"[^>]*>LR2ALT<\/a>/);
+  assert.equal(lr2altLink.href, "http://126.71.110.56/new/song?songmd5=f8dcdfe070630bbb365323c662561a1a&view=both");
+  assert.equal(lr2altLink.style.display, "inline");
 });
 
 test("graph hover mode opens the viewer and updates the selected time", async () => {

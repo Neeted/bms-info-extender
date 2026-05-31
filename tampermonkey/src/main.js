@@ -329,11 +329,47 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   let scoreLoaderContextPromise = null;
   let activeBmsPreviewRuntime = null;
 
-  const LR2IR_SELECTORS = {
-    allAnchors: "a",
-    registeredSongHeading: "#box > h2",
-    search: "#search",
-    registeredSongFallbackBody: "#box > table:nth-child(10) > tbody"
+  const LR2ALT_HOST = "126.71.110.56";
+  const LR2ALT_HOSTS = new Set(["www.dream-pro.info", LR2ALT_HOST]);
+  const LR2ALT_SONG_PATH = "/new/song";
+  const LR2ALT_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
+  const LR2ALT_SELECTORS = {
+    displaySwitcherCandidates: "#box > p",
+    displaySwitcherButton: "a.button"
+  };
+  const LR2ALT_THEME = {
+    dctx: "#cfcfcf",
+    dcbk: "#090909",
+    hdtx: "#ddd",
+    hdbk: "#252525",
+    linkColor: "#9fc7ff",
+    linkHoverColor: "#fff"
+  };
+  const STELLAVERSE_THEMES = {
+    dark: {
+      dctx: "#fafafa",
+      dcbk: "#09090b",
+      hdtx: "#fafafa",
+      hdbk: "#18191d",
+      linkColor: "#93c5fd",
+      linkHoverColor: "#bfdbfe"
+    },
+    light: {
+      dctx: "#09090b",
+      dcbk: "#ffffff",
+      hdtx: "#09090b",
+      hdbk: "#e9eaed",
+      linkColor: "#2563eb",
+      linkHoverColor: "#1d4ed8"
+    }
+  };
+  const MOCHA_THEME = {
+    dctx: "#ffffff",
+    dcbk: "#333333",
+    hdtx: "#ffffff",
+    hdbk: "#666666",
+    linkColor: "#8888ff",
+    linkHoverColor: "#ff88ff"
   };
   const STELLAVERSE_SELECTORS = {
     threadRoot: "#thread-1",
@@ -403,6 +439,8 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
    * @property {string} dcbk
    * @property {string} hdtx
    * @property {string} hdbk
+   * @property {string=} linkColor
+   * @property {string=} linkHoverColor
    */
 
   /**
@@ -719,10 +757,12 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
    * @returns {void}
    */
   function bootstrap() {
+    if (isLr2altSongUrl(location.href)) {
+      lr2alt();
+      return;
+    }
+
     switch (location.hostname) {
-      case 'www.dream-pro.info':
-        lr2ir();
-        break;
       case 'stellabms.xyz':
         stellaverse();
         break;
@@ -734,6 +774,15 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         break;
       default:
         break;
+    }
+  }
+
+  function isLr2altSongUrl(url) {
+    try {
+      const parsedUrl = new URL(url);
+      return LR2ALT_HOSTS.has(parsedUrl.hostname) && parsedUrl.pathname === LR2ALT_SONG_PATH;
+    } catch {
+      return false;
     }
   }
 
@@ -951,15 +1000,15 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   }
 
   // ====================================================================================================
-  // LR2IR
+  // LR2ALT
   //   近年のSPAサイトみたいにページが書き変わらないので処理が単純で良い
   // ====================================================================================================
   /**
-   * LR2IR 向けの拡張処理を初期化する。
+   * LR2ALT 向けの拡張処理を初期化する。
    * @returns {Promise<void>}
    */
-  async function lr2ir() {
-    console.info("LR2IRの処理に入りました");
+  async function lr2alt() {
+    console.info("LR2ALTの処理に入りました");
 
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", async (event) => {
@@ -974,36 +1023,20 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
     // 曲ページの書き換え処理
     async function updatePage() {
       // 曲ページ以外では何もせず終える。
-      if (!location.href.startsWith("http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking")) {
+      if (!isLr2altSongUrl(location.href)) {
         return;
       }
-      console.info("LR2IR曲ページの書き換え処理に入りました");
+      console.info("LR2ALT曲ページの書き換え処理に入りました");
 
-      let targetbmsid = null;
-
-      // 曲ページ「更新履歴」リンクのGETパラメータからbmsidを取得
-      const anchors = Array.from(document.querySelectorAll(LR2IR_SELECTORS.allAnchors));
-      const historyAnchor = findAnchorByText(anchors, "更新履歴");
-      if (historyAnchor) {
-        targetbmsid = new URL(historyAnchor.href).searchParams.get('bmsid');
-      }
       // 現在のウィンドウのGETパラメータを取得
-      const targetmd5 = new URL(window.location.href).searchParams.get('bmsmd5');
+      const targetmd5 = new URL(window.location.href).searchParams.get("songmd5");
+      const displaySwitcherElement = findLr2altDisplaySwitcherElement();
 
-      // ターゲット要素特定
-      // アーティスト名用<h2>がある場合は登録曲なので曲名の下を挿入先にする
-      let htmlTargetElement = document.querySelector(LR2IR_SELECTORS.registeredSongHeading);
-      let htmlTargetDest = "afterend";
-      // <h2>がない場合は検索窓の下を挿入先にする
-      if (!htmlTargetElement) {
-        htmlTargetElement = document.querySelector(LR2IR_SELECTORS.search);
-      }
-      // MD5 か BMSID が取れていて、差し込み先も決まっている場合だけ拡張パネルを描画する。
-      if ((targetmd5 || targetbmsid) && htmlTargetElement && htmlTargetDest) {
+      if (LR2ALT_MD5_PATTERN.test(targetmd5 ?? "") && displaySwitcherElement) {
         const pageContext = {
-          identifiers: { md5: targetmd5, sha256: null, bmsid: targetbmsid },
-          insertion: { element: htmlTargetElement, position: htmlTargetDest },
-          theme: { dctx: "#333", dcbk: "#fff", hdtx: "#eef", hdbk: "#669" }
+          identifiers: { md5: targetmd5, sha256: null, bmsid: null },
+          insertion: { element: displaySwitcherElement, position: "beforebegin" },
+          theme: LR2ALT_THEME
         };
         // テンプレートを挿入
         const container = insertBmsDataTemplate(pageContext);
@@ -1012,36 +1045,31 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
         } else {
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
-          // 外部 API が落ちていても、最低限 MD5 と譜面ビューアーへの導線は残す。
-          const tbody = document.querySelector(LR2IR_SELECTORS.registeredSongFallbackBody)
-          if (tbody) {
-            // IR登録済み曲の場合
-            const md5Row = document.createElement("tr");
-            md5Row.innerHTML = `<th>MD5</th><td colspan="7">${targetmd5}</td>`;
-            const viewerRow = document.createElement("tr");
-            viewerRow.innerHTML = `<th>VIEWER</th><td colspan="7"><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td>`;
-            const EZ2PATTERNRow = document.createElement("tr");
-            EZ2PATTERNRow.innerHTML = `<th>EZ2PATTERN</th><td colspan="7"><a href="https://ez2pattern.kr/bms/chart?md5=${targetmd5}">https://ez2pattern.kr/bms/chart?md5=${targetmd5}</a></td>`;
-            tbody.appendChild(md5Row);
-            tbody.appendChild(viewerRow);
-            tbody.appendChild(EZ2PATTERNRow);
-          } else {
-            // IR未登録の場合
-            const table_element = document.createElement("table");
-            table_element.innerHTML = 
-              `<tr><th>MD5</th><td>${targetmd5}</td></tr><tr><th>VIEWER</th><td><a href="https://bms-score-viewer.pages.dev/view?md5=${targetmd5}">https://bms-score-viewer.pages.dev/view?md5=${targetmd5}</a></td></tr>
-              <tr><th>EZ2PATTERN</th><td><a href="https://ez2pattern.kr/bms/chart?md5=${targetmd5}">https://ez2pattern.kr/bms/chart?md5=${targetmd5}</a></td></tr>`;
-            const searchElement = document.querySelector(LR2IR_SELECTORS.search);
-            if (searchElement) {
-              searchElement.after(table_element);
-            } else {
-              console.error("❌ LR2IRの検索フォームが見つかりませんでした");
-            }
-          }
         }
       } else {
-        console.info("❌ LR2IRのページ書き換えはスキップされました。MD5/BMSIDかターゲット要素が取得できませんでした");
+        console.info("❌ LR2ALTのページ書き換えはスキップされました。MD5か表示切替要素が取得できませんでした");
       }
+    }
+  }
+
+  function findLr2altDisplaySwitcherElement() {
+    const candidates = Array.from(document.querySelectorAll(LR2ALT_SELECTORS.displaySwitcherCandidates));
+    return candidates.find((element) => {
+      if (!element.textContent.trim().startsWith("表示:")) {
+        return false;
+      }
+
+      const buttons = Array.from(element.querySelectorAll(LR2ALT_SELECTORS.displaySwitcherButton));
+      return ["new", "old", "both"].every((view) => buttons.some((button) => isLr2altViewButton(button, view)));
+    }) ?? null;
+  }
+
+  function isLr2altViewButton(button, view) {
+    try {
+      const url = new URL(button.getAttribute("href") ?? button.href, location.href);
+      return url.pathname === LR2ALT_SONG_PATH && url.searchParams.get("view") === view;
+    } catch {
+      return false;
     }
   }
 
@@ -1152,9 +1180,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         const pageContext = {
           identifiers: { md5: targetmd5, sha256: null, bmsid: null },
           insertion: { element: tableContainer, position: "beforeend" },
-          theme: isDarkMode
-            ? { dctx: "#fafafa", dcbk: "#09090b", hdtx: "#fafafa", hdbk: "#18191d" }
-            : { dctx: "#09090b", dcbk: "#ffffff", hdtx: "#09090b", hdbk: "#e9eaed" }
+          theme: isDarkMode ? STELLAVERSE_THEMES.dark : STELLAVERSE_THEMES.light
         };
         // テンプレートを挿入
         const container = insertBmsDataTemplate(pageContext);
@@ -1289,7 +1315,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
         const pageContext = {
           identifiers: { md5: null, sha256: targetsha256, bmsid: null },
           insertion: { element: htmlTargetElement, position: htmlTargetDest },
-          theme: { dctx: "#ffffff", dcbk: "#333333", hdtx: "#ffffff", hdbk: "#666666" }
+          theme: MOCHA_THEME
         };
         // テンプレートを挿入
         const container = insertBmsDataTemplate(pageContext);

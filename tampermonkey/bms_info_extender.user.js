@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.8
+// @version      2.3.9
 // @description  LR2ALT、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
@@ -20,6 +20,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.9 LR2IR Alternative(LR2ALT)に対応、hosts編集とIP直指定の双方に対応
 // 2.3.8 STELLAVERSEにおいてMD5の抽出をLR2IRではなく譜面ビューアリンクから行うように変更
 // 2.3.7 BPMのMIN、MAXにおいて小数に対応。TOTAL、BPMで小数点以下3桁以降は省略表示しツールチップに全量表示。TOTAL未定義はundefined表示しツールチップにLR2、beatoraja相当の計算値を表示。
 // 2.3.6 STELLAVERSEのセレクターを修正
@@ -9520,7 +9521,7 @@
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
     const SCORE_PARSER_VERSION = "0.6.6";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.8";
+    const SCRIPT_VERSION_FALLBACK = "2.3.9";
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
     const VERSION_NOTIFICATION_STORAGE_KEYS = {
       lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",

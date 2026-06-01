@@ -2,7 +2,11 @@
 
 import { parseScoreBytes } from "./score_parser_runtime.js";
 
-export const SCORE_PARSER_VERSION = "__PARSER_VERSION__";
+const bundledScoreParserVersion = typeof __BMSIE_SCORE_PARSER_VERSION__ === "string"
+  ? __BMSIE_SCORE_PARSER_VERSION__
+  : "__PARSER_VERSION__";
+
+export const SCORE_PARSER_VERSION = bundledScoreParserVersion;
 // Persistent cache stores fetched gzip score bytes, not parsed score objects.
 // Parser-version changes only affect the in-memory parsed cache key, so this binary cache stays reusable.
 // In the userscript deployment the IndexedDB store remains origin-local by design; cross-origin binary sharing

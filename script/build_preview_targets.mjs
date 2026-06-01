@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const userscriptHeaderPath = path.resolve(repoRoot, "tampermonkey/src/userscript-header.txt");
+const scoreParserPackageJsonPath = path.resolve(repoRoot, "web/score-parser-runtime/package.json");
+const scoreParserPackageJson = JSON.parse(await fs.readFile(scoreParserPackageJsonPath, "utf8"));
+const scoreParserVersion = scoreParserPackageJson.version;
 
 const requestedArgs = process.argv.slice(2);
 const checkMode = requestedArgs.includes("--check");
@@ -25,6 +28,9 @@ const buildTargets = {
     outputPath: path.resolve(repoRoot, "tampermonkey/bms_info_extender.user.js"),
     format: "iife",
     banner: `${(await fs.readFile(userscriptHeaderPath, "utf8")).trimEnd()}\n// このファイルは script/build_preview_targets.mjs により生成されます。手編集しないでください。`,
+    define: {
+      __BMSIE_SCORE_PARSER_VERSION__: JSON.stringify(scoreParserVersion),
+    },
   },
 };
 
@@ -67,6 +73,7 @@ async function buildTarget(target) {
     sourcemap: false,
     target: "es2020",
     treeShaking: true,
+    define: target.define ?? {},
     write: false,
   });
 

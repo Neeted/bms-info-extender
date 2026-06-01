@@ -1,4 +1,5 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
+import { createScoreLoader } from "../../web/score-parser-runtime/src/score_loader.js";
 
 // @run-at document-startでとにかく最速でスクリプトを起動して、ページが書き換え処理可能な状態かどうかはサイトごとに固有の判定を行う
 
@@ -12,8 +13,6 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
-  const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-  const SCORE_PARSER_VERSION = "0.6.7";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   const SCRIPT_VERSION_FALLBACK = "2.3.10";
   const userscriptFetch = createUserscriptFetch();
@@ -1639,11 +1638,9 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
       return scoreLoaderContextPromise;
     }
 
-    const moduleUrl = `${SCORE_PARSER_BASE_URL}/v${SCORE_PARSER_VERSION}/score_loader.js`;
-    scoreLoaderContextPromise = import(moduleUrl)
-      .then((module) => ({
-        moduleUrl,
-        loader: module.createScoreLoader({
+    scoreLoaderContextPromise = Promise.resolve()
+      .then(() => ({
+        loader: createScoreLoader({
           scoreSources: [
             { baseUrl: SCORE_BASE_URL, pathStyle: "sharded" },
             { baseUrl: SCORE_R2_BASE_URL, pathStyle: "flat" },

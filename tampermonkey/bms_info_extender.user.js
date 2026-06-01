@@ -9527,6 +9527,2163 @@
     return value;
   }
 
+  // web/score-parser-runtime/src/dto.js
+  var FORMAT_HINT_VALUES = /* @__PURE__ */ new Set(["bms", "bmson", "auto"]);
+  var TEXT_ENCODING_VALUES = /* @__PURE__ */ new Set(["shift_jis", "utf-8", "auto"]);
+  function normalizeParseOptions(options = {}) {
+    const formatHint = normalizeValue(options.formatHint, FORMAT_HINT_VALUES, "auto");
+    const textEncoding = normalizeValue(options.textEncoding, TEXT_ENCODING_VALUES, "auto");
+    const sha256 = typeof options.sha256 === "string" && options.sha256.trim() !== "" ? options.sha256.trim().toLowerCase() : void 0;
+    return { formatHint, textEncoding, sha256 };
+  }
+  function normalizeValue(value, allowedValues, fallbackValue) {
+    return typeof value === "string" && allowedValues.has(value) ? value : fallbackValue;
+  }
+  function success(score) {
+    return { ok: true, score };
+  }
+  function failure(type, message) {
+    return {
+      ok: false,
+      error: {
+        type,
+        message
+      }
+    };
+  }
+  function createWarning(type, message) {
+    return { type, message };
+  }
+  function createEmptyScore({
+    sha256,
+    format,
+    mode,
+    laneCount,
+    initialBpm = 0,
+    notes = [],
+    comboEvents = [],
+    barLines = [],
+    bpmChanges = [],
+    stops = [],
+    scrollChanges = [],
+    timingActions = [],
+    warnings = [],
+    lastPlayableTimeSec = 0,
+    lastTimelineTimeSec = 0
+  }) {
+    const noteCounts = summarizeNoteCounts(notes);
+    return {
+      sha256,
+      format,
+      mode,
+      laneCount,
+      initialBpm,
+      totalDurationSec: lastTimelineTimeSec,
+      lastPlayableTimeSec,
+      lastTimelineTimeSec,
+      noteCounts,
+      notes,
+      comboEvents,
+      barLines,
+      bpmChanges,
+      stops,
+      scrollChanges,
+      timingActions,
+      warnings
+    };
+  }
+  function summarizeNoteCounts(notes) {
+    const summary = {
+      visible: 0,
+      normal: 0,
+      long: 0,
+      invisible: 0,
+      mine: 0,
+      all: notes.length
+    };
+    for (const note of notes) {
+      if (note.kind === "normal") {
+        summary.normal += 1;
+        summary.visible += 1;
+        continue;
+      }
+      if (note.kind === "long") {
+        summary.long += 1;
+        summary.visible += 1;
+        continue;
+      }
+      if (note.kind === "invisible") {
+        summary.invisible += 1;
+        continue;
+      }
+      if (note.kind === "mine") {
+        summary.mine += 1;
+      }
+    }
+    return summary;
+  }
+
+  // web/score-parser-runtime/src/shared/timing.js
+  var TimeSignatures = class {
+    constructor() {
+      this.values = /* @__PURE__ */ new Map();
+      this.prefixBeats = [0];
+      this.prefixValidThrough = -1;
+    }
+    set(measure, value) {
+      if (Number.isInteger(measure) && Number.isFinite(value) && value > 0) {
+        const previousValue = this.values.get(measure);
+        if (previousValue === value) {
+          return;
+        }
+        this.values.set(measure, value);
+        this.prefixValidThrough = Math.min(this.prefixValidThrough, measure - 1);
+      }
+    }
+    get(measure) {
+      return this.values.get(measure) ?? 1;
+    }
+    getBeats(measure) {
+      return this.get(measure) * 4;
+    }
+    measureToBeat(measure, fraction) {
+      const normalizedMeasure = Number.isInteger(measure) && measure >= 0 ? measure : 0;
+      this.ensurePrefixBeats(normalizedMeasure);
+      return this.prefixBeats[normalizedMeasure] + this.getBeats(normalizedMeasure) * fraction;
+    }
+    maxConfiguredMeasure() {
+      let maxMeasure = 0;
+      for (const measure of this.values.keys()) {
+        maxMeasure = Math.max(maxMeasure, measure);
+      }
+      return maxMeasure;
+    }
+    ensurePrefixBeats(measure) {
+      if (measure <= this.prefixValidThrough) {
+        return;
+      }
+      const startMeasure = Math.max(0, this.prefixValidThrough + 1);
+      for (let index = startMeasure; index <= measure; index += 1) {
+        const beatsBefore = index === 0 ? 0 : this.prefixBeats[index];
+        this.prefixBeats[index + 1] = beatsBefore + this.getBeats(index);
+      }
+      this.prefixValidThrough = Math.max(this.prefixValidThrough, measure);
+    }
+  };
+  var ACTION_PRECEDENCE2 = {
+    bpm: 1,
+    stop: 2
+  };
+  var Timing = class {
+    constructor(initialBpm, actions) {
+      this.initialBpm = initialBpm;
+      this.actions = actions.filter((action) => Number.isFinite(action.beat)).slice().sort((left, right) => {
+        if (left.beat !== right.beat) {
+          return left.beat - right.beat;
+        }
+        return ACTION_PRECEDENCE2[left.type] - ACTION_PRECEDENCE2[right.type];
+      });
+      this.stateBeats = new Array(this.actions.length);
+      this.stateSeconds = new Array(this.actions.length);
+      this.stateBpms = new Array(this.actions.length);
+      this.buildStateIndex();
+    }
+    beatToSeconds(beat) {
+      const actionIndex = upperBoundActionsByBeat2(this.actions, beat) - 1;
+      if (actionIndex < 0) {
+        return beat * 60 / this.initialBpm;
+      }
+      return this.stateSeconds[actionIndex] + (beat - this.stateBeats[actionIndex]) * 60 / this.stateBpms[actionIndex];
+    }
+    getBpmAtBeat(beat) {
+      const actionIndex = upperBoundActionsByBeat2(this.actions, beat) - 1;
+      if (actionIndex < 0) {
+        return this.initialBpm;
+      }
+      return this.stateBpms[actionIndex];
+    }
+    buildStateIndex() {
+      let currentBeat = 0;
+      let currentSeconds = 0;
+      let currentBpm = this.initialBpm;
+      for (let index = 0; index < this.actions.length; index += 1) {
+        const action = this.actions[index];
+        currentSeconds += (action.beat - currentBeat) * 60 / currentBpm;
+        currentBeat = action.beat;
+        if (action.type === "bpm") {
+          currentBpm = action.bpm;
+        } else {
+          currentSeconds += (action.stopBeats ?? 0) * 60 / currentBpm;
+        }
+        this.stateBeats[index] = currentBeat;
+        this.stateSeconds[index] = currentSeconds;
+        this.stateBpms[index] = currentBpm;
+      }
+    }
+  };
+  function materializeTimingActions(timing) {
+    if (!timing || !Array.isArray(timing.actions)) {
+      return [];
+    }
+    return timing.actions.map((action, index) => {
+      const beat = Number.isFinite(action?.beat) ? action.beat : 0;
+      if (action.type === "bpm") {
+        return {
+          type: "bpm",
+          beat,
+          timeSec: timing.stateSeconds[index],
+          bpm: action.bpm
+        };
+      }
+      const bpm = timing.stateBpms[index];
+      const durationSec = Number.isFinite(action?.stopBeats) && action.stopBeats > 0 && Number.isFinite(bpm) && bpm > 0 ? action.stopBeats * 60 / bpm : 0;
+      return {
+        type: "stop",
+        beat,
+        timeSec: timing.stateSeconds[index] - durationSec,
+        stopBeats: action.stopBeats,
+        durationSec,
+        ...action.stopResolution ? { stopResolution: action.stopResolution } : {},
+        ...action.stopLunaticBehavior ? { stopLunaticBehavior: action.stopLunaticBehavior } : {}
+      };
+    });
+  }
+  function buildBpmChangesFromTimingActions(initialBpm, timingActions) {
+    const changes = [];
+    let currentBpm = Number.isFinite(initialBpm) && initialBpm > 0 ? initialBpm : 60;
+    for (const action of timingActions ?? []) {
+      if (action?.type !== "bpm" || !Number.isFinite(action.beat) || !Number.isFinite(action.timeSec) || !Number.isFinite(action.bpm) || action.bpm <= 0) {
+        continue;
+      }
+      if (action.bpm !== currentBpm) {
+        changes.push({
+          beat: action.beat,
+          timeSec: action.timeSec,
+          bpm: action.bpm
+        });
+      }
+      currentBpm = action.bpm;
+    }
+    return changes;
+  }
+  function buildStopsFromTimingActions(timingActions) {
+    return (timingActions ?? []).filter((action) => action?.type === "stop" && Number.isFinite(action.beat) && Number.isFinite(action.timeSec) && Number.isFinite(action.stopBeats) && action.stopBeats > 0 && Number.isFinite(action.durationSec) && action.durationSec > 0).map((action) => ({
+      beat: action.beat,
+      // ParsedStop.timeSec has historically pointed to the time after the stop.
+      timeSec: action.timeSec + action.durationSec,
+      stopBeats: action.stopBeats,
+      durationSec: action.durationSec
+    }));
+  }
+  function upperBoundActionsByBeat2(actions, beat) {
+    let low = 0;
+    let high = actions.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (actions[mid].beat <= beat) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
+  }
+
+  // web/score-parser-runtime/src/bms/compiler.js
+  var MATCHERS = {
+    random: /^#RANDOM\s+(\d+)$/i,
+    if: /^#IF\s+(\d+)$/i,
+    else: /^#ELSE$/i,
+    endif: /^#ENDIF$/i,
+    timeSignature: /^#(\d{3})02:(\S*)$/i,
+    channel: /^#(?:EXT\s+#)?(\d{3})([A-Z0-9]{2}):(\S*)$/i,
+    header: /^#([A-Z0-9_]+)(?:\s+(\S.*))?$/i
+  };
+  function compileBms(text, { rng, timeSignatures }) {
+    const chart = {
+      headers: /* @__PURE__ */ new Map(),
+      timeSignatures,
+      objects: []
+    };
+    const warnings = [];
+    const randomStack = [];
+    const branchStack = [];
+    let skipDepth = 0;
+    let objectIndex = 0;
+    const lines = text.split(/\r\n|\r|\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const lineNumber = index + 1;
+      const line = lines[index].trim();
+      if (line === "" || !line.startsWith("#")) {
+        continue;
+      }
+      let match = line.match(MATCHERS.random);
+      if (match) {
+        const max = Number.parseInt(match[1], 10);
+        randomStack.push(rng(max));
+        continue;
+      }
+      match = line.match(MATCHERS.if);
+      if (match) {
+        const expectedValue = Number.parseInt(match[1], 10);
+        const randomValue = randomStack[randomStack.length - 1];
+        const matched = randomValue === expectedValue;
+        const skip = skipDepth > 0 || !matched;
+        branchStack.push({ parentSkipped: skipDepth > 0, matched, elseUsed: false, skip });
+        if (skip) {
+          skipDepth += 1;
+        }
+        continue;
+      }
+      match = line.match(MATCHERS.else);
+      if (match) {
+        const frame = branchStack[branchStack.length - 1];
+        if (!frame || frame.elseUsed) {
+          warnings.push({ type: "parse_warning", message: `Ignored stray #ELSE at line ${lineNumber}.` });
+          continue;
+        }
+        frame.elseUsed = true;
+        const nextSkip = frame.parentSkipped || frame.matched;
+        if (frame.skip && !nextSkip) {
+          skipDepth -= 1;
+        } else if (!frame.skip && nextSkip) {
+          skipDepth += 1;
+        }
+        frame.skip = nextSkip;
+        continue;
+      }
+      match = line.match(MATCHERS.endif);
+      if (match) {
+        const frame = branchStack.pop();
+        if (!frame) {
+          warnings.push({ type: "parse_warning", message: `Ignored stray #ENDIF at line ${lineNumber}.` });
+          continue;
+        }
+        if (frame.skip) {
+          skipDepth -= 1;
+        }
+        continue;
+      }
+      if (skipDepth > 0) {
+        continue;
+      }
+      match = line.match(MATCHERS.timeSignature);
+      if (match) {
+        const measure = Number.parseInt(match[1], 10);
+        const value = Number.parseFloat(match[2]);
+        if (Number.isFinite(value) && value > 0) {
+          chart.timeSignatures.set(measure, value);
+        } else {
+          warnings.push({
+            type: "parse_warning",
+            message: `Ignored invalid measure length at line ${lineNumber}: ${line}`
+          });
+        }
+        continue;
+      }
+      match = line.match(MATCHERS.channel);
+      if (match) {
+        const measure = Number.parseInt(match[1], 10);
+        const channel = match[2].toUpperCase();
+        const payload = match[3].trim();
+        const itemCount = Math.floor(payload.length / 2);
+        if (itemCount === 0) {
+          continue;
+        }
+        for (let itemIndex = 0; itemIndex < itemCount; itemIndex += 1) {
+          const value = payload.slice(itemIndex * 2, itemIndex * 2 + 2).toUpperCase();
+          if (value === "00") {
+            continue;
+          }
+          chart.objects.push({
+            index: objectIndex,
+            lineNumber,
+            measure,
+            channel,
+            value,
+            fraction: itemIndex / itemCount
+          });
+          objectIndex += 1;
+        }
+        continue;
+      }
+      match = line.match(MATCHERS.header);
+      if (match) {
+        const key = match[1].toUpperCase();
+        const value = match[2] ?? "";
+        chart.headers.set(key, value.trim());
+        continue;
+      }
+      warnings.push({ type: "parse_warning", message: `Ignored malformed command at line ${lineNumber}: ${line}` });
+    }
+    if (branchStack.length > 0) {
+      warnings.push({ type: "parse_warning", message: "Found unterminated #IF block." });
+    }
+    return { chart, warnings };
+  }
+
+  // web/score-parser-runtime/src/bms/channels.js
+  var P1_NOTE_MAP = /* @__PURE__ */ new Map([
+    ["11", { side: "p1", key: 1 }],
+    ["12", { side: "p1", key: 2 }],
+    ["13", { side: "p1", key: 3 }],
+    ["14", { side: "p1", key: 4 }],
+    ["15", { side: "p1", key: 5 }],
+    ["16", { side: "p1", key: "scratch" }],
+    ["18", { side: "p1", key: 6 }],
+    ["19", { side: "p1", key: 7 }]
+  ]);
+  var P2_NOTE_MAP = /* @__PURE__ */ new Map([
+    ["21", { side: "p2", key: 1 }],
+    ["22", { side: "p2", key: 2 }],
+    ["23", { side: "p2", key: 3 }],
+    ["24", { side: "p2", key: 4 }],
+    ["25", { side: "p2", key: 5 }],
+    ["26", { side: "p2", key: "scratch" }],
+    ["28", { side: "p2", key: 6 }],
+    ["29", { side: "p2", key: 7 }]
+  ]);
+  var P1_HIDDEN_MAP = /* @__PURE__ */ new Map([
+    ["31", { side: "p1", key: 1 }],
+    ["32", { side: "p1", key: 2 }],
+    ["33", { side: "p1", key: 3 }],
+    ["34", { side: "p1", key: 4 }],
+    ["35", { side: "p1", key: 5 }],
+    ["36", { side: "p1", key: "scratch" }],
+    ["38", { side: "p1", key: 6 }],
+    ["39", { side: "p1", key: 7 }]
+  ]);
+  var P2_HIDDEN_MAP = /* @__PURE__ */ new Map([
+    ["41", { side: "p2", key: 1 }],
+    ["42", { side: "p2", key: 2 }],
+    ["43", { side: "p2", key: 3 }],
+    ["44", { side: "p2", key: 4 }],
+    ["45", { side: "p2", key: 5 }],
+    ["46", { side: "p2", key: "scratch" }],
+    ["48", { side: "p2", key: 6 }],
+    ["49", { side: "p2", key: 7 }]
+  ]);
+  var P1_LONG_MAP = /* @__PURE__ */ new Map([
+    ["51", { side: "p1", key: 1 }],
+    ["52", { side: "p1", key: 2 }],
+    ["53", { side: "p1", key: 3 }],
+    ["54", { side: "p1", key: 4 }],
+    ["55", { side: "p1", key: 5 }],
+    ["56", { side: "p1", key: "scratch" }],
+    ["58", { side: "p1", key: 6 }],
+    ["59", { side: "p1", key: 7 }]
+  ]);
+  var P2_LONG_MAP = /* @__PURE__ */ new Map([
+    ["61", { side: "p2", key: 1 }],
+    ["62", { side: "p2", key: 2 }],
+    ["63", { side: "p2", key: 3 }],
+    ["64", { side: "p2", key: 4 }],
+    ["65", { side: "p2", key: 5 }],
+    ["66", { side: "p2", key: "scratch" }],
+    ["68", { side: "p2", key: 6 }],
+    ["69", { side: "p2", key: 7 }]
+  ]);
+  var P1_MINE_MAP = /* @__PURE__ */ new Map([
+    ["D1", { side: "p1", key: 1 }],
+    ["D2", { side: "p1", key: 2 }],
+    ["D3", { side: "p1", key: 3 }],
+    ["D4", { side: "p1", key: 4 }],
+    ["D5", { side: "p1", key: 5 }],
+    ["D6", { side: "p1", key: "scratch" }],
+    ["D8", { side: "p1", key: 6 }],
+    ["D9", { side: "p1", key: 7 }]
+  ]);
+  var P2_MINE_MAP = /* @__PURE__ */ new Map([
+    ["E1", { side: "p2", key: 1 }],
+    ["E2", { side: "p2", key: 2 }],
+    ["E3", { side: "p2", key: 3 }],
+    ["E4", { side: "p2", key: 4 }],
+    ["E5", { side: "p2", key: 5 }],
+    ["E6", { side: "p2", key: "scratch" }],
+    ["E8", { side: "p2", key: 6 }],
+    ["E9", { side: "p2", key: 7 }]
+  ]);
+  var BACKGROUND_CHANNELS = /* @__PURE__ */ new Set(["01"]);
+  var BGA_CHANNELS = /* @__PURE__ */ new Set(["04", "06", "07"]);
+  function getNoteChannelDescriptor(channel) {
+    const normalizedChannel = channel.toUpperCase();
+    if (P1_NOTE_MAP.has(normalizedChannel)) {
+      return { family: "playable", ...P1_NOTE_MAP.get(normalizedChannel) };
+    }
+    if (P2_NOTE_MAP.has(normalizedChannel)) {
+      return { family: "playable", ...P2_NOTE_MAP.get(normalizedChannel) };
+    }
+    if (P1_HIDDEN_MAP.has(normalizedChannel)) {
+      return { family: "invisible", ...P1_HIDDEN_MAP.get(normalizedChannel) };
+    }
+    if (P2_HIDDEN_MAP.has(normalizedChannel)) {
+      return { family: "invisible", ...P2_HIDDEN_MAP.get(normalizedChannel) };
+    }
+    if (P1_LONG_MAP.has(normalizedChannel)) {
+      return { family: "long", ...P1_LONG_MAP.get(normalizedChannel) };
+    }
+    if (P2_LONG_MAP.has(normalizedChannel)) {
+      return { family: "long", ...P2_LONG_MAP.get(normalizedChannel) };
+    }
+    if (P1_MINE_MAP.has(normalizedChannel)) {
+      return { family: "mine", ...P1_MINE_MAP.get(normalizedChannel) };
+    }
+    if (P2_MINE_MAP.has(normalizedChannel)) {
+      return { family: "mine", ...P2_MINE_MAP.get(normalizedChannel) };
+    }
+    return null;
+  }
+  function isBackgroundChannel(channel) {
+    return BACKGROUND_CHANNELS.has(channel.toUpperCase());
+  }
+  function isBgaChannel(channel) {
+    return BGA_CHANNELS.has(channel.toUpperCase());
+  }
+  function laneCountForMode(mode) {
+    switch (mode) {
+      case "5k":
+        return 6;
+      case "7k":
+        return 8;
+      case "popn-5k":
+        return 5;
+      case "popn-9k":
+        return 9;
+      case "10k":
+        return 12;
+      case "14k":
+        return 16;
+      default:
+        return 0;
+    }
+  }
+  function detectBmsMode(noteDescriptors) {
+    let popnCompatible = true;
+    let hasPopnRightHalf = false;
+    let hasPlayer2 = false;
+    let hasKey6Or7 = false;
+    for (const descriptor of noteDescriptors) {
+      if (descriptor.side === "p1" && Number.isInteger(descriptor.key) && descriptor.key >= 1 && descriptor.key <= 5 || descriptor.side === "p2" && Number.isInteger(descriptor.key) && descriptor.key >= 2 && descriptor.key <= 5) {
+        if (descriptor.side === "p2") {
+          hasPopnRightHalf = true;
+        }
+      } else {
+        popnCompatible = false;
+      }
+      if (descriptor.side === "p2") {
+        hasPlayer2 = true;
+      }
+      if (descriptor.key === 6 || descriptor.key === 7) {
+        hasKey6Or7 = true;
+      }
+    }
+    if (noteDescriptors.length === 0) {
+      return "unknown";
+    }
+    if (popnCompatible && hasPopnRightHalf) {
+      return "popn-9k";
+    }
+    if (hasPlayer2) {
+      return hasKey6Or7 ? "14k" : "10k";
+    }
+    return hasKey6Or7 ? "7k" : "5k";
+  }
+  function mapBmsLane(mode, side, key) {
+    switch (mode) {
+      case "5k":
+        if (side !== "p1") {
+          return null;
+        }
+        if (key === "scratch") {
+          return 0;
+        }
+        return key >= 1 && key <= 5 ? key : null;
+      case "7k":
+        if (side !== "p1") {
+          return null;
+        }
+        if (key === "scratch") {
+          return 0;
+        }
+        return key >= 1 && key <= 7 ? key : null;
+      case "popn-5k":
+        if (side !== "p1") {
+          return null;
+        }
+        return key >= 1 && key <= 5 ? key - 1 : null;
+      case "popn-9k":
+        if (side === "p1") {
+          return key >= 1 && key <= 5 ? key - 1 : null;
+        }
+        if (side === "p2") {
+          return key >= 2 && key <= 5 ? key + 3 : null;
+        }
+        return null;
+      case "10k":
+        if (key === "scratch") {
+          return side === "p1" ? 0 : side === "p2" ? 6 : null;
+        }
+        if (key >= 1 && key <= 5) {
+          return side === "p1" ? key : side === "p2" ? key + 6 : null;
+        }
+        return null;
+      case "14k":
+        if (key === "scratch") {
+          return side === "p1" ? 0 : side === "p2" ? 8 : null;
+        }
+        if (key >= 1 && key <= 7) {
+          return side === "p1" ? key : side === "p2" ? key + 8 : null;
+        }
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  // web/score-parser-runtime/src/bms/parser.js
+  function parseBmsText(text, options) {
+    const timeSignatures = new TimeSignatures();
+    const { chart, warnings } = compileBms(text, { rng: options.rng, timeSignatures });
+    const noteDescriptors = chart.objects.map((object) => getNoteChannelDescriptor(object.channel)).filter(Boolean);
+    const mode = detectBmsMode(noteDescriptors);
+    if (mode === "unknown") {
+      return failure("unsupported_mode", "Could not determine a supported BMS key mode.");
+    }
+    const timingWarnings = [];
+    const { timing, supplementalTimingActions } = buildTiming(chart, timingWarnings);
+    const timingActions = mergeTimingActions(
+      materializeTimingActions(timing),
+      materializeSupplementalTimingActions(supplementalTimingActions, timing)
+    );
+    const timelineObjects = chart.objects.map((object) => {
+      const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
+      return {
+        ...object,
+        beat,
+        timeSec: timing.beatToSeconds(beat),
+        descriptor: getNoteChannelDescriptor(object.channel)
+      };
+    });
+    const noteWarnings = [];
+    const { notes, comboEvents, lastPlayableTimeSec } = buildNotes(timelineObjects, mode, chart.headers, noteWarnings);
+    const barLines = buildBarLines(chart.timeSignatures, timing, timelineObjects);
+    const bpmChanges = buildBpmChangesFromTimingActions(timing.initialBpm, timingActions);
+    const stops = buildStopsFromTimingActions(timingActions);
+    const scrollChanges = buildScrollChanges(chart, timingWarnings, timing);
+    const lastTimelineTimeSec = computeLastTimelineTimeSec(timelineObjects, notes, lastPlayableTimeSec);
+    return success(createEmptyScore({
+      sha256: options.sha256,
+      format: "bms",
+      mode,
+      laneCount: laneCountForMode(mode),
+      initialBpm: timing.initialBpm,
+      notes,
+      comboEvents,
+      barLines,
+      bpmChanges,
+      stops,
+      scrollChanges,
+      timingActions,
+      warnings: [...warnings, ...timingWarnings, ...noteWarnings],
+      lastPlayableTimeSec,
+      lastTimelineTimeSec
+    }));
+  }
+  function buildTiming(chart, warnings) {
+    let initialBpm = Number.parseFloat(chart.headers.get("BPM") ?? "60");
+    if (!Number.isFinite(initialBpm) || initialBpm <= 0) {
+      warnings.push(createWarning("parse_warning", "Invalid #BPM header. Falling back to BPM 60."));
+      initialBpm = 60;
+    }
+    const actions = [];
+    const supplementalTimingActions = [];
+    const extendedBpmCache = /* @__PURE__ */ new Map();
+    const stopResolutionCache = /* @__PURE__ */ new Map();
+    for (const object of chart.objects) {
+      const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
+      if (object.channel === "03") {
+        const bpm = Number.parseInt(object.value, 16);
+        if (Number.isFinite(bpm) && bpm > 0) {
+          actions.push({ type: "bpm", beat, bpm });
+        } else {
+          warnings.push(createWarning("parse_warning", `Ignored non-positive direct BPM value ${object.value}.`));
+        }
+        continue;
+      }
+      if (object.channel === "08") {
+        const bpm = resolveExtendedBpm(chart.headers, object.value, extendedBpmCache);
+        if (bpm !== null) {
+          if (bpm > 0) {
+            actions.push({ type: "bpm", beat, bpm });
+          } else {
+            supplementalTimingActions.push({ type: "bpm", beat, bpm });
+          }
+        } else {
+          warnings.push(createWarning("parse_warning", `Ignored missing or invalid extended BPM reference BPM${object.value}.`));
+        }
+        continue;
+      }
+      if (object.channel === "09") {
+        const stopResolution = resolveStopResolution(chart.headers, object.value, stopResolutionCache);
+        if (stopResolution) {
+          actions.push({
+            type: "stop",
+            beat,
+            stopBeats: stopResolution.stopBeats,
+            stopResolution: stopResolution.kind,
+            stopLunaticBehavior: stopResolution.lunaticBehavior
+          });
+        }
+        if (stopResolution?.warningMessage) {
+          warnings.push(createWarning("parse_warning", stopResolution.warningMessage));
+        }
+        if (!stopResolution) {
+          warnings.push(createWarning("parse_warning", `Ignored missing or invalid STOP reference STOP${object.value}.`));
+        }
+        continue;
+      }
+    }
+    return {
+      timing: new Timing(initialBpm, actions),
+      supplementalTimingActions
+    };
+  }
+  function buildScrollChanges(chart, warnings, timing) {
+    const scrollChanges = [];
+    const scrollRateCache = /* @__PURE__ */ new Map();
+    for (const object of chart.objects) {
+      if (object.channel !== "SC") {
+        continue;
+      }
+      const rate = resolveScrollRate(chart.headers, object.value, scrollRateCache);
+      if (rate === null) {
+        warnings.push(createWarning("parse_warning", `Ignored invalid SCROLL reference SCROLL${object.value}.`));
+        continue;
+      }
+      const beat = chart.timeSignatures.measureToBeat(object.measure, object.fraction);
+      scrollChanges.push({
+        beat,
+        timeSec: timing.beatToSeconds(beat),
+        rate
+      });
+    }
+    scrollChanges.sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
+    return scrollChanges;
+  }
+  function resolveExtendedBpm(headers, value, cache) {
+    if (cache.has(value)) {
+      return cache.get(value);
+    }
+    const parsedValue = Number.parseFloat(headers.get(`BPM${value}`) ?? "");
+    const bpm = Number.isFinite(parsedValue) && parsedValue !== 0 ? parsedValue : null;
+    cache.set(value, bpm);
+    return bpm;
+  }
+  function materializeSupplementalTimingActions(actions, timing) {
+    return (actions ?? []).map((action) => ({
+      ...action,
+      timeSec: timing.beatToSeconds(action.beat)
+    }));
+  }
+  function mergeTimingActions(primaryActions, supplementalActions) {
+    return [...primaryActions ?? [], ...supplementalActions ?? []].sort((left, right) => {
+      if ((left?.beat ?? 0) !== (right?.beat ?? 0)) {
+        return (left?.beat ?? 0) - (right?.beat ?? 0);
+      }
+      if ((left?.timeSec ?? 0) !== (right?.timeSec ?? 0)) {
+        return (left?.timeSec ?? 0) - (right?.timeSec ?? 0);
+      }
+      const leftOrder = left?.type === "bpm" ? 0 : 1;
+      const rightOrder = right?.type === "bpm" ? 0 : 1;
+      return leftOrder - rightOrder;
+    });
+  }
+  function resolveStopResolution(headers, value, cache) {
+    if (cache.has(value)) {
+      return cache.get(value);
+    }
+    const rawValue = headers.get(`STOP${value}`) ?? "";
+    const parsedValue = Number.parseFloat(rawValue);
+    let resolved = null;
+    if (Number.isFinite(parsedValue)) {
+      if (parsedValue < 0) {
+        resolved = {
+          kind: "resolved",
+          stopBeats: Math.abs(parsedValue) / 48,
+          warningMessage: `Negative STOP value STOP${value} was normalized to its absolute value.`,
+          lunaticBehavior: "warp"
+        };
+      } else if (parsedValue > 0) {
+        resolved = {
+          kind: "resolved",
+          stopBeats: parsedValue / 48,
+          warningMessage: null,
+          lunaticBehavior: Number.isInteger(parsedValue) ? "normal" : "warp"
+        };
+      } else {
+        resolved = {
+          kind: "invalid",
+          stopBeats: 0,
+          warningMessage: `Ignored missing or invalid STOP reference STOP${value}.`,
+          lunaticBehavior: "warp"
+        };
+      }
+    } else {
+      resolved = {
+        kind: "invalid",
+        stopBeats: 0,
+        warningMessage: `Ignored missing or invalid STOP reference STOP${value}.`,
+        lunaticBehavior: "warp"
+      };
+    }
+    cache.set(value, resolved);
+    return resolved;
+  }
+  function resolveScrollRate(headers, value, cache) {
+    if (cache.has(value)) {
+      return cache.get(value);
+    }
+    const parsedValue = Number.parseFloat(headers.get(`SCROLL${value}`) ?? "");
+    const rate = Number.isFinite(parsedValue) ? parsedValue : null;
+    cache.set(value, rate);
+    return rate;
+  }
+  function buildNotes(timelineObjects, mode, headers, warnings) {
+    const notes = [];
+    const comboEvents = [];
+    const longGroups = /* @__PURE__ */ new Map();
+    const playableGroups = /* @__PURE__ */ new Map();
+    let lastPlayableTimeSec = 0;
+    const lnobj = headers.get("LNOBJ")?.toUpperCase();
+    const longNoteType = readLongNoteType(headers);
+    for (const object of timelineObjects) {
+      const descriptor = object.descriptor;
+      if (!descriptor) {
+        continue;
+      }
+      const lane = mapBmsLane(mode, descriptor.side, descriptor.key);
+      if (lane === null) {
+        warnings.push(createWarning("parse_warning", `Ignored unsupported note channel ${object.channel} for mode ${mode}.`));
+        continue;
+      }
+      const parsedSide = parsedSideForMode(mode, descriptor.side);
+      const noteBase = {
+        lane,
+        beat: object.beat,
+        timeSec: object.timeSec,
+        ...parsedSide ? { side: parsedSide } : {}
+      };
+      if (descriptor.family === "invisible") {
+        notes.push({ ...noteBase, kind: "invisible" });
+        continue;
+      }
+      if (descriptor.family === "mine") {
+        notes.push({ ...noteBase, kind: "mine" });
+        continue;
+      }
+      const groupKey = `${descriptor.family}:${descriptor.side}:${String(descriptor.key)}`;
+      if (descriptor.family === "long") {
+        if (!longGroups.has(groupKey)) {
+          longGroups.set(groupKey, []);
+        }
+        longGroups.get(groupKey).push({ ...object, lane, side: parsedSide });
+        continue;
+      }
+      if (!playableGroups.has(groupKey)) {
+        playableGroups.set(groupKey, []);
+      }
+      playableGroups.get(groupKey).push({ ...object, lane, side: parsedSide });
+    }
+    for (const group of longGroups.values()) {
+      group.sort(compareTimelineObject);
+      for (let index = 0; index + 1 < group.length; index += 2) {
+        const start = group[index];
+        const end = group[index + 1];
+        notes.push({
+          lane: start.lane,
+          beat: start.beat,
+          timeSec: start.timeSec,
+          endBeat: end.beat,
+          endTimeSec: end.timeSec,
+          kind: "long",
+          longNoteType,
+          side: start.side
+        });
+        comboEvents.push(...createLongComboEvents(start, end, longNoteType));
+        lastPlayableTimeSec = Math.max(lastPlayableTimeSec, end.timeSec);
+      }
+      if (group.length % 2 === 1) {
+        warnings.push(createWarning("parse_warning", `Dropped dangling LNTYPE1 endpoint on lane ${group[group.length - 1].lane}.`));
+      }
+    }
+    for (const group of playableGroups.values()) {
+      group.sort(compareTimelineObject);
+      if (lnobj) {
+        let pendingStart = null;
+        for (const object of group) {
+          if (object.value === lnobj) {
+            if (pendingStart) {
+              notes.push({
+                lane: pendingStart.lane,
+                beat: pendingStart.beat,
+                timeSec: pendingStart.timeSec,
+                endBeat: object.beat,
+                endTimeSec: object.timeSec,
+                kind: "long",
+                longNoteType,
+                side: pendingStart.side
+              });
+              comboEvents.push(...createLongComboEvents(pendingStart, object, longNoteType));
+              lastPlayableTimeSec = Math.max(lastPlayableTimeSec, object.timeSec);
+              pendingStart = null;
+            }
+            continue;
+          }
+          if (pendingStart) {
+            notes.push({
+              lane: pendingStart.lane,
+              beat: pendingStart.beat,
+              timeSec: pendingStart.timeSec,
+              kind: "normal",
+              side: pendingStart.side
+            });
+            comboEvents.push(createComboEvent(pendingStart, "normal"));
+            lastPlayableTimeSec = Math.max(lastPlayableTimeSec, pendingStart.timeSec);
+          }
+          pendingStart = object;
+        }
+        if (pendingStart) {
+          notes.push({
+            lane: pendingStart.lane,
+            beat: pendingStart.beat,
+            timeSec: pendingStart.timeSec,
+            kind: "normal",
+            side: pendingStart.side
+          });
+          comboEvents.push(createComboEvent(pendingStart, "normal"));
+          lastPlayableTimeSec = Math.max(lastPlayableTimeSec, pendingStart.timeSec);
+        }
+        continue;
+      }
+      for (const object of group) {
+        notes.push({
+          lane: object.lane,
+          beat: object.beat,
+          timeSec: object.timeSec,
+          kind: "normal",
+          side: object.side
+        });
+        comboEvents.push(createComboEvent(object, "normal"));
+        lastPlayableTimeSec = Math.max(lastPlayableTimeSec, object.timeSec);
+      }
+    }
+    notes.sort((left, right) => {
+      if (left.timeSec !== right.timeSec) {
+        return left.timeSec - right.timeSec;
+      }
+      if ((left.endTimeSec ?? left.timeSec) !== (right.endTimeSec ?? right.timeSec)) {
+        return (left.endTimeSec ?? left.timeSec) - (right.endTimeSec ?? right.timeSec);
+      }
+      return left.lane - right.lane;
+    });
+    comboEvents.sort(compareComboEvent2);
+    return { notes, comboEvents, lastPlayableTimeSec };
+  }
+  function parsedSideForMode(mode, side) {
+    switch (mode) {
+      case "5k":
+      case "7k":
+      case "10k":
+      case "14k":
+        return side;
+      default:
+        return void 0;
+    }
+  }
+  function compareTimelineObject(left, right) {
+    if (left.beat !== right.beat) {
+      return left.beat - right.beat;
+    }
+    if (left.lineNumber !== right.lineNumber) {
+      return left.lineNumber - right.lineNumber;
+    }
+    return left.index - right.index;
+  }
+  function readLongNoteType(headers) {
+    const lnmode = Number.parseInt(headers.get("LNMODE") ?? "", 10);
+    switch (lnmode) {
+      case 2:
+        return "cn";
+      case 3:
+        return "hcn";
+      case 1:
+      default:
+        return "ln";
+    }
+  }
+  function createLongComboEvents(start, end, longNoteType) {
+    if (longNoteType === "cn" || longNoteType === "hcn") {
+      return [
+        createComboEvent(start, "long-start"),
+        createComboEvent(end, "long-end")
+      ];
+    }
+    return [createComboEvent(end, "long-end")];
+  }
+  function createComboEvent(object, kind) {
+    const event = {
+      lane: object.lane,
+      beat: object.beat,
+      timeSec: object.timeSec,
+      kind
+    };
+    if (object.side) {
+      event.side = object.side;
+    }
+    return event;
+  }
+  function compareComboEvent2(left, right) {
+    if (left.timeSec !== right.timeSec) {
+      return left.timeSec - right.timeSec;
+    }
+    const order = comboEventOrder2(left.kind) - comboEventOrder2(right.kind);
+    if (order !== 0) {
+      return order;
+    }
+    return left.lane - right.lane;
+  }
+  function comboEventOrder2(kind) {
+    switch (kind) {
+      case "normal":
+        return 0;
+      case "long-start":
+        return 1;
+      case "long-end":
+        return 2;
+      default:
+        return 99;
+    }
+  }
+  function buildBarLines(timeSignatures, timing, timelineObjects) {
+    const maxObjectMeasure = timelineObjects.reduce((maxMeasure2, object) => Math.max(maxMeasure2, object.measure), 0);
+    const maxMeasure = Math.max(maxObjectMeasure, timeSignatures.maxConfiguredMeasure()) + 1;
+    const barLines = [];
+    for (let measure = 0; measure <= maxMeasure; measure += 1) {
+      const beat = timeSignatures.measureToBeat(measure, 0);
+      barLines.push({ beat, timeSec: timing.beatToSeconds(beat) });
+    }
+    return barLines;
+  }
+  function computeLastTimelineTimeSec(timelineObjects, notes, lastPlayableTimeSec) {
+    let maxTimeSec = lastPlayableTimeSec;
+    for (const object of timelineObjects) {
+      if (isTimelineStateChannel(object.channel) || isBackgroundChannel(object.channel) || isBgaChannel(object.channel)) {
+        maxTimeSec = Math.max(maxTimeSec, object.timeSec);
+        continue;
+      }
+      const descriptor = object.descriptor;
+      if (descriptor && (descriptor.family === "invisible" || descriptor.family === "mine")) {
+        maxTimeSec = Math.max(maxTimeSec, object.timeSec);
+      }
+    }
+    for (const note of notes) {
+      if (note.kind === "invisible" || note.kind === "mine") {
+        maxTimeSec = Math.max(maxTimeSec, note.timeSec);
+      }
+    }
+    return maxTimeSec;
+  }
+  function isTimelineStateChannel(channel) {
+    return channel === "03" || channel === "08" || channel === "09" || channel === "SC";
+  }
+
+  // web/score-parser-runtime/src/bmson/parser.js
+  function parseBmsonText(text, options) {
+    let bmson;
+    try {
+      bmson = JSON.parse(text);
+    } catch (error) {
+      return failure("parse_failure", `Failed to parse BMSON JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!bmson || typeof bmson !== "object") {
+      return failure("parse_failure", "Parsed BMSON did not produce an object.");
+    }
+    const warnings = [];
+    const resolution = Number.isFinite(bmson.info?.resolution) && bmson.info.resolution > 0 ? bmson.info.resolution : 240;
+    const initialBpm = Number.isFinite(bmson.info?.init_bpm) && bmson.info.init_bpm > 0 ? bmson.info.init_bpm : 60;
+    const mode = detectBmsonMode(bmson);
+    if (mode === "unknown") {
+      return failure("unsupported_mode", "Could not determine a supported BMSON mode.");
+    }
+    const laneCount = laneCountForBmsonMode(mode);
+    const actions = [];
+    for (const event of bmson.bpm_events ?? []) {
+      if (Number.isFinite(event?.y) && Number.isFinite(event?.bpm) && event.bpm > 0) {
+        actions.push({
+          type: "bpm",
+          beat: event.y / resolution,
+          bpm: event.bpm
+        });
+      } else {
+        warnings.push(createWarning("parse_warning", "Ignored invalid bmson bpm_event."));
+      }
+    }
+    for (const event of bmson.stop_events ?? []) {
+      if (Number.isFinite(event?.y) && Number.isFinite(event?.duration) && event.duration > 0) {
+        actions.push({
+          type: "stop",
+          beat: event.y / resolution,
+          stopBeats: event.duration / resolution
+        });
+      } else {
+        warnings.push(createWarning("parse_warning", "Ignored invalid bmson stop_event."));
+      }
+    }
+    for (const event of bmson.scroll_events ?? []) {
+      if (!Number.isFinite(event?.y) || !Number.isFinite(event?.rate)) {
+        warnings.push(createWarning("parse_warning", "Ignored invalid bmson scroll_event."));
+      }
+    }
+    const timing = new Timing(initialBpm, actions);
+    const timingActions = materializeTimingActions(timing);
+    const notes = [];
+    const comboEvents = [];
+    const playableNotesByStartKey = /* @__PURE__ */ new Map();
+    let lastPlayableTimeSec = 0;
+    const defaultLongNoteType = readBmsonLongNoteType(bmson.info?.ln_type);
+    for (const channel of bmson.sound_channels ?? []) {
+      for (const note of channel.notes ?? []) {
+        if (!Number.isFinite(note?.x) || note.x <= 0) {
+          continue;
+        }
+        const mapping = mapBmsonLane(mode, note?.x);
+        if (!mapping) {
+          continue;
+        }
+        if (!Number.isFinite(note?.y)) {
+          warnings.push(createWarning("parse_warning", "Ignored invalid bmson sound_channel note."));
+          continue;
+        }
+        const beat = note.y / resolution;
+        const timeSec = timing.beatToSeconds(beat);
+        const endBeat = Number.isFinite(note.l) && note.l > 0 ? (note.y + note.l) / resolution : void 0;
+        const endTimeSec = Number.isFinite(note.l) && note.l > 0 ? timing.beatToSeconds(endBeat) : void 0;
+        const kind = endTimeSec === void 0 ? "normal" : "long";
+        const longNoteType = endTimeSec === void 0 ? void 0 : resolveBmsonLongNoteType(note, defaultLongNoteType);
+        const nextNote = {
+          lane: mapping.lane,
+          beat,
+          timeSec,
+          endBeat,
+          endTimeSec,
+          kind,
+          ...longNoteType ? { longNoteType } : {},
+          side: mapping.side
+        };
+        const duplicateDisposition = registerBmsonPlayableNote(playableNotesByStartKey, nextNote);
+        if (duplicateDisposition === "layered") {
+          continue;
+        }
+        if (duplicateDisposition === "conflict") {
+          warnings.push(createConflictingBmsonNoteWarning(note));
+          continue;
+        }
+        notes.push(nextNote);
+        if (endTimeSec === void 0) {
+          comboEvents.push(createComboEvent2(mapping, beat, timeSec, "normal"));
+        } else {
+          comboEvents.push(...createBmsonLongComboEvents(mapping, beat, timeSec, endBeat, endTimeSec, longNoteType));
+        }
+        lastPlayableTimeSec = Math.max(lastPlayableTimeSec, endTimeSec ?? timeSec);
+      }
+    }
+    appendBmsonMarkerNotes(notes, bmson.key_channels, "invisible", mode, resolution, timing);
+    appendBmsonMarkerNotes(notes, bmson.mine_channels, "mine", mode, resolution, timing);
+    notes.sort((left, right) => {
+      if (left.timeSec !== right.timeSec) {
+        return left.timeSec - right.timeSec;
+      }
+      if ((left.endTimeSec ?? left.timeSec) !== (right.endTimeSec ?? right.timeSec)) {
+        return (left.endTimeSec ?? left.timeSec) - (right.endTimeSec ?? right.timeSec);
+      }
+      return left.lane - right.lane;
+    });
+    comboEvents.sort((left, right) => {
+      if (left.timeSec !== right.timeSec) {
+        return left.timeSec - right.timeSec;
+      }
+      const order = comboEventOrder3(left.kind) - comboEventOrder3(right.kind);
+      if (order !== 0) {
+        return order;
+      }
+      return left.lane - right.lane;
+    });
+    const bpmChanges = buildBpmChangesFromTimingActions(initialBpm, timingActions);
+    const stops = buildStopsFromTimingActions(timingActions);
+    const scrollChanges = (bmson.scroll_events ?? []).filter((event) => Number.isFinite(event?.rate) && Number.isFinite(event?.y)).map((event) => ({
+      beat: event.y / resolution,
+      timeSec: timing.beatToSeconds(event.y / resolution),
+      rate: event.rate
+    })).sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
+    const barLines = (bmson.lines ?? []).filter((line) => Number.isFinite(line?.y)).map((line) => ({
+      beat: line.y / resolution,
+      timeSec: timing.beatToSeconds(line.y / resolution)
+    })).sort((left, right) => left.beat - right.beat || left.timeSec - right.timeSec);
+    let lastTimelineTimeSec = lastPlayableTimeSec;
+    for (const event of bmson.bpm_events ?? []) {
+      if (Number.isFinite(event?.y)) {
+        lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
+      }
+    }
+    for (const event of bmson.stop_events ?? []) {
+      if (Number.isFinite(event?.y)) {
+        lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
+      }
+    }
+    for (const event of bmson.scroll_events ?? []) {
+      if (Number.isFinite(event?.y)) {
+        lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
+      }
+    }
+    for (const event of bmson.bga?.bga_events ?? []) {
+      if (Number.isFinite(event?.y)) {
+        lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
+      }
+    }
+    for (const event of bmson.bga?.layer_events ?? []) {
+      if (Number.isFinite(event?.y)) {
+        lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
+      }
+    }
+    for (const event of bmson.bga?.poor_events ?? []) {
+      if (Number.isFinite(event?.y)) {
+        lastTimelineTimeSec = Math.max(lastTimelineTimeSec, timing.beatToSeconds(event.y / resolution));
+      }
+    }
+    for (const note of notes) {
+      if (note.kind === "invisible" || note.kind === "mine") {
+        lastTimelineTimeSec = Math.max(lastTimelineTimeSec, note.timeSec);
+      }
+    }
+    return success(createEmptyScore({
+      sha256: options.sha256,
+      format: "bmson",
+      mode,
+      laneCount,
+      initialBpm,
+      notes,
+      comboEvents,
+      barLines,
+      bpmChanges,
+      stops,
+      scrollChanges,
+      timingActions,
+      warnings,
+      lastPlayableTimeSec,
+      lastTimelineTimeSec
+    }));
+  }
+  function detectBmsonMode(bmson) {
+    const modeHint = bmson.info?.mode_hint;
+    if (modeHint === "popn-5k") {
+      return "popn-5k";
+    }
+    if (modeHint === "popn-9k") {
+      return "popn-9k";
+    }
+    if (modeHint === "beat-5k") {
+      return "5k";
+    }
+    if (modeHint === "beat-7k") {
+      return "7k";
+    }
+    if (modeHint === "beat-10k") {
+      return "10k";
+    }
+    if (modeHint === "beat-14k") {
+      return "14k";
+    }
+    if (modeHint === "keyboard-24k") {
+      return "24k";
+    }
+    if (modeHint === "keyboard-24k-double") {
+      return "48k";
+    }
+    const xs = [];
+    appendBmsonLaneXs(xs, bmson.sound_channels);
+    appendBmsonLaneXs(xs, bmson.key_channels);
+    appendBmsonLaneXs(xs, bmson.mine_channels);
+    if (xs.length === 0) {
+      return "unknown";
+    }
+    if (xs.some((x) => x >= 27 && x <= 52)) {
+      return "48k";
+    }
+    if (xs.some((x) => x >= 17 && x <= 26)) {
+      return "24k";
+    }
+    if (xs.every((x) => x >= 1 && x <= 9)) {
+      return "9k";
+    }
+    const hasSecondPlayer = xs.some((x) => x >= 9 && x <= 16);
+    const hasDeluxeKeys = xs.some((x) => x === 6 || x === 7 || x === 14 || x === 15);
+    if (hasSecondPlayer) {
+      return hasDeluxeKeys ? "14k" : "10k";
+    }
+    return hasDeluxeKeys ? "7k" : "5k";
+  }
+  function laneCountForBmsonMode(mode) {
+    switch (mode) {
+      case "5k":
+        return 6;
+      case "7k":
+        return 8;
+      case "popn-5k":
+        return 5;
+      case "9k":
+        return 9;
+      case "popn-9k":
+        return 9;
+      case "10k":
+        return 12;
+      case "14k":
+        return 16;
+      case "24k":
+        return 26;
+      case "48k":
+        return 52;
+      default:
+        return 0;
+    }
+  }
+  function mapBmsonLane(mode, xValue) {
+    const x = Number(xValue);
+    switch (mode) {
+      case "5k":
+        if (x === 8) {
+          return { lane: 0, side: "p1" };
+        }
+        if (x >= 1 && x <= 5) {
+          return { lane: x, side: "p1" };
+        }
+        return null;
+      case "7k":
+        if (x === 8) {
+          return { lane: 0, side: "p1" };
+        }
+        if (x >= 1 && x <= 7) {
+          return { lane: x, side: "p1" };
+        }
+        return null;
+      case "popn-5k":
+        if (x >= 1 && x <= 5) {
+          return { lane: x - 1 };
+        }
+        return null;
+      case "9k":
+        if (x >= 1 && x <= 9) {
+          return { lane: x - 1 };
+        }
+        return null;
+      case "popn-9k":
+        if (x >= 1 && x <= 9) {
+          return { lane: x - 1 };
+        }
+        return null;
+      case "10k":
+        if (x === 8) {
+          return { lane: 0, side: "p1" };
+        }
+        if (x >= 1 && x <= 5) {
+          return { lane: x, side: "p1" };
+        }
+        if (x === 16) {
+          return { lane: 6, side: "p2" };
+        }
+        if (x >= 9 && x <= 13) {
+          return { lane: x - 2, side: "p2" };
+        }
+        return null;
+      case "14k":
+        if (x === 8) {
+          return { lane: 0, side: "p1" };
+        }
+        if (x >= 1 && x <= 7) {
+          return { lane: x, side: "p1" };
+        }
+        if (x === 16) {
+          return { lane: 8, side: "p2" };
+        }
+        if (x >= 9 && x <= 15) {
+          return { lane: x, side: "p2" };
+        }
+        return null;
+      case "24k":
+        if (x === 25) {
+          return { lane: 0, side: "p1" };
+        }
+        if (x === 26) {
+          return { lane: 1, side: "p1" };
+        }
+        if (x >= 1 && x <= 24) {
+          return { lane: x + 1, side: "p1" };
+        }
+        return null;
+      case "48k":
+        if (x === 25) {
+          return { lane: 0, side: "p1" };
+        }
+        if (x === 26) {
+          return { lane: 1, side: "p1" };
+        }
+        if (x >= 1 && x <= 24) {
+          return { lane: x + 1, side: "p1" };
+        }
+        if (x >= 27 && x <= 50) {
+          return { lane: x - 1, side: "p2" };
+        }
+        if (x === 51) {
+          return { lane: 50, side: "p2" };
+        }
+        if (x === 52) {
+          return { lane: 51, side: "p2" };
+        }
+        return null;
+      default:
+        return null;
+    }
+  }
+  function readBmsonLongNoteType(value) {
+    switch (Number(value)) {
+      case 2:
+        return "cn";
+      case 3:
+        return "hcn";
+      case 1:
+      default:
+        return "ln";
+    }
+  }
+  function resolveBmsonLongNoteType(note, defaultLongNoteType) {
+    if (Number.isFinite(note?.t)) {
+      return readBmsonLongNoteType(note.t);
+    }
+    return defaultLongNoteType;
+  }
+  function createBmsonLongComboEvents(mapping, beat, timeSec, endBeat, endTimeSec, longNoteType) {
+    if (longNoteType === "cn" || longNoteType === "hcn") {
+      return [
+        createComboEvent2(mapping, beat, timeSec, "long-start"),
+        createComboEvent2(mapping, endBeat, endTimeSec, "long-end")
+      ];
+    }
+    return [createComboEvent2(mapping, endBeat, endTimeSec, "long-end")];
+  }
+  function appendBmsonMarkerNotes(notes, channels, kind, mode, resolution, timing) {
+    for (const channel of channels ?? []) {
+      for (const note of channel.notes ?? []) {
+        if (!Number.isFinite(note?.x) || note.x <= 0) {
+          continue;
+        }
+        const mapping = mapBmsonLane(mode, note?.x);
+        if (!mapping) {
+          continue;
+        }
+        if (!Number.isFinite(note?.y)) {
+          continue;
+        }
+        const beat = note.y / resolution;
+        const timeSec = timing.beatToSeconds(beat);
+        notes.push({
+          lane: mapping.lane,
+          beat,
+          timeSec,
+          kind,
+          side: mapping.side
+        });
+      }
+    }
+  }
+  function registerBmsonPlayableNote(playableNotesByStartKey, note) {
+    const startKey = createBmsonPlayableNoteStartKey(note);
+    const existing = playableNotesByStartKey.get(startKey);
+    if (!existing) {
+      playableNotesByStartKey.set(startKey, note);
+      return "new";
+    }
+    if (canLayerBmsonPlayableNote(existing, note)) {
+      return "layered";
+    }
+    return "conflict";
+  }
+  function createBmsonPlayableNoteStartKey(note) {
+    return `${note.side ?? ""}|${note.lane}|${note.beat}`;
+  }
+  function canLayerBmsonPlayableNote(existing, next) {
+    if (existing.kind !== next.kind) {
+      return false;
+    }
+    if (existing.kind === "normal") {
+      return true;
+    }
+    return existing.endBeat === next.endBeat;
+  }
+  function createConflictingBmsonNoteWarning(note) {
+    return createWarning(
+      "parse_warning",
+      `Ignored conflicting duplicate BMSON note at x=${String(note?.x)} y=${String(note?.y)}.`
+    );
+  }
+  function appendBmsonLaneXs(xs, channels) {
+    for (const channel of channels ?? []) {
+      for (const note of channel.notes ?? []) {
+        if (Number.isFinite(note?.x)) {
+          xs.push(Number(note.x));
+        }
+      }
+    }
+  }
+  function createComboEvent2(mapping, beat, timeSec, kind) {
+    const event = {
+      lane: mapping.lane,
+      beat,
+      timeSec,
+      kind
+    };
+    if (mapping.side) {
+      event.side = mapping.side;
+    }
+    return event;
+  }
+  function comboEventOrder3(kind) {
+    switch (kind) {
+      case "normal":
+        return 0;
+      case "long-start":
+        return 1;
+      case "long-end":
+        return 2;
+      default:
+        return 99;
+    }
+  }
+
+  // web/score-parser-runtime/src/shared/encoding.js
+  var UTF8_BOM = "\uFEFF";
+  var UTF8_BOM_BYTES = [239, 187, 191];
+  function toUint8Array(bytes) {
+    if (bytes instanceof Uint8Array) {
+      return bytes;
+    }
+    if (bytes instanceof ArrayBuffer) {
+      return new Uint8Array(bytes);
+    }
+    if (ArrayBuffer.isView(bytes)) {
+      return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    }
+    return null;
+  }
+  function decodeText(bytes, encoding) {
+    const buffer = toUint8Array(bytes);
+    if (buffer === null) {
+      return failure("invalid_options", "parseScoreBytes expects a Uint8Array or ArrayBuffer-compatible input.");
+    }
+    try {
+      const decoder = new TextDecoder(encoding, { fatal: true });
+      return { ok: true, text: decoder.decode(buffer) };
+    } catch (error) {
+      return {
+        ok: false,
+        error: failure(
+          "decode_failure",
+          `Failed to decode score bytes as ${encoding}.`
+        ).error,
+        warnings: [
+          createWarning("decode_warning", `Failed to decode score bytes as ${encoding}: ${error instanceof Error ? error.message : String(error)}`)
+        ]
+      };
+    }
+  }
+  function hasUtf8Bom(bytes) {
+    const buffer = toUint8Array(bytes);
+    if (buffer === null || buffer.length < UTF8_BOM_BYTES.length) {
+      return false;
+    }
+    return UTF8_BOM_BYTES.every((value, index) => buffer[index] === value);
+  }
+  function decodeTextWithoutUtf8Bom(bytes, encoding) {
+    const decoded = decodeText(bytes, encoding);
+    if (!decoded.ok) {
+      return decoded;
+    }
+    return {
+      ...decoded,
+      text: stripUtf8Bom(decoded.text)
+    };
+  }
+  function stripUtf8Bom(text) {
+    return text.startsWith(UTF8_BOM) ? text.slice(1) : text;
+  }
+  function looksLikeBmsonText(text) {
+    const stripped = stripUtf8Bom(text).trimStart();
+    return stripped.startsWith("{");
+  }
+
+  // web/score-parser-runtime/src/shared/random.js
+  var MULTIPLIER = 0x5deece66dn;
+  var ADDEND = 0xbn;
+  var MASK = (1n << 48n) - 1n;
+  var JavaRandom = class {
+    constructor(seed) {
+      this.seed = (BigInt(seed) ^ MULTIPLIER) & MASK;
+    }
+    next(bits) {
+      this.seed = this.seed * MULTIPLIER + ADDEND & MASK;
+      return Number(this.seed >> 48n - BigInt(bits));
+    }
+    nextInt(bound) {
+      if (!Number.isInteger(bound) || bound <= 0) {
+        throw new RangeError("bound must be a positive integer.");
+      }
+      if ((bound & -bound) === bound) {
+        return bound * this.next(31) >> 31;
+      }
+      while (true) {
+        const bits = this.next(31);
+        const value = bits % bound;
+        if (bits - value + (bound - 1) >= 0) {
+          return value;
+        }
+      }
+    }
+  };
+  function createDeterministicRandomSelector(sha256) {
+    const seed = parseSeed(sha256);
+    const random = new JavaRandom(seed);
+    return (max) => random.nextInt(max) + 1;
+  }
+  function parseSeed(sha256) {
+    if (typeof sha256 !== "string" || sha256.length < 16) {
+      return 1n;
+    }
+    try {
+      return BigInt(`0x${sha256.slice(0, 16)}`);
+    } catch (_error) {
+      return 1n;
+    }
+  }
+
+  // web/score-parser-runtime/src/score_parser_runtime.js
+  function parseScoreBytes(bytes, options = {}) {
+    const normalizedOptions = normalizeParseOptions(options);
+    const randomSelector = createDeterministicRandomSelector(normalizedOptions.sha256);
+    if (normalizedOptions.formatHint === "bmson") {
+      const decoded = decodeBmson(bytes);
+      if (!decoded.ok) {
+        return { ok: false, error: decoded.error };
+      }
+      return parseBmsonText(decoded.text, normalizedOptions);
+    }
+    if (normalizedOptions.formatHint === "bms") {
+      const decoded = decodeBms(bytes, normalizedOptions.textEncoding);
+      if (!decoded.ok) {
+        return { ok: false, error: decoded.error };
+      }
+      return parseBmsText(decoded.text, {
+        ...normalizedOptions,
+        rng: randomSelector
+      });
+    }
+    const decodedUtf8 = decodeBmson(bytes);
+    if (decodedUtf8.ok && looksLikeBmsonText(decodedUtf8.text)) {
+      const bmsonResult = parseBmsonText(decodedUtf8.text, normalizedOptions);
+      if (bmsonResult.ok) {
+        return bmsonResult;
+      }
+    }
+    const decodedBms = decodeBms(bytes, normalizedOptions.textEncoding);
+    if (!decodedBms.ok) {
+      return { ok: false, error: decodedBms.error };
+    }
+    return parseBmsText(decodedBms.text, {
+      ...normalizedOptions,
+      rng: randomSelector
+    });
+  }
+  function decodeBmson(bytes) {
+    return decodeTextWithoutUtf8Bom(bytes, "utf-8");
+  }
+  function decodeBms(bytes, textEncoding) {
+    if (textEncoding === "utf-8") {
+      return decodeTextWithoutUtf8Bom(bytes, "utf-8");
+    }
+    if (textEncoding !== "auto" && textEncoding !== "shift_jis") {
+      return {
+        ok: false,
+        error: failure("invalid_options", `Unsupported BMS textEncoding: ${textEncoding}`).error
+      };
+    }
+    if (textEncoding === "shift_jis") {
+      return decodeTextWithoutUtf8Bom(bytes, "shift_jis");
+    }
+    if (hasUtf8Bom(bytes)) {
+      return decodeTextWithoutUtf8Bom(bytes, "utf-8");
+    }
+    const decodedUtf8 = decodeTextWithoutUtf8Bom(bytes, "utf-8");
+    if (decodedUtf8.ok) {
+      return decodedUtf8;
+    }
+    return decodeTextWithoutUtf8Bom(bytes, "shift_jis");
+  }
+
+  // web/score-parser-runtime/src/score_loader.js
+  var bundledScoreParserVersion = true ? "0.6.7" : "__PARSER_VERSION__";
+  var SCORE_PARSER_VERSION = bundledScoreParserVersion;
+  var SCORE_LOADER_DB_NAME = "bms-info-extender-score-cache-v1";
+  var SCORE_LOADER_STORE_NAME = "compressed_scores";
+  var DEFAULT_SCORE_BASE_URL = "/score";
+  var DEFAULT_SCORE_PATH_STYLE = "sharded";
+  var DEFAULT_FORMAT_HINT = "auto";
+  var DEFAULT_TEXT_ENCODING = "auto";
+  var SHA256_PATTERN = /^[0-9a-f]{64}$/i;
+  var ScoreLoaderError = class extends Error {
+    constructor(type, message, options = {}) {
+      super(message);
+      this.name = "ScoreLoaderError";
+      this.type = type;
+      if (Object.prototype.hasOwnProperty.call(options, "cause")) {
+        this.cause = options.cause;
+      }
+    }
+  };
+  function normalizeSha256(sha256) {
+    if (typeof sha256 !== "string") {
+      throw new ScoreLoaderError("invalid_sha256", "sha256 must be a string.");
+    }
+    const normalized = sha256.trim().toLowerCase();
+    if (!SHA256_PATTERN.test(normalized)) {
+      throw new ScoreLoaderError("invalid_sha256", `Invalid sha256: ${sha256}`);
+    }
+    return normalized;
+  }
+  function normalizeScoreBaseUrl(scoreBaseUrl) {
+    if (typeof scoreBaseUrl !== "string" || scoreBaseUrl.length === 0) {
+      return DEFAULT_SCORE_BASE_URL;
+    }
+    const trimmed = scoreBaseUrl.replace(/\/+$/, "");
+    return trimmed === "" ? "/" : trimmed;
+  }
+  function normalizeScorePathStyle(pathStyle) {
+    return pathStyle === "flat" ? "flat" : DEFAULT_SCORE_PATH_STYLE;
+  }
+  function normalizeScoreSources(config = {}) {
+    if (Array.isArray(config.scoreSources) && config.scoreSources.length > 0) {
+      return config.scoreSources.map((source) => ({
+        baseUrl: normalizeScoreBaseUrl(source?.baseUrl),
+        pathStyle: normalizeScorePathStyle(source?.pathStyle)
+      }));
+    }
+    return [{
+      baseUrl: normalizeScoreBaseUrl(config.scoreBaseUrl),
+      pathStyle: DEFAULT_SCORE_PATH_STYLE
+    }];
+  }
+  function defaultFetchResource(...args) {
+    if (typeof globalThis.fetch !== "function") {
+      return Promise.reject(new Error("fetch is not available in this environment."));
+    }
+    return globalThis.fetch(...args);
+  }
+  function normalizeFetchImpl(config = {}) {
+    return typeof config.fetchImpl === "function" ? config.fetchImpl : defaultFetchResource;
+  }
+  function buildScoreUrl(baseUrl, sha256, pathStyle) {
+    const normalizedSha256 = normalizeSha256(sha256);
+    if (pathStyle === "flat") {
+      if (baseUrl === "/") {
+        return `/${normalizedSha256}.gz`;
+      }
+      return `${baseUrl}/${normalizedSha256}.gz`;
+    }
+    const prefix = normalizedSha256.slice(0, 2);
+    if (baseUrl === "/") {
+      return `/${prefix}/${normalizedSha256}.gz`;
+    }
+    return `${baseUrl}/${prefix}/${normalizedSha256}.gz`;
+  }
+  function normalizeEnumValue(value, allowedValues, fallbackValue) {
+    if (typeof value !== "string") {
+      return fallbackValue;
+    }
+    return allowedValues.includes(value) ? value : fallbackValue;
+  }
+  function normalizeParseOptions2(options = {}) {
+    const formatHint = normalizeEnumValue(options.formatHint, ["bms", "bmson", "auto"], DEFAULT_FORMAT_HINT);
+    const textEncoding = normalizeEnumValue(options.textEncoding, ["shift_jis", "utf-8", "auto"], DEFAULT_TEXT_ENCODING);
+    return { formatHint, textEncoding };
+  }
+  function cloneArrayBuffer(buffer) {
+    return buffer.slice(0);
+  }
+  function toOwnedArrayBuffer(value) {
+    if (value instanceof ArrayBuffer) {
+      return cloneArrayBuffer(value);
+    }
+    if (ArrayBuffer.isView(value)) {
+      return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    }
+    throw new TypeError("Expected ArrayBuffer or ArrayBuffer view.");
+  }
+  function cloneBytes(buffer) {
+    return new Uint8Array(cloneArrayBuffer(buffer));
+  }
+  function cloneStructuredValue(value) {
+    if (typeof structuredClone === "function") {
+      return structuredClone(value);
+    }
+    return JSON.parse(JSON.stringify(value));
+  }
+  function warnIdbFailure(message, error) {
+    console.warn(`[score_loader] ${message}`, error);
+  }
+  function createTransactionPromise(requestFactory) {
+    return new Promise((resolve, reject) => {
+      requestFactory(resolve, reject);
+    });
+  }
+  function createIndexedDbStore(dbName) {
+    let openPromise = null;
+    let disabled = false;
+    async function openDatabase() {
+      if (disabled || typeof indexedDB === "undefined") {
+        return null;
+      }
+      if (openPromise !== null) {
+        return openPromise;
+      }
+      openPromise = createTransactionPromise((resolve, reject) => {
+        let request;
+        try {
+          request = indexedDB.open(dbName, 1);
+        } catch (error) {
+          disabled = true;
+          reject(new ScoreLoaderError("idb_failure", "Failed to open IndexedDB.", { cause: error }));
+          return;
+        }
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(SCORE_LOADER_STORE_NAME)) {
+            db.createObjectStore(SCORE_LOADER_STORE_NAME, { keyPath: "sha256" });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => {
+          disabled = true;
+          reject(new ScoreLoaderError("idb_failure", "IndexedDB open request failed.", { cause: request.error }));
+        };
+        request.onblocked = () => reject(new ScoreLoaderError("idb_failure", "IndexedDB open request was blocked."));
+      }).catch((error) => {
+        openPromise = null;
+        throw error;
+      });
+      return openPromise;
+    }
+    async function get(sha256) {
+      const db = await openDatabase();
+      if (db === null) {
+        return null;
+      }
+      return createTransactionPromise((resolve, reject) => {
+        const transaction = db.transaction(SCORE_LOADER_STORE_NAME, "readonly");
+        const store = transaction.objectStore(SCORE_LOADER_STORE_NAME);
+        const request = store.get(sha256);
+        request.onsuccess = () => resolve(request.result ?? null);
+        request.onerror = () => reject(new ScoreLoaderError("idb_failure", "Failed to read compressed score from IndexedDB.", { cause: request.error }));
+      });
+    }
+    async function put(record) {
+      const db = await openDatabase();
+      if (db === null) {
+        return false;
+      }
+      await createTransactionPromise((resolve, reject) => {
+        const transaction = db.transaction(SCORE_LOADER_STORE_NAME, "readwrite");
+        const store = transaction.objectStore(SCORE_LOADER_STORE_NAME);
+        const request = store.put(record);
+        request.onsuccess = () => resolve(void 0);
+        request.onerror = () => reject(new ScoreLoaderError("idb_failure", "Failed to write compressed score to IndexedDB.", { cause: request.error }));
+      });
+      return true;
+    }
+    async function clear() {
+      const db = await openDatabase();
+      if (db === null) {
+        return;
+      }
+      await createTransactionPromise((resolve, reject) => {
+        const transaction = db.transaction(SCORE_LOADER_STORE_NAME, "readwrite");
+        const store = transaction.objectStore(SCORE_LOADER_STORE_NAME);
+        const request = store.clear();
+        request.onsuccess = () => resolve(void 0);
+        request.onerror = () => reject(new ScoreLoaderError("idb_failure", "Failed to clear compressed score cache.", { cause: request.error }));
+      });
+    }
+    return { get, put, clear };
+  }
+  async function decompressGzipBytes(compressedBytes) {
+    if (typeof DecompressionStream === "undefined") {
+      throw new ScoreLoaderError("decompression_unsupported", "DecompressionStream('gzip') is not available in this environment.");
+    }
+    try {
+      const sourceStream = new Blob([compressedBytes]).stream();
+      const decompressedStream = sourceStream.pipeThrough(new DecompressionStream("gzip"));
+      const decompressedBuffer = await new Response(decompressedStream).arrayBuffer();
+      return new Uint8Array(decompressedBuffer);
+    } catch (error) {
+      throw new ScoreLoaderError("decompression_failure", "Failed to decompress gzip score data.", { cause: error });
+    }
+  }
+  function buildParsedCacheKey(sha256, formatHint, textEncoding) {
+    return `${sha256}::${SCORE_PARSER_VERSION}::${formatHint}::${textEncoding}`;
+  }
+  function createScoreLoader(config = {}) {
+    const scoreSources = normalizeScoreSources(config);
+    const fetchImpl = normalizeFetchImpl(config);
+    const dbName = typeof config.dbName === "string" && config.dbName.length > 0 ? config.dbName : SCORE_LOADER_DB_NAME;
+    const idbStore = createIndexedDbStore(dbName);
+    const compressedPromiseCache = /* @__PURE__ */ new Map();
+    const decompressedPromiseCache = /* @__PURE__ */ new Map();
+    const parsedPromiseCache = /* @__PURE__ */ new Map();
+    const compressedValueCache = /* @__PURE__ */ new Map();
+    const decompressedValueCache = /* @__PURE__ */ new Map();
+    const parsedValueCache = /* @__PURE__ */ new Map();
+    function resolveScoreUrl(sha256) {
+      return buildScoreUrl(scoreSources[0].baseUrl, sha256, scoreSources[0].pathStyle);
+    }
+    function resolveScoreUrls(sha256) {
+      return scoreSources.map((source) => buildScoreUrl(source.baseUrl, sha256, source.pathStyle));
+    }
+    async function loadCompressedScore(sha256) {
+      const normalizedSha256 = normalizeSha256(sha256);
+      const cachedValue = compressedValueCache.get(normalizedSha256);
+      if (cachedValue !== void 0) {
+        return {
+          sha256: normalizedSha256,
+          source: "memory",
+          bytes: cloneBytes(cachedValue.gzipBytes),
+          byteLength: cachedValue.gzipByteLength,
+          url: cachedValue.url
+        };
+      }
+      const pendingPromise = compressedPromiseCache.get(normalizedSha256);
+      if (pendingPromise !== void 0) {
+        return pendingPromise;
+      }
+      const candidateUrls = resolveScoreUrls(normalizedSha256);
+      const loadPromise = (async () => {
+        try {
+          try {
+            const idbRecord = await idbStore.get(normalizedSha256);
+            if (idbRecord !== null) {
+              const gzipBytes = toOwnedArrayBuffer(idbRecord.gzipBytes);
+              const cachedUrl = typeof idbRecord.url === "string" && idbRecord.url.length > 0 ? idbRecord.url : candidateUrls[0];
+              compressedValueCache.set(normalizedSha256, {
+                url: cachedUrl,
+                gzipBytes,
+                gzipByteLength: gzipBytes.byteLength,
+                fetchedAt: idbRecord.fetchedAt ?? Date.now()
+              });
+              return {
+                sha256: normalizedSha256,
+                source: "idb",
+                bytes: cloneBytes(gzipBytes),
+                byteLength: gzipBytes.byteLength,
+                url: cachedUrl
+              };
+            }
+          } catch (error) {
+            warnIdbFailure("IndexedDB read failed, continuing with network fetch.", error);
+          }
+          let lastFailure = null;
+          for (const url of candidateUrls) {
+            let response;
+            try {
+              response = await fetchImpl(url);
+            } catch (error) {
+              lastFailure = new ScoreLoaderError("network_failure", `Failed to fetch compressed score: ${url}`, { cause: error });
+              continue;
+            }
+            if (!response.ok) {
+              lastFailure = new ScoreLoaderError(
+                "network_failure",
+                `Failed to fetch compressed score: ${url} (${response.status} ${response.statusText})`
+              );
+              continue;
+            }
+            let gzipBytes;
+            try {
+              gzipBytes = await response.arrayBuffer();
+            } catch (error) {
+              lastFailure = new ScoreLoaderError("network_failure", `Failed to read compressed score body: ${url}`, { cause: error });
+              continue;
+            }
+            const memoryRecord = {
+              url,
+              gzipBytes: cloneArrayBuffer(gzipBytes),
+              gzipByteLength: gzipBytes.byteLength,
+              fetchedAt: Date.now()
+            };
+            compressedValueCache.set(normalizedSha256, memoryRecord);
+            try {
+              await idbStore.put({
+                sha256: normalizedSha256,
+                url,
+                gzipBytes: cloneArrayBuffer(gzipBytes),
+                gzipByteLength: gzipBytes.byteLength,
+                fetchedAt: memoryRecord.fetchedAt
+              });
+            } catch (error) {
+              warnIdbFailure("IndexedDB write failed, keeping memory cache only.", error);
+            }
+            return {
+              sha256: normalizedSha256,
+              source: "network",
+              bytes: new Uint8Array(gzipBytes),
+              byteLength: gzipBytes.byteLength,
+              url
+            };
+          }
+          throw lastFailure ?? new ScoreLoaderError("network_failure", `Failed to fetch compressed score: ${candidateUrls[0]}`);
+        } finally {
+          compressedPromiseCache.delete(normalizedSha256);
+        }
+      })();
+      compressedPromiseCache.set(normalizedSha256, loadPromise);
+      return loadPromise;
+    }
+    async function loadDecompressedScoreBytes(sha256) {
+      const normalizedSha256 = normalizeSha256(sha256);
+      const cachedValue = decompressedValueCache.get(normalizedSha256);
+      if (cachedValue !== void 0) {
+        return {
+          sha256: normalizedSha256,
+          compressedSource: "memory",
+          compressedByteLength: cachedValue.compressedByteLength,
+          bytes: cloneBytes(cachedValue.bytes),
+          byteLength: cachedValue.byteLength,
+          url: cachedValue.url
+        };
+      }
+      const pendingPromise = decompressedPromiseCache.get(normalizedSha256);
+      if (pendingPromise !== void 0) {
+        return pendingPromise;
+      }
+      const loadPromise = (async () => {
+        try {
+          const compressedResult = await loadCompressedScore(normalizedSha256);
+          const decompressedBytes = await decompressGzipBytes(compressedResult.bytes);
+          decompressedValueCache.set(normalizedSha256, {
+            url: compressedResult.url,
+            compressedByteLength: compressedResult.byteLength,
+            bytes: decompressedBytes.buffer.slice(
+              decompressedBytes.byteOffset,
+              decompressedBytes.byteOffset + decompressedBytes.byteLength
+            ),
+            byteLength: decompressedBytes.byteLength
+          });
+          return {
+            sha256: normalizedSha256,
+            compressedSource: compressedResult.source,
+            compressedByteLength: compressedResult.byteLength,
+            bytes: decompressedBytes,
+            byteLength: decompressedBytes.byteLength,
+            url: compressedResult.url
+          };
+        } finally {
+          decompressedPromiseCache.delete(normalizedSha256);
+        }
+      })();
+      decompressedPromiseCache.set(normalizedSha256, loadPromise);
+      return loadPromise;
+    }
+    async function loadParsedScore(sha256, options = {}) {
+      const normalizedSha256 = normalizeSha256(sha256);
+      const normalizedOptions = normalizeParseOptions2(options);
+      const cacheKey = buildParsedCacheKey(
+        normalizedSha256,
+        normalizedOptions.formatHint,
+        normalizedOptions.textEncoding
+      );
+      const cachedValue = parsedValueCache.get(cacheKey);
+      if (cachedValue !== void 0) {
+        return {
+          sha256: normalizedSha256,
+          compressedSource: "memory",
+          parserVersion: SCORE_PARSER_VERSION,
+          score: cloneStructuredValue(cachedValue.score)
+        };
+      }
+      const pendingPromise = parsedPromiseCache.get(cacheKey);
+      if (pendingPromise !== void 0) {
+        return pendingPromise;
+      }
+      const loadPromise = (async () => {
+        try {
+          const decompressedResult = await loadDecompressedScoreBytes(normalizedSha256);
+          let parseResult;
+          try {
+            parseResult = parseScoreBytes(decompressedResult.bytes, {
+              formatHint: normalizedOptions.formatHint,
+              textEncoding: normalizedOptions.textEncoding,
+              sha256: normalizedSha256
+            });
+          } catch (error) {
+            throw new ScoreLoaderError("parse_failure", "Score parser threw an exception.", { cause: error });
+          }
+          if (!parseResult || parseResult.ok !== true) {
+            throw new ScoreLoaderError("parse_failure", "Score parser returned a parse failure.", {
+              cause: parseResult?.error
+            });
+          }
+          parsedValueCache.set(cacheKey, { score: cloneStructuredValue(parseResult.score) });
+          return {
+            sha256: normalizedSha256,
+            compressedSource: decompressedResult.compressedSource,
+            parserVersion: SCORE_PARSER_VERSION,
+            score: cloneStructuredValue(parseResult.score)
+          };
+        } finally {
+          parsedPromiseCache.delete(cacheKey);
+        }
+      })();
+      parsedPromiseCache.set(cacheKey, loadPromise);
+      return loadPromise;
+    }
+    async function prefetchScore(sha256) {
+      await loadCompressedScore(sha256);
+    }
+    function clearMemoryCache() {
+      compressedPromiseCache.clear();
+      decompressedPromiseCache.clear();
+      parsedPromiseCache.clear();
+      compressedValueCache.clear();
+      decompressedValueCache.clear();
+      parsedValueCache.clear();
+    }
+    async function clearIndexedDbCache() {
+      await idbStore.clear();
+    }
+    return {
+      resolveScoreUrl,
+      loadCompressedScore,
+      loadDecompressedScoreBytes,
+      loadParsedScore,
+      prefetchScore,
+      clearMemoryCache,
+      clearIndexedDbCache
+    };
+  }
+
   // tampermonkey/src/main.js
   (function() {
     "use strict";
@@ -9535,8 +11692,6 @@
     GM_addStyle(fontCSS);
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
-    const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-    const SCORE_PARSER_VERSION = "0.6.7";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
     const SCRIPT_VERSION_FALLBACK = "2.3.10";
     const userscriptFetch = createUserscriptFetch();
@@ -10807,10 +12962,8 @@
       if (scoreLoaderContextPromise) {
         return scoreLoaderContextPromise;
       }
-      const moduleUrl = `${SCORE_PARSER_BASE_URL}/v${SCORE_PARSER_VERSION}/score_loader.js`;
-      scoreLoaderContextPromise = import(moduleUrl).then((module) => ({
-        moduleUrl,
-        loader: module.createScoreLoader({
+      scoreLoaderContextPromise = Promise.resolve().then(() => ({
+        loader: createScoreLoader({
           scoreSources: [
             { baseUrl: SCORE_BASE_URL, pathStyle: "sharded" },
             { baseUrl: SCORE_R2_BASE_URL, pathStyle: "flat" }

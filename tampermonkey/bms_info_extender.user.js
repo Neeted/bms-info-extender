@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.10
+// @version      2.3.11
 // @description  LR2ALT、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
-// @match        https://www.bms-ir.org/new/song*
+// @match        https://bms-ir.org/new/song*
 // @match        https://stellabms.xyz/*
 // @match        https://www.gaftalk.com/minir/*
 // @match        https://mocha-repository.info/song.php*
@@ -22,6 +22,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.11 LR2ALT公式ドメインのURLをwwwなしに変更
 // 2.3.10 LR2ALT公式ドメインに対応、IP直指定対応を廃止、外部取得のCSP対応
 // 2.3.9 LR2IR Alternative(LR2ALT)に対応、hosts編集とIP直指定の双方に対応
 // 2.3.8 STELLAVERSEにおいてMD5の抽出をLR2IRではなく譜面ビューアリンクから行うように変更
@@ -6477,7 +6478,7 @@
 
   // shared/preview-runtime/index.js
   var BMSDATA_STYLE_ID = "bms-info-extender-style";
-  var LR2ALT_SONG_BASE_URL = "https://www.bms-ir.org/new/song";
+  var LR2ALT_SONG_BASE_URL = "https://bms-ir.org/new/song";
   var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
   var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
@@ -11693,7 +11694,7 @@
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.10";
+    const SCRIPT_VERSION_FALLBACK = "2.3.11";
     const userscriptFetch = createUserscriptFetch();
     setPreviewRuntimeFetch(userscriptFetch);
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
@@ -12006,7 +12007,7 @@
     };
     let scoreLoaderContextPromise = null;
     let activeBmsPreviewRuntime = null;
-    const LR2ALT_HOSTS = /* @__PURE__ */ new Set(["www.dream-pro.info", "www.bms-ir.org"]);
+    const LR2ALT_HOSTS = /* @__PURE__ */ new Set(["www.dream-pro.info", "bms-ir.org"]);
     const LR2ALT_SONG_PATH = "/new/song";
     const LR2ALT_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
     const LR2ALT_SELECTORS = {

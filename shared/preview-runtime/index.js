@@ -51,7 +51,7 @@ export {
 } from "./request.js";
 
 export const BMSDATA_STYLE_ID = "bms-info-extender-style";
-const LR2ALT_SONG_BASE_URL = "https://www.bms-ir.org/new/song";
+const LR2ALT_SONG_BASE_URL = "https://bms-ir.org/new/song";
 const BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;

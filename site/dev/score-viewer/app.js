@@ -6431,7 +6431,7 @@ function clamp4(value, minValue, maxValue) {
 
 // shared/preview-runtime/index.js
 var BMSDATA_STYLE_ID = "bms-info-extender-style";
-var LR2ALT_SONG_BASE_URL = "https://www.bms-ir.org/new/song";
+var LR2ALT_SONG_BASE_URL = "https://bms-ir.org/new/song";
 var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;

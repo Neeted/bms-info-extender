@@ -14,7 +14,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.10";
+  const SCRIPT_VERSION_FALLBACK = "2.3.11";
   const userscriptFetch = createUserscriptFetch();
   PreviewRuntime.setPreviewRuntimeFetch(userscriptFetch);
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
@@ -330,7 +330,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   let scoreLoaderContextPromise = null;
   let activeBmsPreviewRuntime = null;
 
-  const LR2ALT_HOSTS = new Set(["www.dream-pro.info", "www.bms-ir.org"]);
+  const LR2ALT_HOSTS = new Set(["www.dream-pro.info", "bms-ir.org"]);
   const LR2ALT_SONG_PATH = "/new/song";
   const LR2ALT_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
   const LR2ALT_SELECTORS = {

@@ -529,7 +529,7 @@ test("renderBmsData links MD5 records to LR2ALT", () => {
 
   const lr2altLink = container.querySelector("#bd-lr2ir");
   assert.match(BMSDATA_TEMPLATE_HTML, /id="bd-lr2ir"[^>]*>LR2ALT<\/a>/);
-  assert.equal(lr2altLink.href, "https://www.bms-ir.org/new/song?songmd5=f8dcdfe070630bbb365323c662561a1a&view=both");
+  assert.equal(lr2altLink.href, "https://bms-ir.org/new/song?songmd5=f8dcdfe070630bbb365323c662561a1a&view=both");
   assert.equal(lr2altLink.style.display, "inline");
 });
 

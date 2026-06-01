@@ -38,15 +38,20 @@ import {
   fetchBmsInfoRecordByLookupKey,
   getLaneChipKey,
 } from "./bms-info-data.js";
+import { fetchPreviewRuntimeResource } from "./request.js";
 import {
   createBmsInfoGraph,
   DEFAULT_GRAPH_INTERACTION_MODE,
   normalizeGraphInteractionMode,
 } from "./bms-info-graph.js";
 
+export {
+  resetPreviewRuntimeFetch,
+  setPreviewRuntimeFetch,
+} from "./request.js";
+
 export const BMSDATA_STYLE_ID = "bms-info-extender-style";
-const LR2ALT_HOST = "126.71.110.56";
-const LR2ALT_SONG_BASE_URL = `http://${LR2ALT_HOST}/new/song`;
+const LR2ALT_SONG_BASE_URL = "https://www.bms-ir.org/new/song";
 const BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
@@ -1406,7 +1411,7 @@ export async function checkBmsSearchPatternExists(sha256) {
   if (!cachedPromise) {
     cachedPromise = (async () => {
       try {
-        const response = await fetch(`${BMSSEARCH_PATTERN_API_BASE_URL}/${sha256}`);
+        const response = await fetchPreviewRuntimeResource(`${BMSSEARCH_PATTERN_API_BASE_URL}/${sha256}`);
         return response.ok;
       } catch (error) {
         bmsSearchPatternAvailabilityCache.delete(sha256);

@@ -162,10 +162,23 @@ export type ScoreSourceConfig = {
     pathStyle?: ScorePathStyle;
 };
 
+export type ScoreLoaderFetchResponse = {
+    ok: boolean;
+    status: number;
+    statusText?: string;
+    arrayBuffer(): Promise<ArrayBuffer>;
+};
+
+export type ScoreLoaderFetch = (
+    input: string,
+    init?: unknown,
+) => Promise<ScoreLoaderFetchResponse>;
+
 export type ScoreLoaderConfig = {
     scoreBaseUrl?: string;
     scoreSources?: ScoreSourceConfig[];
     dbName?: string;
+    fetchImpl?: ScoreLoaderFetch;
 };
 
 export type ScoreLoader = {

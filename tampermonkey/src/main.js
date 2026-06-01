@@ -13,9 +13,11 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
   const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-  const SCORE_PARSER_VERSION = "0.6.6";
+  const SCORE_PARSER_VERSION = "0.6.7";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.9";
+  const SCRIPT_VERSION_FALLBACK = "2.3.10";
+  const userscriptFetch = createUserscriptFetch();
+  PreviewRuntime.setPreviewRuntimeFetch(userscriptFetch);
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
   const VERSION_NOTIFICATION_STORAGE_KEYS = {
     lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",
@@ -329,8 +331,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
   let scoreLoaderContextPromise = null;
   let activeBmsPreviewRuntime = null;
 
-  const LR2ALT_HOST = "126.71.110.56";
-  const LR2ALT_HOSTS = new Set(["www.dream-pro.info", LR2ALT_HOST]);
+  const LR2ALT_HOSTS = new Set(["www.dream-pro.info", "www.bms-ir.org"]);
   const LR2ALT_SONG_PATH = "/new/song";
   const LR2ALT_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
   const LR2ALT_SELECTORS = {
@@ -1524,6 +1525,115 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
     }
   }
 
+  function createUserscriptFetch() {
+    if (typeof GM_xmlhttpRequest !== "function") {
+      return (...args) => fetch(...args);
+    }
+
+    return (resource, options = {}) => new Promise((resolve, reject) => {
+      const fetchOptions = options ?? {};
+      const url = resolveFetchResourceUrl(resource);
+      if (!url) {
+        reject(new Error("Unsupported fetch resource."));
+        return;
+      }
+
+      GM_xmlhttpRequest({
+        method: typeof fetchOptions.method === "string" ? fetchOptions.method : "GET",
+        url,
+        headers: normalizeFetchHeaders(fetchOptions.headers),
+        data: fetchOptions.body,
+        responseType: "arraybuffer",
+        onload: (response) => {
+          const body = normalizeResponseArrayBuffer(response.response);
+          resolve(createUserscriptFetchResponse({
+            body,
+            requestedUrl: url,
+            response,
+          }));
+        },
+        onerror: (response) => {
+          reject(createUserscriptRequestError("GM_xmlhttpRequest failed", url, response));
+        },
+        ontimeout: (response) => {
+          reject(createUserscriptRequestError("GM_xmlhttpRequest timed out", url, response));
+        },
+        onabort: (response) => {
+          reject(createUserscriptRequestError("GM_xmlhttpRequest was aborted", url, response));
+        },
+      });
+    });
+  }
+
+  function resolveFetchResourceUrl(resource) {
+    if (typeof resource === "string") {
+      return resource;
+    }
+    if (resource instanceof URL) {
+      return resource.href;
+    }
+    if (typeof resource?.url === "string") {
+      return resource.url;
+    }
+    return null;
+  }
+
+  function normalizeFetchHeaders(headers) {
+    if (!headers) {
+      return undefined;
+    }
+    if (typeof Headers !== "undefined" && headers instanceof Headers) {
+      return Object.fromEntries(headers.entries());
+    }
+    if (Array.isArray(headers)) {
+      return Object.fromEntries(headers);
+    }
+    return headers;
+  }
+
+  function normalizeResponseArrayBuffer(responseBody) {
+    if (responseBody instanceof ArrayBuffer) {
+      return responseBody.slice(0);
+    }
+    if (ArrayBuffer.isView(responseBody)) {
+      return responseBody.buffer.slice(
+        responseBody.byteOffset,
+        responseBody.byteOffset + responseBody.byteLength
+      );
+    }
+    if (typeof responseBody === "string") {
+      return new TextEncoder().encode(responseBody).buffer;
+    }
+    return new ArrayBuffer(0);
+  }
+
+  function createUserscriptFetchResponse({ body, requestedUrl, response }) {
+    const status = Number.isFinite(response.status) ? response.status : 0;
+    const statusText = typeof response.statusText === "string" ? response.statusText : "";
+    const url = typeof response.finalUrl === "string" && response.finalUrl.length > 0
+      ? response.finalUrl
+      : requestedUrl;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      statusText,
+      url,
+      async arrayBuffer() {
+        return body.slice(0);
+      },
+      async text() {
+        return new TextDecoder().decode(body);
+      },
+    };
+  }
+
+  function createUserscriptRequestError(message, url, response) {
+    const statusText = typeof response?.statusText === "string" && response.statusText.length > 0
+      ? `: ${response.statusText}`
+      : "";
+    return new Error(`${message}: ${url}${statusText}`);
+  }
+
   async function ensureScoreLoaderContext() {
     if (scoreLoaderContextPromise) {
       return scoreLoaderContextPromise;
@@ -1538,6 +1648,7 @@ import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
             { baseUrl: SCORE_BASE_URL, pathStyle: "sharded" },
             { baseUrl: SCORE_R2_BASE_URL, pathStyle: "flat" },
           ],
+          fetchImpl: userscriptFetch,
         }),
       }))
       .catch((error) => {

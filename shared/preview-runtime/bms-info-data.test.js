@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getLaneChipKey, normalizeBmsInfoRecord } from "./bms-info-data.js";
+import {
+  BMSDATA_COLUMNS,
+  fetchBmsInfoRecordByLookupKey,
+  getLaneChipKey,
+  normalizeBmsInfoRecord,
+} from "./bms-info-data.js";
+import {
+  resetPreviewRuntimeFetch,
+  setPreviewRuntimeFetch,
+} from "./request.js";
 
 function makeRawRecord(overrides = {}) {
   return {
@@ -77,4 +86,34 @@ test("unsupported modes fall back to white lane chip keys for every lane", () =>
     assert.equal(getLaneChipKey(24, laneIndex), "1");
     assert.equal(getLaneChipKey(48, laneIndex), "1");
   }
+});
+
+test("fetchBmsInfoRecordByLookupKey uses the configured preview runtime fetch", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  const rawRecord = makeRawRecord({
+    md5: "a".repeat(32),
+    sha256: "b".repeat(64),
+  });
+  const responseText = BMSDATA_COLUMNS.map((column) => rawRecord[column]).join("\x1f");
+  const requests = [];
+
+  setPreviewRuntimeFetch(async (url) => {
+    requests.push(url);
+    return {
+      ok: true,
+      status: 200,
+      async text() {
+        return responseText;
+      },
+    };
+  });
+
+  const record = await fetchBmsInfoRecordByLookupKey("lookup-key");
+
+  assert.deepEqual(requests, ["https://bms.howan.jp/lookup-key?v=2.3.1"]);
+  assert.equal(record.md5, "a".repeat(32));
+  assert.equal(record.sha256, "b".repeat(64));
 });

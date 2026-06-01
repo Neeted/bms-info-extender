@@ -5663,6 +5663,18 @@ function isDescendantOf(element, ancestor) {
   return false;
 }
 
+// shared/preview-runtime/request.js
+function defaultPreviewRuntimeFetch(...args) {
+  if (typeof globalThis.fetch !== "function") {
+    return Promise.reject(new Error("fetch is not available in this environment."));
+  }
+  return globalThis.fetch(...args);
+}
+var previewRuntimeFetch = defaultPreviewRuntimeFetch;
+function fetchPreviewRuntimeResource(...args) {
+  return previewRuntimeFetch(...args);
+}
+
 // shared/preview-runtime/bms-info-data.js
 var BMSDATA_COLUMNS = [
   "md5",
@@ -5720,7 +5732,7 @@ var DISTRIBUTION_NOTE_NAMES = [
 ];
 var DECIMAL_DISPLAY_PLACES = 2;
 async function fetchBmsInfoRecordByLookupKey(lookupKey) {
-  const response = await fetch(`https://bms.howan.jp/${lookupKey}?v=2.3.1`);
+  const response = await fetchPreviewRuntimeResource(`https://bms.howan.jp/${lookupKey}?v=2.3.1`);
   if (!response.ok) {
     throw new Error(`Failed to fetch BMS data: HTTP ${response.status}`);
   }
@@ -6419,8 +6431,7 @@ function clamp4(value, minValue, maxValue) {
 
 // shared/preview-runtime/index.js
 var BMSDATA_STYLE_ID = "bms-info-extender-style";
-var LR2ALT_HOST = "126.71.110.56";
-var LR2ALT_SONG_BASE_URL = `http://${LR2ALT_HOST}/new/song`;
+var LR2ALT_SONG_BASE_URL = "https://www.bms-ir.org/new/song";
 var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
@@ -7723,7 +7734,7 @@ async function checkBmsSearchPatternExists(sha256) {
   if (!cachedPromise) {
     cachedPromise = (async () => {
       try {
-        const response = await fetch(`${BMSSEARCH_PATTERN_API_BASE_URL}/${sha256}`);
+        const response = await fetchPreviewRuntimeResource(`${BMSSEARCH_PATTERN_API_BASE_URL}/${sha256}`);
         return response.ok;
       } catch (error) {
         bmsSearchPatternAvailabilityCache.delete(sha256);

@@ -64,6 +64,19 @@ function normalizeScoreSources(config = {}) {
   }];
 }
 
+function defaultFetchResource(...args) {
+  if (typeof globalThis.fetch !== "function") {
+    return Promise.reject(new Error("fetch is not available in this environment."));
+  }
+  return globalThis.fetch(...args);
+}
+
+function normalizeFetchImpl(config = {}) {
+  return typeof config.fetchImpl === "function"
+    ? config.fetchImpl
+    : defaultFetchResource;
+}
+
 function buildScoreUrl(baseUrl, sha256, pathStyle) {
   const normalizedSha256 = normalizeSha256(sha256);
   if (pathStyle === "flat") {
@@ -237,6 +250,7 @@ function buildParsedCacheKey(sha256, formatHint, textEncoding) {
 
 export function createScoreLoader(config = {}) {
   const scoreSources = normalizeScoreSources(config);
+  const fetchImpl = normalizeFetchImpl(config);
   const dbName = typeof config.dbName === "string" && config.dbName.length > 0
     ? config.dbName
     : SCORE_LOADER_DB_NAME;
@@ -307,7 +321,7 @@ export function createScoreLoader(config = {}) {
         for (const url of candidateUrls) {
           let response;
           try {
-            response = await fetch(url);
+            response = await fetchImpl(url);
           } catch (error) {
             lastFailure = new ScoreLoaderError("network_failure", `Failed to fetch compressed score: ${url}`, { cause: error });
             continue;

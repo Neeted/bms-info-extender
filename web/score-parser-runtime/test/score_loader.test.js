@@ -175,6 +175,36 @@ test("loadCompressedScore falls back from Netlify to R2 flat path", async (t) =>
   assert.deepEqual([...result.bytes], [1, 2, 3]);
 });
 
+test("loadCompressedScore uses configured fetchImpl for network requests", async (t) => {
+  const fetchCalls = [];
+  withMockedGlobals(t, {
+    indexedDbMock: undefined,
+    fetchMock: async () => {
+      throw new Error("global fetch should not be used");
+    },
+  });
+
+  const loader = createScoreLoader({
+    scoreSources: createFallbackSources(),
+    fetchImpl: async (url) => {
+      fetchCalls.push(url);
+      if (url === NETLIFY_URL) {
+        return createMockResponse({ status: 404, statusText: "Not Found" });
+      }
+      if (url === R2_URL) {
+        return createMockResponse({ body: [6, 5, 4] });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    },
+  });
+  const result = await loader.loadCompressedScore(SHA256);
+
+  assert.deepEqual(fetchCalls, [NETLIFY_URL, R2_URL]);
+  assert.equal(result.source, "network");
+  assert.equal(result.url, R2_URL);
+  assert.deepEqual([...result.bytes], [6, 5, 4]);
+});
+
 test("successful fallback result is reused from IndexedDB on a new loader instance", async (t) => {
   const indexedDbMock = createFakeIndexedDb();
   const fetchCalls = [];

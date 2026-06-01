@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.9
+// @version      2.3.10
 // @description  LR2ALT、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
-// @match        http://126.71.110.56/new/song*
+// @match        https://www.bms-ir.org/new/song*
 // @match        https://stellabms.xyz/*
 // @match        https://www.gaftalk.com/minir/*
 // @match        https://mocha-repository.info/song.php*
@@ -13,6 +13,8 @@
 // @grant        GM_getValue
 // @grant        GM_getResourceText
 // @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
+// @connect      api.bmssearch.net
 // @connect      bms.howan.jp
 // @connect      bms-info-extender.netlify.app
 // @resource     googlefont https://fonts.googleapis.com/css2?family=Inconsolata&family=Noto+Sans+JP&display=swap
@@ -20,6 +22,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.10 LR2ALT公式ドメインに対応、IP直指定対応を廃止、外部取得のCSP対応
 // 2.3.9 LR2IR Alternative(LR2ALT)に対応、hosts編集とIP直指定の双方に対応
 // 2.3.8 STELLAVERSEにおいてMD5の抽出をLR2IRではなく譜面ビューアリンクから行うように変更
 // 2.3.7 BPMのMIN、MAXにおいて小数に対応。TOTAL、BPMで小数点以下3桁以降は省略表示しツールチップに全量表示。TOTAL未定義はundefined表示しツールチップにLR2、beatoraja相当の計算値を表示。

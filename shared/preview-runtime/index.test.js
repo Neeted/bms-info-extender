@@ -49,6 +49,9 @@ import {
   getInitialGameTimingConfig,
   getInitialRendererConfig,
   renderBmsData,
+  checkBmsSearchPatternExists,
+  resetPreviewRuntimeFetch,
+  setPreviewRuntimeFetch,
 } from "./index.js";
 import {
   getViewerCursor,
@@ -526,7 +529,7 @@ test("renderBmsData links MD5 records to LR2ALT", () => {
 
   const lr2altLink = container.querySelector("#bd-lr2ir");
   assert.match(BMSDATA_TEMPLATE_HTML, /id="bd-lr2ir"[^>]*>LR2ALT<\/a>/);
-  assert.equal(lr2altLink.href, "http://126.71.110.56/new/song?songmd5=f8dcdfe070630bbb365323c662561a1a&view=both");
+  assert.equal(lr2altLink.href, "https://www.bms-ir.org/new/song?songmd5=f8dcdfe070630bbb365323c662561a1a&view=both");
   assert.equal(lr2altLink.style.display, "inline");
 });
 
@@ -1317,6 +1320,55 @@ test("a new sha256 or a new preview runtime gets a fresh availability attempt", 
   } finally {
     environment.restore();
   }
+});
+
+test("checkBmsSearchPatternExists uses the configured preview runtime fetch", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  const sha256 = "9".repeat(64);
+  const requests = [];
+  setPreviewRuntimeFetch(async (url) => {
+    requests.push(url);
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+    };
+  });
+
+  assert.equal(await checkBmsSearchPatternExists(sha256), true);
+  assert.deepEqual(requests, [`https://api.bmssearch.net/v1/patterns/sha256/${sha256}`]);
+});
+
+test("checkBmsSearchPatternExists clears pending cache after fetch failure", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  const sha256 = "8".repeat(64);
+  const originalWarn = console.warn;
+  t.after(() => {
+    console.warn = originalWarn;
+  });
+  console.warn = () => {};
+  let requestCount = 0;
+  setPreviewRuntimeFetch(async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      throw new Error("temporary failure");
+    }
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+    };
+  });
+
+  assert.equal(await checkBmsSearchPatternExists(sha256), false);
+  assert.equal(await checkBmsSearchPatternExists(sha256), true);
+  assert.equal(requestCount, 2);
 });
 
 function createPreviewHarness(documentRef, {

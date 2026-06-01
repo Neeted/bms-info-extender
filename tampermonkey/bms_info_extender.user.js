@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.9
+// @version      2.3.10
 // @description  LR2ALT、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
-// @match        http://126.71.110.56/new/song*
+// @match        https://www.bms-ir.org/new/song*
 // @match        https://stellabms.xyz/*
 // @match        https://www.gaftalk.com/minir/*
 // @match        https://mocha-repository.info/song.php*
@@ -13,6 +13,8 @@
 // @grant        GM_getValue
 // @grant        GM_getResourceText
 // @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
+// @connect      api.bmssearch.net
 // @connect      bms.howan.jp
 // @connect      bms-info-extender.netlify.app
 // @resource     googlefont https://fonts.googleapis.com/css2?family=Inconsolata&family=Noto+Sans+JP&display=swap
@@ -20,6 +22,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.10 LR2ALT公式ドメインに対応、IP直指定対応を廃止、外部取得のCSP対応
 // 2.3.9 LR2IR Alternative(LR2ALT)に対応、hosts編集とIP直指定の双方に対応
 // 2.3.8 STELLAVERSEにおいてMD5の抽出をLR2IRではなく譜面ビューアリンクから行うように変更
 // 2.3.7 BPMのMIN、MAXにおいて小数に対応。TOTAL、BPMで小数点以下3桁以降は省略表示しツールチップに全量表示。TOTAL未定義はundefined表示しツールチップにLR2、beatoraja相当の計算値を表示。
@@ -5703,6 +5706,21 @@
     return false;
   }
 
+  // shared/preview-runtime/request.js
+  function defaultPreviewRuntimeFetch(...args) {
+    if (typeof globalThis.fetch !== "function") {
+      return Promise.reject(new Error("fetch is not available in this environment."));
+    }
+    return globalThis.fetch(...args);
+  }
+  var previewRuntimeFetch = defaultPreviewRuntimeFetch;
+  function setPreviewRuntimeFetch(fetchImpl) {
+    previewRuntimeFetch = typeof fetchImpl === "function" ? fetchImpl : defaultPreviewRuntimeFetch;
+  }
+  function fetchPreviewRuntimeResource(...args) {
+    return previewRuntimeFetch(...args);
+  }
+
   // shared/preview-runtime/bms-info-data.js
   var BMSDATA_COLUMNS = [
     "md5",
@@ -5760,7 +5778,7 @@
   ];
   var DECIMAL_DISPLAY_PLACES = 2;
   async function fetchBmsInfoRecordByLookupKey(lookupKey) {
-    const response = await fetch(`https://bms.howan.jp/${lookupKey}?v=2.3.1`);
+    const response = await fetchPreviewRuntimeResource(`https://bms.howan.jp/${lookupKey}?v=2.3.1`);
     if (!response.ok) {
       throw new Error(`Failed to fetch BMS data: HTTP ${response.status}`);
     }
@@ -6459,8 +6477,7 @@
 
   // shared/preview-runtime/index.js
   var BMSDATA_STYLE_ID = "bms-info-extender-style";
-  var LR2ALT_HOST = "126.71.110.56";
-  var LR2ALT_SONG_BASE_URL = `http://${LR2ALT_HOST}/new/song`;
+  var LR2ALT_SONG_BASE_URL = "https://www.bms-ir.org/new/song";
   var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
   var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
@@ -7768,7 +7785,7 @@
     if (!cachedPromise) {
       cachedPromise = (async () => {
         try {
-          const response = await fetch(`${BMSSEARCH_PATTERN_API_BASE_URL}/${sha256}`);
+          const response = await fetchPreviewRuntimeResource(`${BMSSEARCH_PATTERN_API_BASE_URL}/${sha256}`);
           return response.ok;
         } catch (error) {
           bmsSearchPatternAvailabilityCache.delete(sha256);
@@ -9519,9 +9536,11 @@
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
     const SCORE_PARSER_BASE_URL = "https://bms-info-extender.netlify.app/score-parser";
-    const SCORE_PARSER_VERSION = "0.6.6";
+    const SCORE_PARSER_VERSION = "0.6.7";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.9";
+    const SCRIPT_VERSION_FALLBACK = "2.3.10";
+    const userscriptFetch = createUserscriptFetch();
+    setPreviewRuntimeFetch(userscriptFetch);
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
     const VERSION_NOTIFICATION_STORAGE_KEYS = {
       lastNotifiedVersion: "bms-info-extender.versionNotification.lastNotifiedVersion",
@@ -9832,8 +9851,7 @@
     };
     let scoreLoaderContextPromise = null;
     let activeBmsPreviewRuntime = null;
-    const LR2ALT_HOST2 = "126.71.110.56";
-    const LR2ALT_HOSTS = /* @__PURE__ */ new Set(["www.dream-pro.info", LR2ALT_HOST2]);
+    const LR2ALT_HOSTS = /* @__PURE__ */ new Set(["www.dream-pro.info", "www.bms-ir.org"]);
     const LR2ALT_SONG_PATH = "/new/song";
     const LR2ALT_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
     const LR2ALT_SELECTORS = {
@@ -10688,6 +10706,103 @@
         console.warn("MochaフォールバックへのBMS SEARCHリンク追加に失敗しました:", error);
       }
     }
+    function createUserscriptFetch() {
+      if (typeof GM_xmlhttpRequest !== "function") {
+        return (...args) => fetch(...args);
+      }
+      return (resource, options = {}) => new Promise((resolve, reject) => {
+        const fetchOptions = options ?? {};
+        const url = resolveFetchResourceUrl(resource);
+        if (!url) {
+          reject(new Error("Unsupported fetch resource."));
+          return;
+        }
+        GM_xmlhttpRequest({
+          method: typeof fetchOptions.method === "string" ? fetchOptions.method : "GET",
+          url,
+          headers: normalizeFetchHeaders(fetchOptions.headers),
+          data: fetchOptions.body,
+          responseType: "arraybuffer",
+          onload: (response) => {
+            const body = normalizeResponseArrayBuffer(response.response);
+            resolve(createUserscriptFetchResponse({
+              body,
+              requestedUrl: url,
+              response
+            }));
+          },
+          onerror: (response) => {
+            reject(createUserscriptRequestError("GM_xmlhttpRequest failed", url, response));
+          },
+          ontimeout: (response) => {
+            reject(createUserscriptRequestError("GM_xmlhttpRequest timed out", url, response));
+          },
+          onabort: (response) => {
+            reject(createUserscriptRequestError("GM_xmlhttpRequest was aborted", url, response));
+          }
+        });
+      });
+    }
+    function resolveFetchResourceUrl(resource) {
+      if (typeof resource === "string") {
+        return resource;
+      }
+      if (resource instanceof URL) {
+        return resource.href;
+      }
+      if (typeof resource?.url === "string") {
+        return resource.url;
+      }
+      return null;
+    }
+    function normalizeFetchHeaders(headers) {
+      if (!headers) {
+        return void 0;
+      }
+      if (typeof Headers !== "undefined" && headers instanceof Headers) {
+        return Object.fromEntries(headers.entries());
+      }
+      if (Array.isArray(headers)) {
+        return Object.fromEntries(headers);
+      }
+      return headers;
+    }
+    function normalizeResponseArrayBuffer(responseBody) {
+      if (responseBody instanceof ArrayBuffer) {
+        return responseBody.slice(0);
+      }
+      if (ArrayBuffer.isView(responseBody)) {
+        return responseBody.buffer.slice(
+          responseBody.byteOffset,
+          responseBody.byteOffset + responseBody.byteLength
+        );
+      }
+      if (typeof responseBody === "string") {
+        return new TextEncoder().encode(responseBody).buffer;
+      }
+      return new ArrayBuffer(0);
+    }
+    function createUserscriptFetchResponse({ body, requestedUrl, response }) {
+      const status = Number.isFinite(response.status) ? response.status : 0;
+      const statusText = typeof response.statusText === "string" ? response.statusText : "";
+      const url = typeof response.finalUrl === "string" && response.finalUrl.length > 0 ? response.finalUrl : requestedUrl;
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        statusText,
+        url,
+        async arrayBuffer() {
+          return body.slice(0);
+        },
+        async text() {
+          return new TextDecoder().decode(body);
+        }
+      };
+    }
+    function createUserscriptRequestError(message, url, response) {
+      const statusText = typeof response?.statusText === "string" && response.statusText.length > 0 ? `: ${response.statusText}` : "";
+      return new Error(`${message}: ${url}${statusText}`);
+    }
     async function ensureScoreLoaderContext() {
       if (scoreLoaderContextPromise) {
         return scoreLoaderContextPromise;
@@ -10699,7 +10814,8 @@
           scoreSources: [
             { baseUrl: SCORE_BASE_URL, pathStyle: "sharded" },
             { baseUrl: SCORE_R2_BASE_URL, pathStyle: "flat" }
-          ]
+          ],
+          fetchImpl: userscriptFetch
         })
       })).catch((error) => {
         scoreLoaderContextPromise = null;

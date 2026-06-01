@@ -33,8 +33,7 @@ LOG_FILE = SAVE_DIR / "scraper.log"
 
 # --- セレクタ定義 ---
 # Stella BMSのページ構造に応じたXPath
-XPATH_TARGET1 = "//*[@id=\"scroll-area\"]/section/main/div[1]/div[2]/div/table/tbody/tr[8]/td[1]/div/a[1]" # 2026/03/06 頃のサイトアップデートに対応
-XPATH_TARGET2 = "//*[@id=\"scroll-area\"]/section/main/div[1]/div[2]/div[2]/table/tbody/tr[4]/td[1]/div/a[1]" # 情報未登録の曲はここだったと思うけどなんのXPATHか忘れた、もう未登録の曲は存在しないので不要なはず
+XPATH_TARGET1 = "//*[@id=\"scroll-area\"]/section/main/div[1]/div[2]/div/table/tbody/tr[8]/td[2]/a" # LR2IRの終了に対応
 XPATH_NOT_FOUND = "//*[@id=\"scroll-area\"]/section/div/div/h1"
 
 URL_TEMPLATE = "https://stellabms.xyz/song/{}"
@@ -78,7 +77,7 @@ def load_data() -> pl.DataFrame:
 
 def extract_md5_from_href(href: str) -> str | None:
     """hrefからMD5ハッシュを抽出する"""
-    match = re.search(r"bmsmd5=([a-fA-F0-9]{32})", href)
+    match = re.search(r"md5=([a-fA-F0-9]{32})", href)
     if match:
         return match.group(1)
     return None
@@ -107,18 +106,12 @@ def process_page(driver: webdriver.Chrome, songid: int) -> dict | str | None:
         logging.info(f"{songid}: XPATH_TARGET1でmd5を取得")
     except TimeoutException:
         try:
-            element = WebDriverWait(driver, 3).until(
-                EC.presence_of_element_located((By.XPATH, XPATH_TARGET2))
-            )
-            logging.info(f"{songid}: XPATH_TARGET2でmd5を取得")
-        except TimeoutException:
-            try:
-                driver.find_element(By.XPATH, XPATH_NOT_FOUND)
-                logging.info(f"{songid}: ページが存在しません (Page Not Found)")
-                return None  # 正常終了の終了条件
-            except Exception:
-                logging.warning(f"{songid}: md5要素もPage Not Foundも見つからず")
-                return "error"
+            driver.find_element(By.XPATH, XPATH_NOT_FOUND)
+            logging.info(f"{songid}: ページが存在しません (Page Not Found)")
+            return None  # 正常終了の終了条件
+        except Exception:
+            logging.warning(f"{songid}: md5要素もPage Not Foundも見つからず")
+            return "error"
     
     href = element.get_attribute("href")
     md5 = extract_md5_from_href(href)

@@ -113,7 +113,7 @@ test("fetchBmsInfoRecordByLookupKey uses the configured preview runtime fetch", 
 
   const record = await fetchBmsInfoRecordByLookupKey("lookup-key");
 
-  assert.deepEqual(requests, ["https://bms.howan.jp/lookup-key?v=2.3.1"]);
+  assert.deepEqual(requests, ["https://bms.howan.jp/lookup-key"]);
   assert.equal(record.md5, "a".repeat(32));
   assert.equal(record.sha256, "b".repeat(64));
 });

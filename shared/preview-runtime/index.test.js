@@ -40,6 +40,7 @@ import {
   OVERLAY_SURFACE_CSS,
   expandPreviewRenderMask,
   createBmsDataContainer,
+  renderBmsSearchLinkIfAvailable,
   getInitialGraphInteractionMode,
   getInitialSpacingPx,
   getInitialSpacingPxByMode,
@@ -344,7 +345,7 @@ test("preview renders 24keys lane notes with k-prefixed lane attributes", async 
     preview.setRecord(record);
     await environment.settle();
 
-    const laneNotes = elements.container.querySelector("#bd-lanenotes-div").children;
+    const laneNotes = findElementById(elements.container, "bd-lanenotes-div").children;
     assert.equal(laneNotes.length, 25);
     assert.equal(laneNotes[0].getAttribute("lane"), "k0");
     assert.equal(laneNotes[24].getAttribute("lane"), "k24");
@@ -369,7 +370,7 @@ test("preview renders 48keys lane notes with k-prefixed lane attributes", async 
     preview.setRecord(record);
     await environment.settle();
 
-    const laneNotes = elements.container.querySelector("#bd-lanenotes-div").children;
+    const laneNotes = findElementById(elements.container, "bd-lanenotes-div").children;
     assert.equal(laneNotes.length, 50);
     assert.equal(laneNotes[0].getAttribute("lane"), "k0");
     assert.equal(laneNotes[25].getAttribute("lane"), "k25");
@@ -395,7 +396,7 @@ test("preview renders unsupported mode lane notes with the white-key fallback la
     preview.setRecord(record);
     await environment.settle();
 
-    const laneNotes = elements.container.querySelector("#bd-lanenotes-div").children;
+    const laneNotes = findElementById(elements.container, "bd-lanenotes-div").children;
     assert.equal(laneNotes.length, 24);
     for (const laneNote of laneNotes) {
       assert.equal(laneNote.getAttribute("lane"), "1");
@@ -425,10 +426,10 @@ test("renderBmsData applies metadata display text and custom tooltip metadata", 
 
   renderBmsData(container, record);
 
-  const mainBpm = container.querySelector("#bd-mainbpm");
-  const maxBpm = container.querySelector("#bd-maxbpm");
-  const total = container.querySelector("#bd-total");
-  const tooltip = container.querySelector("#bd-metadata-tooltip");
+  const mainBpm = findElementById(container, "bd-mainbpm");
+  const maxBpm = findElementById(container, "bd-maxbpm");
+  const total = findElementById(container, "bd-total");
+  const tooltip = findElementById(container, "bd-metadata-tooltip");
 
   assert.equal(mainBpm.textContent, "123.45...");
   assert.equal(mainBpm.getAttribute("title"), null);
@@ -454,21 +455,22 @@ test("metadata custom tooltip appears immediately, follows the pointer, and hide
 
   renderBmsData(container, record);
 
-  const mainBpm = container.querySelector("#bd-mainbpm");
-  const tooltip = container.querySelector("#bd-metadata-tooltip");
-  container.dispatchEvent({ type: "pointerover", target: mainBpm, clientX: 120, clientY: 34 });
+  const panel = container.__bmsDataPanel;
+  const mainBpm = findElementById(container, "bd-mainbpm");
+  const tooltip = findElementById(container, "bd-metadata-tooltip");
+  panel.dispatchEvent({ type: "pointerover", target: mainBpm, clientX: 120, clientY: 34 });
 
   assert.equal(tooltip.textContent, "123.4567");
   assert.equal(tooltip.style.left, "130px");
   assert.equal(tooltip.style.top, "44px");
   assert.equal(tooltip.style.display, "block");
 
-  container.dispatchEvent({ type: "pointermove", target: mainBpm, clientX: 140, clientY: 50 });
+  panel.dispatchEvent({ type: "pointermove", target: mainBpm, clientX: 140, clientY: 50 });
 
   assert.equal(tooltip.style.left, "150px");
   assert.equal(tooltip.style.top, "60px");
 
-  container.dispatchEvent({ type: "pointerout", target: mainBpm });
+  panel.dispatchEvent({ type: "pointerout", target: mainBpm });
 
   assert.equal(tooltip.style.display, "none");
 });
@@ -490,6 +492,12 @@ test("createBmsDataContainer applies optional link theme variables", () => {
   documentRef.getElementById = (id) => findMockElementById(documentRef.head, id) ?? findMockElementById(documentRef.body, id);
   const originalCreateElement = documentRef.createElement.bind(documentRef);
   const templateContainer = new MockContainerElement(documentRef);
+  templateContainer.className = "bmsdata";
+  const metadataTable = documentRef.createElement("table");
+  metadataTable.className = "bd-info-table";
+  templateContainer.appendChild(metadataTable);
+  const graphHost = documentRef.createElement("div");
+  templateContainer.registerElement("bd-graph", graphHost);
   documentRef.createElement = (tagName) => {
     if (tagName !== "template") {
       return originalCreateElement(tagName);
@@ -512,9 +520,25 @@ test("createBmsDataContainer applies optional link theme variables", () => {
       linkHoverColor: "#fff",
     },
   });
+  documentRef.body.appendChild(container);
 
-  assert.equal(container.style.getPropertyValue("--bd-link-color"), "#9fc7ff");
-  assert.equal(container.style.getPropertyValue("--bd-link-hover-color"), "#fff");
+  assert.equal(container.id, "bmsdata-container");
+  assert.ok(container.shadowRoot);
+  assert.equal(container.__bmsDataPanel, templateContainer);
+  assert.equal(documentRef.getElementById("bmsdata-container"), container);
+  assert.equal(container.children.length, 0);
+  assert.equal(container.shadowRoot.children[0].tagName, "STYLE");
+  assert.equal(container.shadowRoot.children[0].textContent, BMSDATA_CSS);
+  assert.equal(container.shadowRoot.children[1], templateContainer);
+  assert.equal(findElementByClass(container, "bmsdata"), templateContainer);
+  assert.equal(findElementByClass(container, "bd-info-table"), metadataTable);
+  assert.equal(findElementById(container, "bd-graph"), graphHost);
+  assert.ok(findElementById(container, "bd-metadata-tooltip"));
+  assert.equal(findMockElementById(documentRef.body, "bd-graph"), null);
+  assert.equal(findMockElementById(documentRef.body, "bd-metadata-tooltip"), null);
+  assert.equal(templateContainer.style.getPropertyValue("--bd-link-color"), "#9fc7ff");
+  assert.equal(templateContainer.style.getPropertyValue("--bd-link-hover-color"), "#fff");
+  assert.equal(documentRef.head.children.length, 0);
 });
 
 test("renderBmsData links MD5 records to BMS-IR", () => {
@@ -527,7 +551,7 @@ test("renderBmsData links MD5 records to BMS-IR", () => {
 
   renderBmsData(container, record);
 
-  const bmsIrLink = container.querySelector("#bd-bmsir");
+  const bmsIrLink = findElementById(container, "bd-bmsir");
   assert.match(BMSDATA_TEMPLATE_HTML, /id="bd-bmsir"[^>]*>BMS-IR<\/a>/);
   assert.equal(bmsIrLink.href, "https://bms-ir.org/new/song?songmd5=f8dcdfe070630bbb365323c662561a1a&view=both");
   assert.equal(bmsIrLink.style.display, "inline");
@@ -682,7 +706,7 @@ test("graph settings popup toggles and persists interaction mode", async () => {
     await environment.settle();
 
     assert.ok(elements.overlayHost);
-    assert.ok(elements.container.querySelector("#bd-graph").shadowRoot);
+    assert.ok(findElementById(elements.container, "bd-graph").shadowRoot);
     assert.ok(elements.overlayHost.shadowRoot);
     assert.equal(preview.getState().graphInteractionMode, "drag");
     assert.equal(elements.graphSettingsPopup.hidden, true);
@@ -805,7 +829,7 @@ test("preview mounts interactive surfaces into shadow roots by default", async (
     });
     await environment.settle();
 
-    const graphHost = elements.container.querySelector("#bd-graph");
+    const graphHost = findElementById(elements.container, "bd-graph");
     assert.ok(graphHost.shadowRoot);
       assert.ok(elements.overlayHost?.shadowRoot);
       assert.ok(elements.graphCanvas);
@@ -1371,6 +1395,34 @@ test("checkBmsSearchPatternExists clears pending cache after fetch failure", asy
   assert.equal(requestCount, 2);
 });
 
+test("renderBmsSearchLinkIfAvailable updates the shadow metadata link", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  const documentRef = new MockDocument();
+  const { container } = createPreviewContainerElements(documentRef);
+  documentRef.body.appendChild(container);
+  const sha256 = "7".repeat(64);
+  const requests = [];
+  setPreviewRuntimeFetch(async (url) => {
+    requests.push(url);
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+    };
+  });
+
+  const bmsSearchLink = findElementById(container, "bd-bmssearch");
+  bmsSearchLink.style.display = "none";
+  await renderBmsSearchLinkIfAvailable(container, sha256);
+
+  assert.deepEqual(requests, [`https://api.bmssearch.net/v1/patterns/sha256/${sha256}`]);
+  assert.equal(bmsSearchLink.href, `https://bmssearch.net/patterns/${sha256}`);
+  assert.equal(bmsSearchLink.style.display, "inline");
+});
+
 function createPreviewHarness(documentRef, {
   prefetchParsedScore = async () => {},
   loadParsedScore = async () => createParsedScore(),
@@ -1398,7 +1450,14 @@ function createPreviewHarness(documentRef, {
 }
 
 function createPreviewContainerElements(documentRef) {
-  const container = new MockContainerElement(documentRef);
+  const container = new MockElement("div", documentRef);
+  container.id = "bmsdata-container";
+  container.style.display = "none";
+  const panel = new MockContainerElement(documentRef);
+  panel.className = "bmsdata";
+  container.__bmsDataPanel = panel;
+  container.attachShadow();
+  container.shadowRoot.appendChild(panel);
   const ids = [
     "bd-bmsir",
     "bd-minir",
@@ -1430,11 +1489,12 @@ function createPreviewContainerElements(documentRef) {
     let element;
     element = documentRef.createElement("div");
     element.id = id;
-    container.registerElement(id, element);
+    panel.registerElement(id, element);
   }
-  container.querySelector("#bd-graph").clientWidth = 320;
-  container.querySelector("#bd-graph").clientHeight = 180;
-  container.querySelector("#bd-graph").scrollWidth = 900;
+  const graphHost = panel.querySelector("#bd-graph");
+  graphHost.clientWidth = 320;
+  graphHost.clientHeight = 180;
+  graphHost.scrollWidth = 900;
   return {
     container,
   };

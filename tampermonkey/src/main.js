@@ -1188,7 +1188,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
         if (await insertBmsData(pageContext, container)) {
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
           // STELLAVERSE 側と完全に重複する行だけを消し、補助情報のある行は残す。
-          const bokutachiLink = container.querySelector("#bd-bokutachi");
+          const bokutachiLink = queryBmsDataElement(container, "bd-bokutachi");
           if (bokutachi && bokutachiLink) {
             bokutachiLink.setAttribute("href", `${bokutachi}`);
             bokutachiLink.setAttribute("style", "display: inline;");
@@ -1417,6 +1417,13 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       insertion: pageContext.insertion,
       theme: pageContext.theme,
     });
+  }
+
+  function queryBmsDataElement(container, id) {
+    return container?.__bmsDataPanel?.querySelector?.(`#${id}`)
+      ?? container?.shadowRoot?.querySelector?.(`#${id}`)
+      ?? container?.querySelector?.(`#${id}`)
+      ?? null;
   }
 
   /**

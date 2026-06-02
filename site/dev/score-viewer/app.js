@@ -6430,7 +6430,6 @@ function clamp4(value, minValue, maxValue) {
 }
 
 // shared/preview-runtime/index.js
-var BMSDATA_STYLE_ID = "bms-info-extender-style";
 var BMS_IR_SONG_BASE_URL = "https://bms-ir.org/new/song";
 var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
@@ -6770,6 +6769,11 @@ function expandPreviewRenderMask(renderMask = 0) {
   return expandedMask;
 }
 var BMSDATA_CSS = `
+  :host {
+    all: initial;
+    display: block;
+    box-sizing: border-box;
+  }
   .bmsdata {
     --bd-dctx: #333;
     --bd-dcbk: #fff;
@@ -7615,7 +7619,7 @@ var OVERLAY_SURFACE_CSS = `
   }
 `;
 var BMSDATA_TEMPLATE_HTML = `
-  <div id="bmsdata-container" class="bmsdata" style="display: none;">
+  <div class="bmsdata">
     <div class="bd-info">
       <table class="bd-info-table">
         <tr>
@@ -7680,39 +7684,60 @@ var BMSDATA_TEMPLATE_HTML = `
     <div id="bd-graph"></div>
   </div>
 `;
-function ensureBmsDataStyleOnce(documentRef = document) {
-  if (documentRef.getElementById(BMSDATA_STYLE_ID)) {
-    return;
-  }
-  const styleElement = documentRef.createElement("style");
-  styleElement.id = BMSDATA_STYLE_ID;
-  styleElement.textContent = BMSDATA_CSS;
-  documentRef.head.appendChild(styleElement);
-}
 function createBmsDataContainer({ documentRef = document, theme }) {
-  ensureBmsDataStyleOnce(documentRef);
+  const host = documentRef.createElement("div");
+  host.id = "bmsdata-container";
+  host.style.display = "none";
+  if (typeof host.attachShadow !== "function") {
+    throw new Error("Shadow DOM is required for BMS metadata panel");
+  }
+  const shadowRoot = host.attachShadow({ mode: "open" });
+  const styleElement = documentRef.createElement("style");
+  styleElement.textContent = BMSDATA_CSS;
   const template = documentRef.createElement("template");
   template.innerHTML = BMSDATA_TEMPLATE_HTML.trim();
-  const container = template.content.firstElementChild;
-  if (!container) {
+  const panel = template.content.firstElementChild;
+  if (!panel) {
     throw new Error("BMS preview template did not create a container.");
   }
   if (theme) {
-    setThemeProperty(container, "--bd-dctx", theme.dctx);
-    setThemeProperty(container, "--bd-dcbk", theme.dcbk);
-    setThemeProperty(container, "--bd-hdtx", theme.hdtx);
-    setThemeProperty(container, "--bd-hdbk", theme.hdbk);
-    setThemeProperty(container, "--bd-link-color", theme.linkColor);
-    setThemeProperty(container, "--bd-link-hover-color", theme.linkHoverColor);
+    setThemeProperty(panel, "--bd-dctx", theme.dctx);
+    setThemeProperty(panel, "--bd-dcbk", theme.dcbk);
+    setThemeProperty(panel, "--bd-hdtx", theme.hdtx);
+    setThemeProperty(panel, "--bd-hdbk", theme.hdbk);
+    setThemeProperty(panel, "--bd-link-color", theme.linkColor);
+    setThemeProperty(panel, "--bd-link-hover-color", theme.linkHoverColor);
   }
-  ensureMetadataTooltip(container, documentRef);
-  return container;
+  host.__bmsDataPanel = panel;
+  shadowRoot.replaceChildren(styleElement, panel);
+  ensureMetadataTooltip(panel, documentRef);
+  return host;
 }
 function setThemeProperty(container, propertyName, value) {
   if (value === void 0 || value === null) {
     return;
   }
   container.style.setProperty(propertyName, value);
+}
+function getBmsDataPanel(container) {
+  if (!container) {
+    return null;
+  }
+  if (container.__bmsDataPanel) {
+    return container.__bmsDataPanel;
+  }
+  const shadowPanel = findFirstElementByClass(container.shadowRoot, "bmsdata");
+  if (shadowPanel) {
+    container.__bmsDataPanel = shadowPanel;
+    return shadowPanel;
+  }
+  if (container.classList?.contains?.("bmsdata") || String(container.className ?? "").split(/\s+/).includes("bmsdata")) {
+    return container;
+  }
+  return null;
+}
+function queryBmsDataElement(container, id) {
+  return getBmsDataPanel(container)?.querySelector?.(`#${id}`) ?? null;
 }
 async function fetchBmsInfoRecordByIdentifiers({ md5 = null, sha256 = null, bmsid = null }) {
   const lookupKey = md5 ?? sha256 ?? bmsid;
@@ -7751,7 +7776,7 @@ async function renderBmsSearchLinkIfAvailable(container, sha256) {
     if (!sha256 || !await checkBmsSearchPatternExists(sha256) || !container.isConnected) {
       return;
     }
-    const bmsSearchLink = container.querySelector("#bd-bmssearch");
+    const bmsSearchLink = queryBmsDataElement(container, "bd-bmssearch");
     if (!bmsSearchLink) {
       return;
     }
@@ -7761,12 +7786,13 @@ async function renderBmsSearchLinkIfAvailable(container, sha256) {
   }
 }
 function renderBmsData(container, normalizedRecord) {
-  const getById = (id) => container.querySelector(`#${id}`);
+  const getById = (id) => queryBmsDataElement(container, id);
   renderLinks(container, normalizedRecord);
   getById("bd-sha256").textContent = normalizedRecord.sha256;
   getById("bd-md5").textContent = normalizedRecord.md5;
   getById("bd-bmsid").textContent = normalizedRecord.bmsid ? normalizedRecord.bmsid : "Undefined";
-  ensureMetadataTooltip(container);
+  const panel = getBmsDataPanel(container);
+  ensureMetadataTooltip(panel ?? container);
   renderTextWithTooltip(
     getById("bd-mainbpm"),
     normalizedRecord.mainbpmDisplay ?? formatCompactNumber(normalizedRecord.mainbpm),
@@ -7818,21 +7844,21 @@ function renderTextWithTooltip(element, text, tooltipText) {
     }
   }
 }
-function ensureMetadataTooltip(container, documentRef = container.ownerDocument ?? document) {
-  let tooltip = container.querySelector("#bd-metadata-tooltip");
+function ensureMetadataTooltip(panel, documentRef = panel.ownerDocument ?? document) {
+  let tooltip = panel.querySelector("#bd-metadata-tooltip");
   if (!tooltip) {
     tooltip = documentRef.createElement("div");
     tooltip.id = "bd-metadata-tooltip";
     tooltip.className = "bd-metadata-tooltip";
     tooltip.style.display = "none";
-    container.appendChild(tooltip);
+    panel.appendChild(tooltip);
   }
-  if (container.__bmsMetadataTooltipInitialized) {
+  if (panel.__bmsMetadataTooltipInitialized) {
     return tooltip;
   }
-  container.__bmsMetadataTooltipInitialized = true;
+  panel.__bmsMetadataTooltipInitialized = true;
   const showFromEvent = (event) => {
-    const target = findTooltipTarget(event.target, container);
+    const target = findTooltipTarget(event.target, panel);
     if (!target) {
       hideMetadataTooltip(tooltip);
       return;
@@ -7846,11 +7872,11 @@ function ensureMetadataTooltip(container, documentRef = container.ownerDocument 
     positionMetadataTooltip(tooltip, event, documentRef);
     tooltip.style.display = "block";
   };
-  container.addEventListener("pointerover", showFromEvent);
-  container.addEventListener("pointermove", showFromEvent);
-  container.addEventListener("pointerout", () => hideMetadataTooltip(tooltip));
-  container.addEventListener("focusin", showFromEvent);
-  container.addEventListener("focusout", () => hideMetadataTooltip(tooltip));
+  panel.addEventListener("pointerover", showFromEvent);
+  panel.addEventListener("pointermove", showFromEvent);
+  panel.addEventListener("pointerout", () => hideMetadataTooltip(tooltip));
+  panel.addEventListener("focusin", showFromEvent);
+  panel.addEventListener("focusout", () => hideMetadataTooltip(tooltip));
   return tooltip;
 }
 function findTooltipTarget(startElement, container) {
@@ -7951,7 +7977,7 @@ function createBmsInfoPreview({
   onRuntimeError = () => {
   }
 }) {
-  const graphHost = container.querySelector("#bd-graph");
+  const graphHost = queryBmsDataElement(container, "bd-graph");
   if (!graphHost) {
     throw new Error("BMS preview graph host element is missing.");
   }
@@ -8976,7 +9002,7 @@ function createBmsInfoPreview({
   }
 }
 function renderLinks(container, normalizedRecord) {
-  const getById = (id) => container.querySelector(`#${id}`);
+  const getById = (id) => queryBmsDataElement(container, id);
   if (normalizedRecord.md5) {
     showLink(getById("bd-bmsir"), createBmsIrSongUrl(normalizedRecord.md5));
     showLink(getById("bd-viewer"), `https://bms-score-viewer.pages.dev/view?md5=${normalizedRecord.md5}`);
@@ -8991,7 +9017,7 @@ function renderLinks(container, normalizedRecord) {
   }
 }
 function renderLaneNotes(container, normalizedRecord) {
-  const laneNotesContainer = container.querySelector("#bd-lanenotes-div");
+  const laneNotesContainer = queryBmsDataElement(container, "bd-lanenotes-div");
   if (!laneNotesContainer) {
     return;
   }
@@ -9005,7 +9031,7 @@ function renderLaneNotes(container, normalizedRecord) {
   });
 }
 function renderTables(container, normalizedRecord) {
-  const tableList = container.querySelector("#bd-tables-ul");
+  const tableList = queryBmsDataElement(container, "bd-tables-ul");
   if (!tableList) {
     return;
   }

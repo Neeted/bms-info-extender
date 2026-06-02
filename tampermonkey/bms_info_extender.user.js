@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.13
+// @version      2.3.14
 // @description  BMS-IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
@@ -23,6 +23,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.14 メタデータテーブルをShadow DOM内へ分離し、元サイトCSSの影響を軽減
 // 2.3.13 とりあえずBMS-IRという名称で運営していくようなので文言を修正、メタデータfetch時につけていた暫定的なキャッシュバスターを廃止(2.3.1での暫定対応の廃止)
 // 2.3.12 LR2ALT公式ドメインのwww有無に両対応
 // 2.3.11 LR2ALT公式ドメインのURLをwwwなしに変更
@@ -11723,7 +11724,7 @@
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.13";
+    const SCRIPT_VERSION_FALLBACK = "2.3.14";
     const userscriptFetch = createUserscriptFetch();
     setPreviewRuntimeFetch(userscriptFetch);
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";

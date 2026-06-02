@@ -65,7 +65,7 @@ export async function fetchBmsInfoRecord(sha256) {
 }
 
 export async function fetchBmsInfoRecordByLookupKey(lookupKey) {
-  const response = await fetchPreviewRuntimeResource(`https://bms.howan.jp/${lookupKey}?v=2.3.1`);
+  const response = await fetchPreviewRuntimeResource(`https://bms.howan.jp/${lookupKey}`);
   if (!response.ok) {
     throw new Error(`Failed to fetch BMS data: HTTP ${response.status}`);
   }

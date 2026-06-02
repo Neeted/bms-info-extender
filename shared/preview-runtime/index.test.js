@@ -517,7 +517,7 @@ test("createBmsDataContainer applies optional link theme variables", () => {
   assert.equal(container.style.getPropertyValue("--bd-link-hover-color"), "#fff");
 });
 
-test("renderBmsData links MD5 records to LR2ALT", () => {
+test("renderBmsData links MD5 records to BMS-IR", () => {
   const documentRef = new MockDocument();
   const { container } = createPreviewContainerElements(documentRef);
   const record = {
@@ -527,10 +527,10 @@ test("renderBmsData links MD5 records to LR2ALT", () => {
 
   renderBmsData(container, record);
 
-  const lr2altLink = container.querySelector("#bd-lr2ir");
-  assert.match(BMSDATA_TEMPLATE_HTML, /id="bd-lr2ir"[^>]*>LR2ALT<\/a>/);
-  assert.equal(lr2altLink.href, "https://bms-ir.org/new/song?songmd5=f8dcdfe070630bbb365323c662561a1a&view=both");
-  assert.equal(lr2altLink.style.display, "inline");
+  const bmsIrLink = container.querySelector("#bd-bmsir");
+  assert.match(BMSDATA_TEMPLATE_HTML, /id="bd-bmsir"[^>]*>BMS-IR<\/a>/);
+  assert.equal(bmsIrLink.href, "https://bms-ir.org/new/song?songmd5=f8dcdfe070630bbb365323c662561a1a&view=both");
+  assert.equal(bmsIrLink.style.display, "inline");
 });
 
 test("graph hover mode opens the viewer and updates the selected time", async () => {
@@ -1400,7 +1400,7 @@ function createPreviewHarness(documentRef, {
 function createPreviewContainerElements(documentRef) {
   const container = new MockContainerElement(documentRef);
   const ids = [
-    "bd-lr2ir",
+    "bd-bmsir",
     "bd-minir",
     "bd-mocha",
     "bd-viewer",

@@ -5732,7 +5732,7 @@ var DISTRIBUTION_NOTE_NAMES = [
 ];
 var DECIMAL_DISPLAY_PLACES = 2;
 async function fetchBmsInfoRecordByLookupKey(lookupKey) {
-  const response = await fetchPreviewRuntimeResource(`https://bms.howan.jp/${lookupKey}?v=2.3.1`);
+  const response = await fetchPreviewRuntimeResource(`https://bms.howan.jp/${lookupKey}`);
   if (!response.ok) {
     throw new Error(`Failed to fetch BMS data: HTTP ${response.status}`);
   }
@@ -6431,7 +6431,7 @@ function clamp4(value, minValue, maxValue) {
 
 // shared/preview-runtime/index.js
 var BMSDATA_STYLE_ID = "bms-info-extender-style";
-var LR2ALT_SONG_BASE_URL = "https://bms-ir.org/new/song";
+var BMS_IR_SONG_BASE_URL = "https://bms-ir.org/new/song";
 var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
@@ -7621,7 +7621,7 @@ var BMSDATA_TEMPLATE_HTML = `
         <tr>
           <td class="bd-header-cell">LINK</td>
           <td colspan="3">
-            <a href="" id="bd-lr2ir" style="display: none;">LR2ALT</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
+            <a href="" id="bd-bmsir" style="display: none;">BMS-IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
           </td>
         </tr>
         <tr>
@@ -8978,7 +8978,7 @@ function createBmsInfoPreview({
 function renderLinks(container, normalizedRecord) {
   const getById = (id) => container.querySelector(`#${id}`);
   if (normalizedRecord.md5) {
-    showLink(getById("bd-lr2ir"), createLr2altSongUrl(normalizedRecord.md5));
+    showLink(getById("bd-bmsir"), createBmsIrSongUrl(normalizedRecord.md5));
     showLink(getById("bd-viewer"), `https://bms-score-viewer.pages.dev/view?md5=${normalizedRecord.md5}`);
   }
   if (normalizedRecord.sha256) {
@@ -9016,8 +9016,8 @@ function renderTables(container, normalizedRecord) {
     tableList.appendChild(item);
   });
 }
-function createLr2altSongUrl(md5) {
-  return `${LR2ALT_SONG_BASE_URL}?songmd5=${encodeURIComponent(md5)}&view=both`;
+function createBmsIrSongUrl(md5) {
+  return `${BMS_IR_SONG_BASE_URL}?songmd5=${encodeURIComponent(md5)}&view=both`;
 }
 function showLink(linkElement, href) {
   if (!linkElement) {

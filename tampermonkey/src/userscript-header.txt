@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.12
-// @description  LR2ALT、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
+// @version      2.3.13
+// @description  BMS-IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
 // @match        https://bms-ir.org/new/song*
@@ -23,6 +23,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.13 とりあえずBMS-IRという名称で運営していくようなので文言を修正、メタデータfetch時につけていた暫定的なキャッシュバスターを廃止(2.3.1での暫定対応の廃止)
 // 2.3.12 LR2ALT公式ドメインのwww有無に両対応
 // 2.3.11 LR2ALT公式ドメインのURLをwwwなしに変更
 // 2.3.10 LR2ALT公式ドメインに対応、IP直指定対応を廃止、外部取得のCSP対応

@@ -51,7 +51,7 @@ export {
 } from "./request.js";
 
 export const BMSDATA_STYLE_ID = "bms-info-extender-style";
-const LR2ALT_SONG_BASE_URL = "https://bms-ir.org/new/song";
+const BMS_IR_SONG_BASE_URL = "https://bms-ir.org/new/song";
 const BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
 const SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
@@ -1285,7 +1285,7 @@ export const BMSDATA_TEMPLATE_HTML = `
         <tr>
           <td class="bd-header-cell">LINK</td>
           <td colspan="3">
-            <a href="" id="bd-lr2ir" style="display: none;">LR2ALT</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
+            <a href="" id="bd-bmsir" style="display: none;">BMS-IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
           </td>
         </tr>
         <tr>
@@ -2721,7 +2721,7 @@ function renderLinks(container, normalizedRecord) {
   const getById = (id) => container.querySelector(`#${id}`);
 
   if (normalizedRecord.md5) {
-    showLink(getById("bd-lr2ir"), createLr2altSongUrl(normalizedRecord.md5));
+    showLink(getById("bd-bmsir"), createBmsIrSongUrl(normalizedRecord.md5));
     showLink(getById("bd-viewer"), `https://bms-score-viewer.pages.dev/view?md5=${normalizedRecord.md5}`);
   }
   if (normalizedRecord.sha256) {
@@ -2762,8 +2762,8 @@ function renderTables(container, normalizedRecord) {
   });
 }
 
-function createLr2altSongUrl(md5) {
-  return `${LR2ALT_SONG_BASE_URL}?songmd5=${encodeURIComponent(md5)}&view=both`;
+function createBmsIrSongUrl(md5) {
+  return `${BMS_IR_SONG_BASE_URL}?songmd5=${encodeURIComponent(md5)}&view=both`;
 }
 
 function showLink(linkElement, href) {

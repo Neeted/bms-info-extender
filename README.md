@@ -1,6 +1,8 @@
 # BMS Info Extender
 
-LR2IR、MinIR、Mocha、STELLAVERSE で BMS の詳細情報を補完表示する userscript と、その周辺ツール群をまとめたリポジトリです。
+BMS-IR、MinIR、Mocha、STELLAVERSE で BMS の詳細情報を補完表示する userscript と、その周辺ツール群をまとめたリポジトリです。
+
+- [noteの記事](https://note.com/3935/n/n581d8a98b9b8)
 
 ## 使い方
 
@@ -18,7 +20,7 @@ LR2IR、MinIR、Mocha、STELLAVERSE で BMS の詳細情報を補完表示する
 - BPM、TOTAL、判定難易度、機能フラグ、レーン別ノーツ数
 - ノーツ分布グラフ、BPM / STOP / SCROLL マーカー
 - グラフと連動する譜面ビューア
-- LR2IR、MinIR、Mocha、STELLAVERSE、BMS SEARCH などへの補助リンク
+- BMS-IR、MinIR、Mocha、STELLAVERSE、BMS SEARCH などへの補助リンク
 
 現在の実装では、userscript に組み込まれた preview runtime により、グラフと譜面ビューアが連動します。dev page 側も同じ preview runtime を使っており、下半分の preview 挙動は userscript と一致する前提で管理しています。
 

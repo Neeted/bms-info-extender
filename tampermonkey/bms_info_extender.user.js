@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.12
-// @description  LR2ALT、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
+// @version      2.3.13
+// @description  BMS-IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
 // @match        https://bms-ir.org/new/song*
@@ -23,6 +23,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.13 とりあえずBMS-IRという名称で運営していくようなので文言を修正、メタデータfetch時につけていた暫定的なキャッシュバスターを廃止(2.3.1での暫定対応の廃止)
 // 2.3.12 LR2ALT公式ドメインのwww有無に両対応
 // 2.3.11 LR2ALT公式ドメインのURLをwwwなしに変更
 // 2.3.10 LR2ALT公式ドメインに対応、IP直指定対応を廃止、外部取得のCSP対応
@@ -5781,7 +5782,7 @@
   ];
   var DECIMAL_DISPLAY_PLACES = 2;
   async function fetchBmsInfoRecordByLookupKey(lookupKey) {
-    const response = await fetchPreviewRuntimeResource(`https://bms.howan.jp/${lookupKey}?v=2.3.1`);
+    const response = await fetchPreviewRuntimeResource(`https://bms.howan.jp/${lookupKey}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch BMS data: HTTP ${response.status}`);
     }
@@ -6480,7 +6481,7 @@
 
   // shared/preview-runtime/index.js
   var BMSDATA_STYLE_ID = "bms-info-extender-style";
-  var LR2ALT_SONG_BASE_URL = "https://bms-ir.org/new/song";
+  var BMS_IR_SONG_BASE_URL = "https://bms-ir.org/new/song";
   var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
   var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
   var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
@@ -7670,7 +7671,7 @@
         <tr>
           <td class="bd-header-cell">LINK</td>
           <td colspan="3">
-            <a href="" id="bd-lr2ir" style="display: none;">LR2ALT</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
+            <a href="" id="bd-bmsir" style="display: none;">BMS-IR</a><a href="" id="bd-minir" style="display: none;">MinIR</a><a href="" id="bd-mocha" style="display: none;">Mocha</a><a href="" id="bd-viewer" style="display: none;">Viewer</a><a href="" id="bd-ez2pattern" style="display: none;">EZ2PT</a><a href="" id="bd-bmssearch" style="display: none;">BMS<span style="display:inline-block; width:2px;"></span>SEARCH</a><a href="" id="bd-bokutachi" style="display: none;">Bokutachi</a><a href="" id="bd-stellaverse" style="display: none;">STELLAVERSE</a>
           </td>
         </tr>
         <tr>
@@ -9032,7 +9033,7 @@
   function renderLinks(container, normalizedRecord) {
     const getById = (id) => container.querySelector(`#${id}`);
     if (normalizedRecord.md5) {
-      showLink(getById("bd-lr2ir"), createLr2altSongUrl(normalizedRecord.md5));
+      showLink(getById("bd-bmsir"), createBmsIrSongUrl(normalizedRecord.md5));
       showLink(getById("bd-viewer"), `https://bms-score-viewer.pages.dev/view?md5=${normalizedRecord.md5}`);
     }
     if (normalizedRecord.sha256) {
@@ -9070,8 +9071,8 @@
       tableList.appendChild(item);
     });
   }
-  function createLr2altSongUrl(md5) {
-    return `${LR2ALT_SONG_BASE_URL}?songmd5=${encodeURIComponent(md5)}&view=both`;
+  function createBmsIrSongUrl(md5) {
+    return `${BMS_IR_SONG_BASE_URL}?songmd5=${encodeURIComponent(md5)}&view=both`;
   }
   function showLink(linkElement, href) {
     if (!linkElement) {
@@ -11696,7 +11697,7 @@
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.12";
+    const SCRIPT_VERSION_FALLBACK = "2.3.13";
     const userscriptFetch = createUserscriptFetch();
     setPreviewRuntimeFetch(userscriptFetch);
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
@@ -12009,14 +12010,14 @@
     };
     let scoreLoaderContextPromise = null;
     let activeBmsPreviewRuntime = null;
-    const LR2ALT_HOSTS = /* @__PURE__ */ new Set(["www.dream-pro.info", "bms-ir.org", "www.bms-ir.org"]);
-    const LR2ALT_SONG_PATH = "/new/song";
-    const LR2ALT_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
-    const LR2ALT_SELECTORS = {
+    const BMS_IR_HOSTS = /* @__PURE__ */ new Set(["www.dream-pro.info", "bms-ir.org", "www.bms-ir.org"]);
+    const BMS_IR_SONG_PATH = "/new/song";
+    const BMS_IR_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
+    const BMS_IR_SELECTORS = {
       displaySwitcherCandidates: "#box > p",
       displaySwitcherButton: "a.button"
     };
-    const LR2ALT_THEME = {
+    const BMS_IR_THEME = {
       dctx: "#cfcfcf",
       dcbk: "#090909",
       hdtx: "#ddd",
@@ -12297,8 +12298,8 @@
       contentElement.textContent = bodyText;
     }
     function bootstrap() {
-      if (isLr2altSongUrl(location.href)) {
-        lr2alt();
+      if (isBmsIrSongUrl(location.href)) {
+        bmsIr();
         return;
       }
       switch (location.hostname) {
@@ -12315,10 +12316,10 @@
           break;
       }
     }
-    function isLr2altSongUrl(url) {
+    function isBmsIrSongUrl(url) {
       try {
         const parsedUrl = new URL(url);
-        return LR2ALT_HOSTS.has(parsedUrl.hostname) && parsedUrl.pathname === LR2ALT_SONG_PATH;
+        return BMS_IR_HOSTS.has(parsedUrl.hostname) && parsedUrl.pathname === BMS_IR_SONG_PATH;
       } catch {
         return false;
       }
@@ -12478,8 +12479,8 @@
       const songInfoRows = songInfoBody ? Array.from(songInfoBody.children) : [];
       return { songInfoTable, songInfoBody, songInfoRows };
     }
-    async function lr2alt() {
-      console.info("LR2ALTの処理に入りました");
+    async function bmsIr() {
+      console.info("BMS-IRの処理に入りました");
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", async (event) => {
           console.info("🔥 DOMContentLoadedイベントが発火しました");
@@ -12490,17 +12491,17 @@
         await updatePage();
       }
       async function updatePage() {
-        if (!isLr2altSongUrl(location.href)) {
+        if (!isBmsIrSongUrl(location.href)) {
           return;
         }
-        console.info("LR2ALT曲ページの書き換え処理に入りました");
+        console.info("BMS-IR曲ページの書き換え処理に入りました");
         const targetmd5 = new URL(window.location.href).searchParams.get("songmd5");
-        const displaySwitcherElement = findLr2altDisplaySwitcherElement();
-        if (LR2ALT_MD5_PATTERN.test(targetmd5 ?? "") && displaySwitcherElement) {
+        const displaySwitcherElement = findBmsIrDisplaySwitcherElement();
+        if (BMS_IR_MD5_PATTERN.test(targetmd5 ?? "") && displaySwitcherElement) {
           const pageContext = {
             identifiers: { md5: targetmd5, sha256: null, bmsid: null },
             insertion: { element: displaySwitcherElement, position: "beforebegin" },
-            theme: LR2ALT_THEME
+            theme: BMS_IR_THEME
           };
           const container = insertBmsDataTemplate(pageContext);
           if (await insertBmsData(pageContext, container)) {
@@ -12509,24 +12510,24 @@
             console.error("❌ 外部データの取得とページの書き換えが失敗しました");
           }
         } else {
-          console.info("❌ LR2ALTのページ書き換えはスキップされました。MD5か表示切替要素が取得できませんでした");
+          console.info("❌ BMS-IRのページ書き換えはスキップされました。MD5か表示切替要素が取得できませんでした");
         }
       }
     }
-    function findLr2altDisplaySwitcherElement() {
-      const candidates = Array.from(document.querySelectorAll(LR2ALT_SELECTORS.displaySwitcherCandidates));
+    function findBmsIrDisplaySwitcherElement() {
+      const candidates = Array.from(document.querySelectorAll(BMS_IR_SELECTORS.displaySwitcherCandidates));
       return candidates.find((element) => {
         if (!element.textContent.trim().startsWith("表示:")) {
           return false;
         }
-        const buttons = Array.from(element.querySelectorAll(LR2ALT_SELECTORS.displaySwitcherButton));
-        return ["new", "old", "both"].every((view) => buttons.some((button) => isLr2altViewButton(button, view)));
+        const buttons = Array.from(element.querySelectorAll(BMS_IR_SELECTORS.displaySwitcherButton));
+        return ["new", "old", "both"].every((view) => buttons.some((button) => isBmsIrViewButton(button, view)));
       }) ?? null;
     }
-    function isLr2altViewButton(button, view) {
+    function isBmsIrViewButton(button, view) {
       try {
         const url = new URL(button.getAttribute("href") ?? button.href, location.href);
-        return url.pathname === LR2ALT_SONG_PATH && url.searchParams.get("view") === view;
+        return url.pathname === BMS_IR_SONG_PATH && url.searchParams.get("view") === view;
       } catch {
         return false;
       }

@@ -14,7 +14,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.12";
+  const SCRIPT_VERSION_FALLBACK = "2.3.13";
   const userscriptFetch = createUserscriptFetch();
   PreviewRuntime.setPreviewRuntimeFetch(userscriptFetch);
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
@@ -330,14 +330,14 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   let scoreLoaderContextPromise = null;
   let activeBmsPreviewRuntime = null;
 
-  const LR2ALT_HOSTS = new Set(["www.dream-pro.info", "bms-ir.org", "www.bms-ir.org"]);
-  const LR2ALT_SONG_PATH = "/new/song";
-  const LR2ALT_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
-  const LR2ALT_SELECTORS = {
+  const BMS_IR_HOSTS = new Set(["www.dream-pro.info", "bms-ir.org", "www.bms-ir.org"]);
+  const BMS_IR_SONG_PATH = "/new/song";
+  const BMS_IR_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
+  const BMS_IR_SELECTORS = {
     displaySwitcherCandidates: "#box > p",
     displaySwitcherButton: "a.button"
   };
-  const LR2ALT_THEME = {
+  const BMS_IR_THEME = {
     dctx: "#cfcfcf",
     dcbk: "#090909",
     hdtx: "#ddd",
@@ -757,8 +757,8 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
    * @returns {void}
    */
   function bootstrap() {
-    if (isLr2altSongUrl(location.href)) {
-      lr2alt();
+    if (isBmsIrSongUrl(location.href)) {
+      bmsIr();
       return;
     }
 
@@ -777,10 +777,10 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     }
   }
 
-  function isLr2altSongUrl(url) {
+  function isBmsIrSongUrl(url) {
     try {
       const parsedUrl = new URL(url);
-      return LR2ALT_HOSTS.has(parsedUrl.hostname) && parsedUrl.pathname === LR2ALT_SONG_PATH;
+      return BMS_IR_HOSTS.has(parsedUrl.hostname) && parsedUrl.pathname === BMS_IR_SONG_PATH;
     } catch {
       return false;
     }
@@ -1000,15 +1000,15 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   }
 
   // ====================================================================================================
-  // LR2ALT
+  // BMS-IR
   //   近年のSPAサイトみたいにページが書き変わらないので処理が単純で良い
   // ====================================================================================================
   /**
-   * LR2ALT 向けの拡張処理を初期化する。
+   * BMS-IR 向けの拡張処理を初期化する。
    * @returns {Promise<void>}
    */
-  async function lr2alt() {
-    console.info("LR2ALTの処理に入りました");
+  async function bmsIr() {
+    console.info("BMS-IRの処理に入りました");
 
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", async (event) => {
@@ -1023,20 +1023,20 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     // 曲ページの書き換え処理
     async function updatePage() {
       // 曲ページ以外では何もせず終える。
-      if (!isLr2altSongUrl(location.href)) {
+      if (!isBmsIrSongUrl(location.href)) {
         return;
       }
-      console.info("LR2ALT曲ページの書き換え処理に入りました");
+      console.info("BMS-IR曲ページの書き換え処理に入りました");
 
       // 現在のウィンドウのGETパラメータを取得
       const targetmd5 = new URL(window.location.href).searchParams.get("songmd5");
-      const displaySwitcherElement = findLr2altDisplaySwitcherElement();
+      const displaySwitcherElement = findBmsIrDisplaySwitcherElement();
 
-      if (LR2ALT_MD5_PATTERN.test(targetmd5 ?? "") && displaySwitcherElement) {
+      if (BMS_IR_MD5_PATTERN.test(targetmd5 ?? "") && displaySwitcherElement) {
         const pageContext = {
           identifiers: { md5: targetmd5, sha256: null, bmsid: null },
           insertion: { element: displaySwitcherElement, position: "beforebegin" },
-          theme: LR2ALT_THEME
+          theme: BMS_IR_THEME
         };
         // テンプレートを挿入
         const container = insertBmsDataTemplate(pageContext);
@@ -1047,27 +1047,27 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
         }
       } else {
-        console.info("❌ LR2ALTのページ書き換えはスキップされました。MD5か表示切替要素が取得できませんでした");
+        console.info("❌ BMS-IRのページ書き換えはスキップされました。MD5か表示切替要素が取得できませんでした");
       }
     }
   }
 
-  function findLr2altDisplaySwitcherElement() {
-    const candidates = Array.from(document.querySelectorAll(LR2ALT_SELECTORS.displaySwitcherCandidates));
+  function findBmsIrDisplaySwitcherElement() {
+    const candidates = Array.from(document.querySelectorAll(BMS_IR_SELECTORS.displaySwitcherCandidates));
     return candidates.find((element) => {
       if (!element.textContent.trim().startsWith("表示:")) {
         return false;
       }
 
-      const buttons = Array.from(element.querySelectorAll(LR2ALT_SELECTORS.displaySwitcherButton));
-      return ["new", "old", "both"].every((view) => buttons.some((button) => isLr2altViewButton(button, view)));
+      const buttons = Array.from(element.querySelectorAll(BMS_IR_SELECTORS.displaySwitcherButton));
+      return ["new", "old", "both"].every((view) => buttons.some((button) => isBmsIrViewButton(button, view)));
     }) ?? null;
   }
 
-  function isLr2altViewButton(button, view) {
+  function isBmsIrViewButton(button, view) {
     try {
       const url = new URL(button.getAttribute("href") ?? button.href, location.href);
-      return url.pathname === LR2ALT_SONG_PATH && url.searchParams.get("view") === view;
+      return url.pathname === BMS_IR_SONG_PATH && url.searchParams.get("view") === view;
     } catch {
       return false;
     }

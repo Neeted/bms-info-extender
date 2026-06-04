@@ -6433,6 +6433,8 @@ function clamp4(value, minValue, maxValue) {
 var BMS_IR_SONG_BASE_URL = "https://bms-ir.org/new/song";
 var BMSSEARCH_PATTERN_API_BASE_URL = "https://api.bmssearch.net/v1/patterns/sha256";
 var BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
+var BOKUTACHI_BASE_URL = "https://boku.tachi.ac";
+var BOKUTACHI_CHART_RESOLVE_MATCH_TYPE = "bmsChartHash";
 var SCORE_VIEWER_MAX_PLAYBACK_DELTA_MS = 250;
 var VIEWER_MODE_STORAGE_KEY = "bms-info-extender.viewerMode";
 var INVISIBLE_NOTE_VISIBILITY_STORAGE_KEY = "bms-info-extender.invisibleNoteVisibility";
@@ -6485,6 +6487,7 @@ var PREVIEW_RENDER_DIRTY = {
 };
 var PREVIEW_RENDER_ALL = Object.values(PREVIEW_RENDER_DIRTY).reduce((mask, flag) => mask | flag, 0);
 var bmsSearchPatternAvailabilityCache = /* @__PURE__ */ new Map();
+var bokutachiResolveCache = /* @__PURE__ */ new Map();
 function createPreviewPreferenceStorage({ read = () => null, write = () => {
 } } = {}) {
   return {
@@ -7785,6 +7788,51 @@ async function renderBmsSearchLinkIfAvailable(container, sha256) {
     console.warn("BMS SEARCHリンクの表示に失敗しました:", error);
   }
 }
+async function resolveBokutachiSongUrl(record) {
+  const identifier = getBokutachiIdentifier(record);
+  const games = getBokutachiGamesForRecord(record);
+  if (!identifier || games.length === 0) {
+    return null;
+  }
+  for (const game of games) {
+    const cacheKey = createBokutachiResolveCacheKey(game, identifier);
+    let cachedPromise = bokutachiResolveCache.get(cacheKey);
+    if (!cachedPromise) {
+      cachedPromise = resolveBokutachiSongUrlForGame(game, identifier).catch((error) => {
+        bokutachiResolveCache.delete(cacheKey);
+        console.warn("Bokutachiリンクの解決に失敗しました:", { game, identifier, error });
+        return null;
+      });
+      bokutachiResolveCache.set(cacheKey, cachedPromise);
+    }
+    const url = await cachedPromise;
+    if (url) {
+      return url;
+    }
+  }
+  return null;
+}
+async function appendBokutachiLinkIfAvailable(container, record) {
+  const link = queryBmsDataElement(container, "bd-bokutachi");
+  if (!link) {
+    return;
+  }
+  hideBokutachiLink(link);
+  const requestKey = createBokutachiResolveRequestKey(record);
+  link.__bmsBokutachiResolveRequestKey = requestKey;
+  if (!requestKey) {
+    return;
+  }
+  const url = await resolveBokutachiSongUrl(record);
+  if (!url || !link.isConnected || link.__bmsBokutachiResolveRequestKey !== requestKey) {
+    return;
+  }
+  link.href = url;
+  link.setAttribute("href", url);
+  link.setAttribute("target", "_blank");
+  link.setAttribute("rel", "noopener noreferrer");
+  link.style.display = "inline";
+}
 function renderBmsData(container, normalizedRecord) {
   const getById = (id) => queryBmsDataElement(container, id);
   renderLinks(container, normalizedRecord);
@@ -7825,6 +7873,7 @@ function renderBmsData(container, normalizedRecord) {
   renderTables(container, normalizedRecord);
   container.style.display = "block";
   void renderBmsSearchLinkIfAvailable(container, normalizedRecord.sha256);
+  void appendBokutachiLinkIfAvailable(container, normalizedRecord);
 }
 function renderTextWithTooltip(element, text, tooltipText) {
   element.textContent = text;
@@ -9041,6 +9090,90 @@ function renderTables(container, normalizedRecord) {
     item.textContent = text;
     tableList.appendChild(item);
   });
+}
+function getBokutachiIdentifier(record) {
+  return normalizeHash(record?.sha256, 64) ?? normalizeHash(record?.md5, 32);
+}
+function getBokutachiGamesForRecord(record) {
+  switch (Number(record?.mode)) {
+    case 7:
+      return ["bms-7k"];
+    case 14:
+      return ["bms-14k"];
+    case 9:
+      return ["pms-controller", "pms-keyboard"];
+    default:
+      return [];
+  }
+}
+function normalizeHash(value, expectedLength) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalizedHash = value.trim().toLowerCase();
+  const pattern = expectedLength === 64 ? /^[a-f0-9]{64}$/ : expectedLength === 32 ? /^[a-f0-9]{32}$/ : null;
+  if (!pattern?.test(normalizedHash)) {
+    return null;
+  }
+  return normalizedHash;
+}
+function createBokutachiResolveRequestKey(record) {
+  const identifier = getBokutachiIdentifier(record);
+  const games = getBokutachiGamesForRecord(record);
+  if (!identifier || games.length === 0) {
+    return null;
+  }
+  return `${identifier}:${games.join(",")}`;
+}
+function createBokutachiResolveCacheKey(game, identifier) {
+  return `${game}:${identifier}`;
+}
+async function resolveBokutachiSongUrlForGame(game, identifier) {
+  const response = await fetchPreviewRuntimeResource(
+    `${BOKUTACHI_BASE_URL}/api/v1/games/${encodeURIComponent(game)}/charts/resolve`,
+    {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        matchType: BOKUTACHI_CHART_RESOLVE_MATCH_TYPE,
+        identifier
+      })
+    }
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Bokutachi resolve failed: HTTP ${response.status}`);
+  }
+  const text = await response.text();
+  const json = JSON.parse(text);
+  const songID = json?.body?.song?.id;
+  const difficulty = json?.body?.chart?.difficulty;
+  if (songID === null || songID === void 0 || difficulty === null || difficulty === void 0) {
+    return null;
+  }
+  const normalizedSongID = String(songID);
+  const normalizedDifficulty = String(difficulty);
+  if (!normalizedSongID || !normalizedDifficulty) {
+    return null;
+  }
+  return `${BOKUTACHI_BASE_URL}/games/${encodeURIComponent(game)}/songs/${encodeURIComponent(normalizedSongID)}/${encodeURIComponent(normalizedDifficulty)}`;
+}
+function hideBokutachiLink(link) {
+  if (!link) {
+    return;
+  }
+  link.style.display = "none";
+  link.href = "";
+  link.target = "";
+  link.rel = "";
+  link.removeAttribute?.("href");
+  link.removeAttribute?.("target");
+  link.removeAttribute?.("rel");
 }
 function createBmsIrSongUrl(md5) {
   return `${BMS_IR_SONG_BASE_URL}?songmd5=${encodeURIComponent(md5)}&view=both`;

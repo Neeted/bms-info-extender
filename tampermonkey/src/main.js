@@ -14,7 +14,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.14";
+  const SCRIPT_VERSION_FALLBACK = "2.3.15";
   const userscriptFetch = createUserscriptFetch();
   PreviewRuntime.setPreviewRuntimeFetch(userscriptFetch);
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
@@ -1157,21 +1157,15 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
         totalCellElement.textContent = `0, so #TOTAL is undefined. beatoraja is ${beatorajaTotal.toFixed(2)}(${(beatorajaTotal / notes).toFixed(3)}T/N), LR2 is ${lr2Total.toFixed(2)}(${(lr2Total / notes).toFixed(3)}T/N).`;
       }
 
-      // テーブル内リンクから MD5 と Bokutachi への導線を拾う。
-      let bokutachi;
+      // テーブル内リンクから MD5 を拾う。
       let targetmd5 = null;
       for (const a of anchors) {
-        if (a.textContent.trim() === "Bokutachi") {
-          bokutachi = a.href;
-        } else {
-          const href = a.href;
-          const match = href.match(/[a-f0-9]{32}$/i); // 末尾の32桁16進数、譜面ビューアリンクから抽出
-          if (match) {
-            targetmd5 = match[0];
-          }
+        const href = a.href;
+        const match = href.match(/[a-f0-9]{32}$/i); // 末尾の32桁16進数、譜面ビューアリンクから抽出
+        if (match) {
+          targetmd5 = match[0].toLowerCase();
+          break;
         }
-        // 必要な 2 本が揃ったら探索を打ち切る。
-        if (targetmd5 && bokutachi) break;
       }
       // MD5 が分かった場合だけ外部 API を引いて拡張情報を挿入する。
       if (targetmd5) {
@@ -1188,11 +1182,6 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
         if (await insertBmsData(pageContext, container)) {
           console.info("✅ 外部データの取得とページの書き換えが成功しました");
           // STELLAVERSE 側と完全に重複する行だけを消し、補助情報のある行は残す。
-          const bokutachiLink = queryBmsDataElement(container, "bd-bokutachi");
-          if (bokutachi && bokutachiLink) {
-            bokutachiLink.setAttribute("href", `${bokutachi}`);
-            bokutachiLink.setAttribute("style", "display: inline;");
-          }
           const rowsToRemoveAfterSuccess = STELLAVERSE_INDEXES.removeRowsAfterSuccess
             .map(index => tableRows[index])
             .filter(Boolean);
@@ -1417,13 +1406,6 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       insertion: pageContext.insertion,
       theme: pageContext.theme,
     });
-  }
-
-  function queryBmsDataElement(container, id) {
-    return container?.__bmsDataPanel?.querySelector?.(`#${id}`)
-      ?? container?.shadowRoot?.querySelector?.(`#${id}`)
-      ?? container?.querySelector?.(`#${id}`)
-      ?? null;
   }
 
   /**

@@ -1527,39 +1527,36 @@ test("fetchBokutachiChartIdentifiers returns null for failures", async (t) => {
   assert.equal(await fetchBokutachiChartIdentifiers({ game: "", chartId: "Cempty" }), null);
 });
 
-test("resolveBokutachiSongUrl resolves bms-7k charts using sha256", async (t) => {
+test("resolveBokutachiSongUrl resolves bms-7k charts using hash search first", async (t) => {
   t.after(() => {
     resetPreviewRuntimeFetch();
   });
 
   const sha256 = "0123456789abcdef".repeat(4);
   const requests = [];
-  setPreviewRuntimeFetch(async (url, options) => {
-    requests.push({ url, options });
+  setPreviewRuntimeFetch(async (url, options = {}) => {
+    requests.push({ url, method: options.method ?? "GET" });
     return createJsonResponse({
       body: {
-        song: { id: "song/id" },
-        chart: { chartID: "chart/id", difficulty: "INSANE+" },
+        charts: [{ game: "bms-7k", chartID: "chart/id" }],
       },
     });
   });
 
   const url = await resolveBokutachiSongUrl({
     ...createNormalizedRecord(sha256),
+    md5: "",
     mode: 7,
   });
 
   assert.equal(url, "https://boku.tachi.ac/games/bms-7k/charts/chart%2Fid");
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, "https://boku.tachi.ac/api/v1/games/bms-7k/charts/resolve");
-  assert.equal(requests[0].options.method, "POST");
-  assert.deepEqual(JSON.parse(requests[0].options.body), {
-    matchType: "bmsChartHash",
-    identifier: sha256,
-  });
+  assert.deepEqual(requests, [{
+    url: `https://boku.tachi.ac/api/v1/search/chart-hash?search=${sha256}`,
+    method: "GET",
+  }]);
 });
 
-test("resolveBokutachiSongUrl maps 14k mode to bms-14k", async (t) => {
+test("resolveBokutachiSongUrl maps 14k mode by filtering hash search results", async (t) => {
   t.after(() => {
     resetPreviewRuntimeFetch();
   });
@@ -1568,38 +1565,27 @@ test("resolveBokutachiSongUrl maps 14k mode to bms-14k", async (t) => {
   const requests = [];
   setPreviewRuntimeFetch(async (url) => {
     requests.push(url);
-    return createJsonResponse();
+    return createJsonResponse({
+      body: {
+        charts: [
+          { game: "bms-7k", chartID: "wrong-chart" },
+          { game: "bms-14k", chartID: "right-chart" },
+        ],
+      },
+    });
   });
 
   const url = await resolveBokutachiSongUrl({
     ...createNormalizedRecord(sha256),
+    md5: "",
     mode: 14,
   });
 
-  assert.equal(url, "https://boku.tachi.ac/games/bms-14k/charts/C1234");
-  assert.deepEqual(requests, ["https://boku.tachi.ac/api/v1/games/bms-14k/charts/resolve"]);
+  assert.equal(url, "https://boku.tachi.ac/games/bms-14k/charts/right-chart");
+  assert.deepEqual(requests, [`https://boku.tachi.ac/api/v1/search/chart-hash?search=${sha256}`]);
 });
 
-test("resolveBokutachiSongUrl falls back to song and difficulty when chartID is absent", async (t) => {
-  t.after(() => {
-    resetPreviewRuntimeFetch();
-  });
-
-  const sha256 = "1bcdef1234567890".repeat(4);
-  setPreviewRuntimeFetch(async () => createJsonResponse({
-    body: {
-      song: { id: "song/id" },
-      chart: { difficulty: "INSANE+" },
-    },
-  }));
-
-  assert.equal(await resolveBokutachiSongUrl({
-    ...createNormalizedRecord(sha256),
-    mode: 7,
-  }), "https://boku.tachi.ac/games/bms-7k/songs/song%2Fid/INSANE%2B");
-});
-
-test("resolveBokutachiSongUrl tries pms-keyboard after pms-controller misses", async (t) => {
+test("resolveBokutachiSongUrl prefers pms-controller over pms-keyboard from hash search", async (t) => {
   t.after(() => {
     resetPreviewRuntimeFetch();
   });
@@ -1608,26 +1594,180 @@ test("resolveBokutachiSongUrl tries pms-keyboard after pms-controller misses", a
   const requests = [];
   setPreviewRuntimeFetch(async (url) => {
     requests.push(url);
-    if (url.includes("/pms-controller/")) {
-      return createJsonResponse(null, { ok: false, status: 404 });
-    }
     return createJsonResponse({
       body: {
-        song: { id: "pms-song" },
-        chart: { chartID: "pms-chart", difficulty: "EX" },
+        charts: [
+          { game: "pms-keyboard", chartID: "keyboard-chart" },
+          { game: "pms-controller", chartID: "controller-chart" },
+        ],
       },
     });
   });
 
   const url = await resolveBokutachiSongUrl({
     ...createNormalizedRecord(sha256),
+    md5: "",
     mode: 9,
   });
 
-  assert.equal(url, "https://boku.tachi.ac/games/pms-keyboard/charts/pms-chart");
+  assert.equal(url, "https://boku.tachi.ac/games/pms-controller/charts/controller-chart");
+  assert.deepEqual(requests, [`https://boku.tachi.ac/api/v1/search/chart-hash?search=${sha256}`]);
+});
+
+test("resolveBokutachiSongUrl falls back to charts resolve when hash search has no matching game", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  const sha256 = "34567890abcdef12".repeat(4);
+  const requests = [];
+  setPreviewRuntimeFetch(async (url, options = {}) => {
+    requests.push({
+      url,
+      method: options.method ?? "GET",
+      body: options.body ? JSON.parse(options.body) : null,
+    });
+    if (url.includes("/search/chart-hash")) {
+      return createJsonResponse({
+        body: {
+          charts: [{ game: "bms-14k", chartID: "wrong-chart" }],
+        },
+      });
+    }
+    return createJsonResponse({
+      body: {
+        song: { id: "fallback-song" },
+        chart: { chartID: "fallback-chart", difficulty: "ANOTHER" },
+      },
+    });
+  });
+
+  const url = await resolveBokutachiSongUrl({
+    ...createNormalizedRecord(sha256),
+    md5: "",
+    mode: 7,
+  });
+
+  assert.equal(url, "https://boku.tachi.ac/games/bms-7k/charts/fallback-chart");
   assert.deepEqual(requests, [
-    "https://boku.tachi.ac/api/v1/games/pms-controller/charts/resolve",
-    "https://boku.tachi.ac/api/v1/games/pms-keyboard/charts/resolve",
+    {
+      url: `https://boku.tachi.ac/api/v1/search/chart-hash?search=${sha256}`,
+      method: "GET",
+      body: null,
+    },
+    {
+      url: "https://boku.tachi.ac/api/v1/games/bms-7k/charts/resolve",
+      method: "POST",
+      body: {
+        matchType: "bmsChartHash",
+        identifier: sha256,
+      },
+    },
+  ]);
+});
+
+test("resolveBokutachiSongUrl falls back to song and difficulty when resolve chartID is absent", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  const sha256 = "4567890abcdef123".repeat(4);
+  setPreviewRuntimeFetch(async (url) => {
+    if (url.includes("/search/chart-hash")) {
+      return createJsonResponse({ body: { charts: [] } });
+    }
+    return createJsonResponse({
+      body: {
+        song: { id: "song/id" },
+        chart: { difficulty: "INSANE+" },
+      },
+    });
+  });
+
+  assert.equal(await resolveBokutachiSongUrl({
+    ...createNormalizedRecord(sha256),
+    md5: "",
+    mode: 7,
+  }), "https://boku.tachi.ac/games/bms-7k/songs/song%2Fid/INSANE%2B");
+});
+
+test("resolveBokutachiSongUrl falls back to charts resolve when hash search fails", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+  const originalWarn = console.warn;
+  t.after(() => {
+    console.warn = originalWarn;
+  });
+  console.warn = () => {};
+
+  const serverErrorSha256 = "567890abcdef1234".repeat(4);
+  const malformedSha256 = "67890abcdef12345".repeat(4);
+  const requests = [];
+  setPreviewRuntimeFetch(async (url, options = {}) => {
+    requests.push({
+      url,
+      method: options.method ?? "GET",
+      body: options.body ? JSON.parse(options.body) : null,
+    });
+    if (url.includes(`/search/chart-hash?search=${serverErrorSha256}`)) {
+      return createJsonResponse(null, { ok: false, status: 500 });
+    }
+    if (url.includes(`/search/chart-hash?search=${malformedSha256}`)) {
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return "{";
+        },
+      };
+    }
+    const identifier = JSON.parse(options.body).identifier;
+    return createJsonResponse({
+      body: {
+        song: { id: "fallback-song" },
+        chart: { chartID: `fallback-${identifier.slice(0, 4)}`, difficulty: "ANOTHER" },
+      },
+    });
+  });
+
+  assert.equal(await resolveBokutachiSongUrl({
+    ...createNormalizedRecord(serverErrorSha256),
+    md5: "",
+    mode: 7,
+  }), "https://boku.tachi.ac/games/bms-7k/charts/fallback-5678");
+  assert.equal(await resolveBokutachiSongUrl({
+    ...createNormalizedRecord(malformedSha256),
+    md5: "",
+    mode: 7,
+  }), "https://boku.tachi.ac/games/bms-7k/charts/fallback-6789");
+  assert.deepEqual(requests, [
+    {
+      url: `https://boku.tachi.ac/api/v1/search/chart-hash?search=${serverErrorSha256}`,
+      method: "GET",
+      body: null,
+    },
+    {
+      url: "https://boku.tachi.ac/api/v1/games/bms-7k/charts/resolve",
+      method: "POST",
+      body: {
+        matchType: "bmsChartHash",
+        identifier: serverErrorSha256,
+      },
+    },
+    {
+      url: `https://boku.tachi.ac/api/v1/search/chart-hash?search=${malformedSha256}`,
+      method: "GET",
+      body: null,
+    },
+    {
+      url: "https://boku.tachi.ac/api/v1/games/bms-7k/charts/resolve",
+      method: "POST",
+      body: {
+        matchType: "bmsChartHash",
+        identifier: malformedSha256,
+      },
+    },
   ]);
 });
 
@@ -1638,22 +1778,21 @@ test("resolveBokutachiSongUrl falls back to md5 and skips unsupported or invalid
 
   const md5 = "abcdef0123456789".repeat(2);
   const requests = [];
-  setPreviewRuntimeFetch(async (_url, options) => {
-    requests.push(JSON.parse(options.body));
-    return createJsonResponse();
+  setPreviewRuntimeFetch(async (url) => {
+    requests.push(url);
+    return createJsonResponse({
+      body: {
+        charts: [{ game: "bms-7k", chartID: "md5-chart" }],
+      },
+    });
   });
 
   assert.equal(await resolveBokutachiSongUrl({
-    ...createNormalizedRecord(""),
-    sha256: "",
+    ...createNormalizedRecord("not-a-sha256"),
+    sha256: "not-a-sha256",
     md5,
     mode: 7,
-  }), "https://boku.tachi.ac/games/bms-7k/charts/C1234");
-  assert.deepEqual(requests, [{
-    matchType: "bmsChartHash",
-    identifier: md5,
-  }]);
-
+  }), "https://boku.tachi.ac/games/bms-7k/charts/md5-chart");
   assert.equal(await resolveBokutachiSongUrl({
     ...createNormalizedRecord("not-a-sha256"),
     sha256: "not-a-sha256",
@@ -1661,10 +1800,11 @@ test("resolveBokutachiSongUrl falls back to md5 and skips unsupported or invalid
     mode: 7,
   }), null);
   assert.equal(await resolveBokutachiSongUrl({
-    ...createNormalizedRecord("34567890abcdef12".repeat(4)),
+    ...createNormalizedRecord("7890abcdef123456".repeat(4)),
+    md5: "",
     mode: 5,
   }), null);
-  assert.equal(requests.length, 1);
+  assert.deepEqual(requests, [`https://boku.tachi.ac/api/v1/search/chart-hash?search=${md5}`]);
 });
 
 test("resolveBokutachiSongUrl returns null for failures and caches repeated lookups", async (t) => {
@@ -1678,52 +1818,68 @@ test("resolveBokutachiSongUrl returns null for failures and caches repeated look
   });
   console.warn = () => {};
 
-  const missSha256 = "4567890abcdef123".repeat(4);
-  const serverErrorSha256 = "567890abcdef1234".repeat(4);
-  const malformedSha256 = "67890abcdef12345".repeat(4);
-  const cachedSha256 = "7890abcdef123456".repeat(4);
+  const missSha256 = "890abcdef1234567".repeat(4);
+  const cachedSha256 = "90abcdef12345678".repeat(4);
+  const fallbackCachedSha256 = "0abcdef123456789".repeat(4);
   const requests = [];
-  setPreviewRuntimeFetch(async (url, options) => {
+  setPreviewRuntimeFetch(async (url, options = {}) => {
+    if (url.includes("/search/chart-hash")) {
+      const identifier = new URL(url).searchParams.get("search");
+      requests.push(`search:${identifier}`);
+      if (identifier === cachedSha256) {
+        return createJsonResponse({
+          body: {
+            charts: [{ game: "bms-7k", chartID: "cached-chart" }],
+          },
+        });
+      }
+      return createJsonResponse({ body: { charts: [] } });
+    }
     const identifier = JSON.parse(options.body).identifier;
-    requests.push(identifier);
+    requests.push(`resolve:${identifier}`);
     if (identifier === missSha256) {
       return createJsonResponse(null, { ok: false, status: 404 });
     }
-    if (identifier === serverErrorSha256) {
-      return createJsonResponse(null, { ok: false, status: 500 });
-    }
-    if (identifier === malformedSha256) {
-      return createJsonResponse({ body: { song: {}, chart: {} } });
-    }
     return createJsonResponse({
       body: {
-        song: { id: "cached-song" },
-        chart: { chartID: "cached-chart", difficulty: "HYPER" },
+        song: { id: "fallback-cached-song" },
+        chart: { chartID: "fallback-cached-chart", difficulty: "HYPER" },
       },
     });
   });
 
   assert.equal(await resolveBokutachiSongUrl({
     ...createNormalizedRecord(missSha256),
-    mode: 7,
-  }), null);
-  assert.equal(await resolveBokutachiSongUrl({
-    ...createNormalizedRecord(serverErrorSha256),
-    mode: 7,
-  }), null);
-  assert.equal(await resolveBokutachiSongUrl({
-    ...createNormalizedRecord(malformedSha256),
+    md5: "",
     mode: 7,
   }), null);
   assert.equal(await resolveBokutachiSongUrl({
     ...createNormalizedRecord(cachedSha256),
+    md5: "",
     mode: 7,
   }), "https://boku.tachi.ac/games/bms-7k/charts/cached-chart");
   assert.equal(await resolveBokutachiSongUrl({
     ...createNormalizedRecord(cachedSha256),
+    md5: "",
     mode: 7,
   }), "https://boku.tachi.ac/games/bms-7k/charts/cached-chart");
-  assert.deepEqual(requests, [missSha256, serverErrorSha256, malformedSha256, cachedSha256]);
+  assert.equal(await resolveBokutachiSongUrl({
+    ...createNormalizedRecord(fallbackCachedSha256),
+    md5: "",
+    mode: 7,
+  }), "https://boku.tachi.ac/games/bms-7k/charts/fallback-cached-chart");
+  assert.equal(await resolveBokutachiSongUrl({
+    ...createNormalizedRecord(fallbackCachedSha256),
+    md5: "",
+    mode: 7,
+  }), "https://boku.tachi.ac/games/bms-7k/charts/fallback-cached-chart");
+  assert.deepEqual(requests, [
+    `search:${missSha256}`,
+    `resolve:${missSha256}`,
+    `search:${cachedSha256}`,
+    `search:${fallbackCachedSha256}`,
+    `resolve:${fallbackCachedSha256}`,
+  ]);
 });
 
 test("appendBokutachiLinkIfAvailable shows the shadow metadata link only after resolve succeeds", async (t) => {
@@ -1734,11 +1890,10 @@ test("appendBokutachiLinkIfAvailable shows the shadow metadata link only after r
   const documentRef = new MockDocument();
   const { container } = createPreviewContainerElements(documentRef);
   documentRef.body.appendChild(container);
-  const sha256 = "890abcdef1234567".repeat(4);
+  const sha256 = "a123456789abcdef".repeat(4);
   setPreviewRuntimeFetch(async () => createJsonResponse({
     body: {
-      song: { id: "display-song" },
-      chart: { chartID: "display-chart", difficulty: "NORMAL" },
+      charts: [{ game: "bms-7k", chartID: "display-chart" }],
     },
   }));
 
@@ -1750,6 +1905,7 @@ test("appendBokutachiLinkIfAvailable shows the shadow metadata link only after r
 
   await appendBokutachiLinkIfAvailable(container, {
     ...createNormalizedRecord(sha256),
+    md5: "",
     mode: 7,
   });
 
@@ -1764,27 +1920,25 @@ test("appendBokutachiLinkIfAvailable leaves the link hidden on failure or stale 
     resetPreviewRuntimeFetch();
   });
 
-  const firstSha256 = "90abcdef12345678".repeat(4);
-  const secondSha256 = "0abcdef123456789".repeat(4);
+  const firstSha256 = "b123456789abcdef".repeat(4);
+  const secondSha256 = "c123456789abcdef".repeat(4);
   const deferred = createDeferred();
   const documentRef = new MockDocument();
   const { container } = createPreviewContainerElements(documentRef);
   documentRef.body.appendChild(container);
-  setPreviewRuntimeFetch(async (_url, options) => {
-    const identifier = JSON.parse(options.body).identifier;
+  setPreviewRuntimeFetch(async (url) => {
+    const identifier = new URL(url).searchParams.get("search");
     if (identifier === firstSha256) {
       await deferred.promise;
       return createJsonResponse({
         body: {
-          song: { id: "stale-song" },
-          chart: { chartID: "stale-chart", difficulty: "STALE" },
+          charts: [{ game: "bms-7k", chartID: "stale-chart" }],
         },
       });
     }
     return createJsonResponse({
       body: {
-        song: { id: "fresh-song" },
-        chart: { chartID: "fresh-chart", difficulty: "FRESH" },
+        charts: [{ game: "bms-7k", chartID: "fresh-chart" }],
       },
     });
   });
@@ -1792,10 +1946,12 @@ test("appendBokutachiLinkIfAvailable leaves the link hidden on failure or stale 
   const bokutachiLink = findElementById(container, "bd-bokutachi");
   const firstPromise = appendBokutachiLinkIfAvailable(container, {
     ...createNormalizedRecord(firstSha256),
+    md5: "",
     mode: 7,
   });
   await appendBokutachiLinkIfAvailable(container, {
     ...createNormalizedRecord(secondSha256),
+    md5: "",
     mode: 7,
   });
   assert.equal(bokutachiLink.href, "https://boku.tachi.ac/games/bms-7k/charts/fresh-chart");
@@ -1806,7 +1962,8 @@ test("appendBokutachiLinkIfAvailable leaves the link hidden on failure or stale 
 
   bokutachiLink.remove();
   await appendBokutachiLinkIfAvailable(container, {
-    ...createNormalizedRecord("abcdef1234567890".repeat(4)),
+    ...createNormalizedRecord("d123456789abcdef".repeat(4)),
+    md5: "",
     mode: 7,
   });
   assert.equal(bokutachiLink.style.display, "none");

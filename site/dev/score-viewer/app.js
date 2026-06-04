@@ -7796,25 +7796,44 @@ async function renderBmsSearchLinkIfAvailable(container, sha256) {
   }
 }
 async function resolveBokutachiSongUrl(record) {
-  const identifier = getBokutachiIdentifier(record);
+  const identifiers = getBokutachiIdentifiers(record);
   const games = getBokutachiGamesForRecord(record);
-  if (!identifier || games.length === 0) {
+  if (identifiers.length === 0 || games.length === 0) {
     return null;
   }
-  for (const game of games) {
-    const cacheKey = createBokutachiResolveCacheKey(game, identifier);
+  for (const identifier of identifiers) {
+    const cacheKey = createBokutachiHashSearchCacheKey(identifier);
     let cachedPromise = bokutachiResolveCache.get(cacheKey);
     if (!cachedPromise) {
-      cachedPromise = resolveBokutachiSongUrlForGame(game, identifier).catch((error) => {
+      cachedPromise = fetchBokutachiHashSearchCharts(identifier).catch((error) => {
         bokutachiResolveCache.delete(cacheKey);
-        console.warn("Bokutachiリンクの解決に失敗しました:", { game, identifier, error });
+        console.warn("Bokutachi hash検索によるリンク解決に失敗しました:", { identifier, error });
         return null;
       });
       bokutachiResolveCache.set(cacheKey, cachedPromise);
     }
-    const url = await cachedPromise;
+    const charts = await cachedPromise;
+    const url = createBokutachiSongUrlFromHashSearchCharts(charts, games);
     if (url) {
       return url;
+    }
+  }
+  for (const identifier of identifiers) {
+    for (const game of games) {
+      const cacheKey = createBokutachiResolveCacheKey(game, identifier);
+      let cachedPromise = bokutachiResolveCache.get(cacheKey);
+      if (!cachedPromise) {
+        cachedPromise = resolveBokutachiSongUrlForGame(game, identifier).catch((error) => {
+          bokutachiResolveCache.delete(cacheKey);
+          console.warn("Bokutachiリンクの解決に失敗しました:", { game, identifier, error });
+          return null;
+        });
+        bokutachiResolveCache.set(cacheKey, cachedPromise);
+      }
+      const url = await cachedPromise;
+      if (url) {
+        return url;
+      }
     }
   }
   return null;
@@ -9098,8 +9117,11 @@ function renderTables(container, normalizedRecord) {
     tableList.appendChild(item);
   });
 }
-function getBokutachiIdentifier(record) {
-  return normalizeHash(record?.sha256, 64) ?? normalizeHash(record?.md5, 32);
+function getBokutachiIdentifiers(record) {
+  return [...new Set([
+    normalizeHash(record?.sha256, 64),
+    normalizeHash(record?.md5, 32)
+  ].filter(Boolean))];
 }
 function getBokutachiGamesForRecord(record) {
   switch (Number(record?.mode)) {
@@ -9125,15 +9147,58 @@ function normalizeHash(value, expectedLength) {
   return normalizedHash;
 }
 function createBokutachiResolveRequestKey(record) {
-  const identifier = getBokutachiIdentifier(record);
+  const identifiers = getBokutachiIdentifiers(record);
   const games = getBokutachiGamesForRecord(record);
-  if (!identifier || games.length === 0) {
+  if (identifiers.length === 0 || games.length === 0) {
     return null;
   }
-  return `${identifier}:${games.join(",")}`;
+  return `${identifiers.join(",")}:${games.join(",")}`;
+}
+function createBokutachiHashSearchCacheKey(identifier) {
+  return `search:${identifier}`;
 }
 function createBokutachiResolveCacheKey(game, identifier) {
-  return `${game}:${identifier}`;
+  return `resolve:${game}:${identifier}`;
+}
+async function fetchBokutachiHashSearchCharts(identifier) {
+  const response = await fetchPreviewRuntimeResource(
+    `${BOKUTACHI_BASE_URL}/api/v1/search/chart-hash?search=${encodeURIComponent(identifier)}`,
+    {
+      headers: {
+        accept: "application/json"
+      }
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Bokutachi hash search failed: HTTP ${response.status}`);
+  }
+  const text = await response.text();
+  const json = JSON.parse(text);
+  const charts = json?.body?.charts;
+  return Array.isArray(charts) ? charts : [];
+}
+function createBokutachiSongUrlFromHashSearchCharts(charts, games) {
+  if (!Array.isArray(charts) || charts.length === 0) {
+    return null;
+  }
+  for (const game of games) {
+    const chart = charts.find((candidate) => candidate?.game === game);
+    const url = createBokutachiChartUrl(game, chart?.chartID);
+    if (url) {
+      return url;
+    }
+  }
+  return null;
+}
+function createBokutachiChartUrl(game, chartID) {
+  if (chartID === null || chartID === void 0) {
+    return null;
+  }
+  const normalizedChartID = String(chartID);
+  if (!normalizedChartID) {
+    return null;
+  }
+  return `${BOKUTACHI_BASE_URL}/games/${encodeURIComponent(game)}/charts/${encodeURIComponent(normalizedChartID)}`;
 }
 async function resolveBokutachiSongUrlForGame(game, identifier) {
   const response = await fetchPreviewRuntimeResource(
@@ -9159,11 +9224,9 @@ async function resolveBokutachiSongUrlForGame(game, identifier) {
   const text = await response.text();
   const json = JSON.parse(text);
   const chartID = json?.body?.chart?.chartID;
-  if (chartID !== null && chartID !== void 0) {
-    const normalizedChartID = String(chartID);
-    if (normalizedChartID) {
-      return `${BOKUTACHI_BASE_URL}/games/${encodeURIComponent(game)}/charts/${encodeURIComponent(normalizedChartID)}`;
-    }
+  const chartUrl = createBokutachiChartUrl(game, chartID);
+  if (chartUrl) {
+    return chartUrl;
   }
   const songID = json?.body?.song?.id;
   const difficulty = json?.body?.chart?.difficulty;

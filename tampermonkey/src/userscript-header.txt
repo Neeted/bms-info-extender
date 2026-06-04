@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.15
-// @description  BMS-IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
+// @version      2.3.16
+// @description  BMS-IR、Bokutachi、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
 // @match        https://bms-ir.org/new/song*
 // @match        https://www.bms-ir.org/new/song*
+// @match        https://boku.tachi.ac/*
 // @match        https://stellabms.xyz/*
 // @match        https://www.gaftalk.com/minir/*
 // @match        https://mocha-repository.info/song.php*
@@ -24,6 +25,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.16 Bokutachi譜面ページへのメタデータ表示に対応、Bokutachiページの@match調整とShadow DOM内UIの基準フォントサイズ明示
 // 2.3.15 Bokutachi linkをTachi hash resolve APIで解決するように変更し、STELLAVERSE既存リンク流用を廃止
 // 2.3.14 メタデータテーブルをShadow DOM内へ分離し、元サイトCSSの影響を軽減
 // 2.3.13 とりあえずBMS-IRという名称で運営していくようなので文言を修正、メタデータfetch時につけていた暫定的なキャッシュバスターを廃止(2.3.1での暫定対応の廃止)

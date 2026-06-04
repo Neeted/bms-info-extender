@@ -14,7 +14,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.15";
+  const SCRIPT_VERSION_FALLBACK = "2.3.16";
   const userscriptFetch = createUserscriptFetch();
   PreviewRuntime.setPreviewRuntimeFetch(userscriptFetch);
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
@@ -27,6 +27,10 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const VERSION_NOTIFICATION_STYLE = `
     :host {
       all: initial;
+      font-size: 16px;
+      line-height: 1.5;
+      text-size-adjust: 100%;
+      -webkit-text-size-adjust: 100%;
     }
     :host, :host * {
       box-sizing: border-box;
@@ -59,11 +63,11 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     .bmsie-version-notice-version {
       margin: 0 0 10px;
       color: #b7c2ff;
-      font-size: 0.95rem;
+      font-size: 15.2px;
     }
     .bmsie-version-notice-title {
       margin: 0 0 14px;
-      font-size: 1.25rem;
+      font-size: 20px;
       line-height: 1.35;
     }
     .bmsie-version-notice-content {
@@ -95,7 +99,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       align-items: center;
       gap: 8px;
       color: #d9def8;
-      font-size: 0.95rem;
+      font-size: 15.2px;
     }
     .bmsie-version-notice-select {
       min-width: 140px;
@@ -104,7 +108,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       border-radius: 6px;
       background: #11131d;
       color: #f4f6ff;
-      font-size: 0.95rem;
+      font-size: 15.2px;
     }
     .bmsie-version-notice-footer {
       display: flex;
@@ -133,7 +137,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       border-radius: 8px;
       background: linear-gradient(180deg, #7ea1ff 0%, #4f73d6 100%);
       color: #ffffff;
-      font-size: 0.95rem;
+      font-size: 15.2px;
       cursor: pointer;
     }
   `;
@@ -333,6 +337,8 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const BMS_IR_HOSTS = new Set(["www.dream-pro.info", "bms-ir.org", "www.bms-ir.org"]);
   const BMS_IR_SONG_PATH = "/new/song";
   const BMS_IR_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
+  const BOKUTACHI_HOST = "boku.tachi.ac";
+  const BOKUTACHI_CHART_PATH_PATTERN = /^\/games\/([^/]+)\/charts\/([^/]+)\/?$/;
   const BMS_IR_SELECTORS = {
     displaySwitcherCandidates: "#box > p",
     displaySwitcherButton: "a.button"
@@ -344,6 +350,14 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     hdbk: "#252525",
     linkColor: "#9fc7ff",
     linkHoverColor: "#fff"
+  };
+  const BOKUTACHI_THEME = {
+    dctx: "#f7f7f7",
+    dcbk: "#2b292b",
+    hdtx: "#f7f7f7",
+    hdbk: "#1f1d20",
+    linkColor: "#f7f7f7",
+    linkHoverColor: "#6c8ed4"
   };
   const STELLAVERSE_THEMES = {
     dark: {
@@ -766,6 +780,9 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       case 'stellabms.xyz':
         stellaverse();
         break;
+      case BOKUTACHI_HOST:
+        bokutachi();
+        break;
       case 'www.gaftalk.com':
         minir();
         break;
@@ -784,6 +801,29 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     } catch {
       return false;
     }
+  }
+
+  function getBokutachiChartRoute(url) {
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.hostname !== BOKUTACHI_HOST) {
+        return null;
+      }
+      const match = parsedUrl.pathname.match(BOKUTACHI_CHART_PATH_PATTERN);
+      if (!match) {
+        return null;
+      }
+      return {
+        game: decodeURIComponent(match[1]),
+        chartId: decodeURIComponent(match[2])
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function isBokutachiChartUrl(url) {
+    return Boolean(getBokutachiChartRoute(url));
   }
 
   /**
@@ -1070,6 +1110,109 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       return url.pathname === BMS_IR_SONG_PATH && url.searchParams.get("view") === view;
     } catch {
       return false;
+    }
+  }
+
+  // ====================================================================================================
+  // Bokutachi
+  //   ReactのSPAなのでDOMの監視で譜面ページの描画完了を待つ
+  // ====================================================================================================
+  /**
+   * Bokutachi 向けの拡張処理を初期化する。
+   * @returns {Promise<void>}
+   */
+  async function bokutachi() {
+    console.info("Bokutachiの処理に入りました");
+    window.addEventListener("locationchange", () => {
+      document.getElementById("bmsdata-container")?.remove();
+    });
+    watchSpaPage({
+      siteName: "Bokutachi",
+      matchUrl: isBokutachiChartUrl,
+      updatePage,
+      isSettled: () => Boolean(document.getElementById("bmsdata-container"))
+    });
+
+    async function updatePage({ markUpdated }) {
+      const chartRoute = getBokutachiChartRoute(location.href);
+      if (!chartRoute) {
+        return;
+      }
+      console.info("Bokutachi譜面ページの書き換え処理に入りました");
+      if (document.getElementById("bmsdata-container")) {
+        console.info("前回の拡張情報がまだ残っているためスキップします");
+        return;
+      }
+
+      const insertionElement = findBokutachiMetadataInsertionElement();
+      if (!insertionElement) {
+        console.info("❌ Bokutachiのページ書き換えはスキップされました。差し込み先が見つかりませんでした");
+        return;
+      }
+
+      const identifiers = await resolveBokutachiPageIdentifiers(chartRoute);
+      if (!identifiers) {
+        console.info("❌ Bokutachiのページ書き換えはスキップされました。譜面のMD5/SHA256が取得できませんでした");
+        return;
+      }
+
+      const pageContext = {
+        identifiers,
+        insertion: { element: insertionElement, position: "beforebegin" },
+        theme: BOKUTACHI_THEME
+      };
+      const container = insertBmsDataTemplate(pageContext);
+      if (await insertBmsData(pageContext, container)) {
+        insertionElement.remove();
+        markUpdated();
+        console.info("✅ 外部データの取得とページの書き換えが成功しました");
+      } else {
+        markUpdated();
+        console.error("❌ 外部データの取得とページの書き換えが失敗しました");
+      }
+    }
+  }
+
+  async function resolveBokutachiPageIdentifiers(chartRoute) {
+    const apiIdentifiers = await PreviewRuntime.fetchBokutachiChartIdentifiers(chartRoute);
+    if (apiIdentifiers?.sha256 || apiIdentifiers?.md5) {
+      return {
+        md5: apiIdentifiers.md5,
+        sha256: apiIdentifiers.sha256,
+        bmsid: null
+      };
+    }
+
+    const md5 = extractBokutachiViewerMd5();
+    if (!md5) {
+      return null;
+    }
+    return { md5, sha256: null, bmsid: null };
+  }
+
+  function findBokutachiMetadataInsertionElement() {
+    const songInfoCard = findBokutachiSongInfoCard();
+    return songInfoCard?.querySelector(".card-body hr, hr") ?? null;
+  }
+
+  function findBokutachiSongInfoCard() {
+    const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6"));
+    const songInfoHeading = headings.find((heading) => heading.textContent.trim() === "Song Info");
+    return songInfoHeading?.closest(".card") ?? null;
+  }
+
+  function extractBokutachiViewerMd5() {
+    const songInfoCard = findBokutachiSongInfoCard();
+    const anchors = Array.from((songInfoCard ?? document).querySelectorAll("a"));
+    const viewChartLink = anchors.find((anchor) => anchor.textContent.trim() === "View Chart");
+    if (!viewChartLink) {
+      return null;
+    }
+    try {
+      const md5 = new URL(viewChartLink.href, location.href).searchParams.get("md5");
+      return BMS_IR_MD5_PATTERN.test(md5 ?? "") ? md5.toLowerCase() : null;
+    } catch {
+      return null;
     }
   }
 

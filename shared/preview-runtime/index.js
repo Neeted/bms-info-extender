@@ -435,6 +435,10 @@ export const BMSDATA_CSS = `
     all: initial;
     display: block;
     box-sizing: border-box;
+    font-size: 16px;
+    line-height: 1;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
   }
   .bmsdata {
     --bd-dctx: #333;
@@ -443,22 +447,24 @@ export const BMSDATA_CSS = `
     --bd-hdbk: #669;
     --bd-link-color: #155dfc;
     --bd-link-hover-color: red;
+    font-size: 16px;
+    line-height: 1;
   }
   .bmsdata * { line-height: 100%; color: var(--bd-dctx); background-color: var(--bd-dcbk); font-family: "Inconsolata", "Noto Sans JP"; vertical-align: middle; box-sizing: content-box; }
-  .bd-info { display: flex; border: 0px; height: 9.6rem; }
-  .bd-info a { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border: 1px solid; border-radius: 2px; font-size: 0.750rem; color: var(--bd-link-color); text-decoration: none; }
+  .bd-info { display: flex; border: 0px; height: 153.6px; }
+  .bd-info a { margin-right: 6.4px; padding: 1.6px 3.2px; border: 1px solid; border-radius: 2px; font-size: 12px; color: var(--bd-link-color); text-decoration: none; }
   .bd-info a:hover { color: var(--bd-link-hover-color); }
-  .bd-icon { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border-radius: 2px; background: var(--bd-dctx); color: var(--bd-dcbk); font-size: 0.750rem; }
-  .bd-icon:nth-child(n+2) { margin-left: 0.4rem; }
+  .bd-icon { margin-right: 6.4px; padding: 1.6px 3.2px; border-radius: 2px; background: var(--bd-dctx); color: var(--bd-dcbk); font-size: 12px; }
+  .bd-icon:nth-child(n+2) { margin-left: 6.4px; }
   .bd-info .bd-info-table { flex: 1; border-collapse: collapse; height: 100%; margin: 0; }
-  .bd-info td { border: unset; padding: 0.1rem 0.2rem; height: 1rem; white-space: nowrap; font-size: 0.875rem; }
+  .bd-info td { border: unset; padding: 1.6px 3.2px; height: 16px; white-space: nowrap; font-size: 14px; }
   .bd-info .bd-header-cell { background-color: var(--bd-hdbk); color: var(--bd-hdtx); }
-  .bd-info .bd-lanenote { margin-right: 0.2rem; padding: 0.1rem 0.2rem; border-radius: 2px; font-size: 0.750rem; }
+  .bd-info .bd-lanenote { margin-right: 3.2px; padding: 1.6px 3.2px; border-radius: 2px; font-size: 12px; }
   .bd-table-list { flex: 1; display: flex; min-width: 100px; flex-direction: column; box-sizing: border-box; }
-  .bd-table-list .bd-header-cell { padding: 0.1rem 0.2rem; min-height: 1rem; white-space: nowrap; font-size: 0.875rem; color: var(--bd-hdtx); display: flex; align-items: center; }
+  .bd-table-list .bd-header-cell { padding: 1.6px 3.2px; min-height: 16px; white-space: nowrap; font-size: 14px; color: var(--bd-hdtx); display: flex; align-items: center; }
   .bd-table-scroll { overflow: auto; flex: 1 1 auto; scrollbar-color: var(--bd-hdbk) white; scrollbar-width: thin; }
-  .bd-table-list ul { padding: 0.1rem 0.2rem; margin: 0; }
-  .bd-table-list li { margin-bottom: 0.2rem; line-height: 1rem; font-size: 0.875rem; white-space: nowrap; list-style-type: none; }
+  .bd-table-list ul { padding: 1.6px 3.2px; margin: 0; }
+  .bd-table-list li { margin-bottom: 3.2px; line-height: 16px; font-size: 14px; white-space: nowrap; list-style-type: none; }
   .bd-metadata-tooltip {
     position: fixed;
     z-index: 2147483003;
@@ -468,7 +474,7 @@ export const BMSDATA_CSS = `
     background: var(--bd-dcbk);
     color: var(--bd-dctx);
     border-radius: 0;
-    font-size: 0.875rem;
+    font-size: 14px;
     line-height: 1;
     white-space: nowrap;
     pointer-events: none;
@@ -566,6 +572,7 @@ export const BMSDATA_CSS = `
 `;
 
 const ISOLATED_UI_FONT_FAMILY = '"Inconsolata", "Noto Sans JP"';
+const ISOLATED_UI_ROOT_FONT_SIZE = "16px";
 const ISOLATED_UI_HOST_CLASS = "bmsie-surface-host";
 const GRAPH_SURFACE_HOST_CLASS = "bmsie-graph-surface-host";
 const OVERLAY_SURFACE_HOST_CLASS = "bmsie-overlay-surface-host";
@@ -590,7 +597,7 @@ export const ISOLATED_UI_BASE_CSS = `
     min-inline-size: 0;
     color: #fff;
     font-family: ${ISOLATED_UI_FONT_FAMILY};
-    font-size: 16px;
+    font-size: ${ISOLATED_UI_ROOT_FONT_SIZE};
     line-height: 1.25;
     box-sizing: border-box;
   }
@@ -686,7 +693,7 @@ export const GRAPH_SURFACE_CSS = `
     contain: layout paint style;
     color: #fff;
     font-family: ${ISOLATED_UI_FONT_FAMILY};
-    font-size: 16px;
+    font-size: ${ISOLATED_UI_ROOT_FONT_SIZE};
     line-height: 1.25;
     box-sizing: border-box;
     text-size-adjust: 100%;
@@ -727,7 +734,7 @@ export const GRAPH_SURFACE_CSS = `
     min-block-size: 18px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.16);
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1;
     box-shadow: none;
   }
@@ -749,7 +756,7 @@ export const GRAPH_SURFACE_CSS = `
     border-radius: 6px;
     background: rgba(32, 32, 64, 0.5);
     color: #fff;
-    font-size: 0.75rem;
+    font-size: 12px;
     line-height: 1.25;
     white-space: nowrap;
   }
@@ -769,7 +776,7 @@ export const OVERLAY_SURFACE_CSS = `
     pointer-events: none;
     color: #fff;
     font-family: ${ISOLATED_UI_FONT_FAMILY};
-    font-size: 16px;
+    font-size: ${ISOLATED_UI_ROOT_FONT_SIZE};
     line-height: 1.25;
     box-sizing: border-box;
     text-size-adjust: 100%;
@@ -800,7 +807,7 @@ export const OVERLAY_SURFACE_CSS = `
     border-radius: 10px;
     background: rgba(32, 32, 64, 0.88);
     color: #fff;
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1.25;
     white-space: nowrap;
     pointer-events: auto;
@@ -819,7 +826,7 @@ export const OVERLAY_SURFACE_CSS = `
     border-radius: 6px;
     background: rgba(32, 32, 64, 0.88);
     color: #fff;
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1.25;
     white-space: nowrap;
     pointer-events: none;
@@ -839,7 +846,7 @@ export const OVERLAY_SURFACE_CSS = `
   .score-viewer-spacing-title,
   .score-viewer-mode-title,
   .bd-graph-settings-label {
-    font-size: 0.75rem;
+    font-size: 12px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: rgba(255, 255, 255, 0.82);
@@ -868,7 +875,7 @@ export const OVERLAY_SURFACE_CSS = `
   .bd-graph-settings-close,
   .score-viewer-detail-settings-close {
     border: 1px solid rgba(255, 255, 255, 0.24);
-    font-size: 0.7rem;
+    font-size: 11.2px;
   }
 
   .bd-graph-settings-close:hover,
@@ -906,7 +913,7 @@ export const OVERLAY_SURFACE_CSS = `
     border-radius: 10px;
     background: rgba(32, 32, 64, 0.88);
     color: #fff;
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1.25;
     white-space: nowrap;
     pointer-events: auto;
@@ -1020,7 +1027,7 @@ export const OVERLAY_SURFACE_CSS = `
   .score-viewer-marker-label {
     position: absolute;
     top: 0;
-    font-size: 0.75rem;
+    font-size: 12px;
     line-height: 1;
     white-space: nowrap;
     text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.72);
@@ -1055,7 +1062,7 @@ export const OVERLAY_SURFACE_CSS = `
     border-radius: 10px;
     background: rgba(32, 32, 64, 0.8);
     color: #fff;
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1.25;
     white-space: nowrap;
     pointer-events: auto;
@@ -1174,7 +1181,7 @@ export const OVERLAY_SURFACE_CSS = `
     border: 1px solid rgba(255, 255, 255, 0.24);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.16);
-    font-size: 0.464rem;
+    font-size: 7.424px;
     line-height: 1;
     pointer-events: auto;
     box-shadow: none;
@@ -1469,6 +1476,43 @@ export async function renderBmsSearchLinkIfAvailable(container, sha256) {
     showLink(bmsSearchLink, `${BMSSEARCH_PATTERN_PAGE_BASE_URL}/${sha256}`);
   } catch (error) {
     console.warn("BMS SEARCHリンクの表示に失敗しました:", error);
+  }
+}
+
+export async function fetchBokutachiChartIdentifiers({ game, chartId } = {}) {
+  if (typeof game !== "string" || game.length === 0 || typeof chartId !== "string" || chartId.length === 0) {
+    return null;
+  }
+
+  try {
+    const response = await fetchPreviewRuntimeResource(
+      `${BOKUTACHI_BASE_URL}/api/v1/games/${encodeURIComponent(game)}/charts/${encodeURIComponent(chartId)}`,
+      {
+        headers: {
+          accept: "application/json",
+        },
+      },
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      console.warn("Bokutachi譜面情報の取得に失敗しました:", { game, chartId, status: response.status });
+      return null;
+    }
+
+    const text = await response.text();
+    const json = JSON.parse(text);
+    const data = json?.body?.chart?.data;
+    const sha256 = normalizeHash(data?.hashSHA256, 64);
+    const md5 = normalizeHash(data?.hashMD5, 32);
+    if (!sha256 && !md5) {
+      return null;
+    }
+    return { sha256, md5 };
+  } catch (error) {
+    console.warn("Bokutachi譜面情報の取得に失敗しました:", { game, chartId, error });
+    return null;
   }
 }
 

@@ -37,11 +37,13 @@ import {
   VIEWER_MODE_STORAGE_KEY,
   BMSDATA_CSS,
   BMSDATA_TEMPLATE_HTML,
+  GRAPH_SURFACE_CSS,
   OVERLAY_SURFACE_CSS,
   expandPreviewRenderMask,
   createBmsDataContainer,
   renderBmsSearchLinkIfAvailable,
   appendBokutachiLinkIfAvailable,
+  fetchBokutachiChartIdentifiers,
   resolveBokutachiSongUrl,
   getInitialGraphInteractionMode,
   getInitialSpacingPx,
@@ -482,11 +484,13 @@ test("metadata tooltip CSS uses the panel theme colors with a simple title-like 
 });
 
 test("metadata panel CSS keeps fixed layout and supports themed link colors", () => {
-  assert.match(BMSDATA_CSS, /\.bmsdata \{[^}]*--bd-link-color: #155dfc;[^}]*--bd-link-hover-color: red;[^}]*\}/);
-  assert.match(BMSDATA_CSS, /\.bd-info \{[^}]*height: 9\.6rem;[^}]*\}/);
+  assert.match(BMSDATA_CSS, /:host \{[^}]*font-size: 16px;[^}]*\}/);
+  assert.match(BMSDATA_CSS, /\.bmsdata \{[^}]*--bd-link-color: #155dfc;[^}]*--bd-link-hover-color: red;[^}]*font-size: 16px;[^}]*\}/);
+  assert.match(BMSDATA_CSS, /\.bd-info \{[^}]*height: 153\.6px;[^}]*\}/);
   assert.match(BMSDATA_CSS, /\.bd-info a \{[^}]*color: var\(--bd-link-color\);[^}]*\}/);
   assert.match(BMSDATA_CSS, /\.bd-info a:hover \{[^}]*color: var\(--bd-link-hover-color\);[^}]*\}/);
   assert.match(BMSDATA_CSS, /\.bd-info \.bd-info-table \{[^}]*height: 100%;[^}]*margin: 0;[^}]*\}/);
+  assert.doesNotMatch(`${BMSDATA_CSS}\n${GRAPH_SURFACE_CSS}\n${OVERLAY_SURFACE_CSS}`, /\b[0-9.]+rem\b/);
 });
 
 test("createBmsDataContainer applies optional link theme variables", () => {
@@ -1423,6 +1427,104 @@ test("renderBmsSearchLinkIfAvailable updates the shadow metadata link", async (t
   assert.deepEqual(requests, [`https://api.bmssearch.net/v1/patterns/sha256/${sha256}`]);
   assert.equal(bmsSearchLink.href, `https://bmssearch.net/patterns/${sha256}`);
   assert.equal(bmsSearchLink.style.display, "inline");
+});
+
+test("fetchBokutachiChartIdentifiers fetches and normalizes chart hashes", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  const requests = [];
+  setPreviewRuntimeFetch(async (url, options = {}) => {
+    requests.push({ url, options });
+    return createJsonResponse({
+      body: {
+        chart: {
+          data: {
+            hashSHA256: "ABCDEF0123456789".repeat(4),
+            hashMD5: "ABCDEF0123456789".repeat(2),
+          },
+        },
+      },
+    });
+  });
+
+  assert.deepEqual(await fetchBokutachiChartIdentifiers({
+    game: "bms-7k",
+    chartId: "C19d35e1ef8dcf8c8014",
+  }), {
+    sha256: "abcdef0123456789".repeat(4),
+    md5: "abcdef0123456789".repeat(2),
+  });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://boku.tachi.ac/api/v1/games/bms-7k/charts/C19d35e1ef8dcf8c8014");
+  assert.equal(requests[0].options.headers.accept, "application/json");
+});
+
+test("fetchBokutachiChartIdentifiers accepts a single valid hash", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  setPreviewRuntimeFetch(async () => createJsonResponse({
+    body: {
+      chart: {
+        data: {
+          hashMD5: "1234567890ABCDEF".repeat(2),
+        },
+      },
+    },
+  }));
+
+  assert.deepEqual(await fetchBokutachiChartIdentifiers({
+    game: "bms-7k",
+    chartId: "C-single-md5",
+  }), {
+    sha256: null,
+    md5: "1234567890abcdef".repeat(2),
+  });
+});
+
+test("fetchBokutachiChartIdentifiers returns null for failures", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  const originalWarn = console.warn;
+  t.after(() => {
+    console.warn = originalWarn;
+  });
+  console.warn = () => {};
+
+  const responses = [
+    createJsonResponse(null, { ok: false, status: 404 }),
+    createJsonResponse(null, { ok: false, status: 500 }),
+    createJsonResponse({
+      body: {
+        chart: {
+          data: {
+            hashSHA256: "not-sha256",
+            hashMD5: "not-md5",
+          },
+        },
+      },
+    }),
+    {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      async text() {
+        return "{";
+      },
+    },
+  ];
+  setPreviewRuntimeFetch(async () => responses.shift());
+
+  assert.equal(await fetchBokutachiChartIdentifiers({ game: "bms-7k", chartId: "C404" }), null);
+  assert.equal(await fetchBokutachiChartIdentifiers({ game: "bms-7k", chartId: "C500" }), null);
+  assert.equal(await fetchBokutachiChartIdentifiers({ game: "bms-7k", chartId: "Cbad" }), null);
+  assert.equal(await fetchBokutachiChartIdentifiers({ game: "bms-7k", chartId: "Cjson" }), null);
+  assert.equal(await fetchBokutachiChartIdentifiers({ game: "", chartId: "Cempty" }), null);
 });
 
 test("resolveBokutachiSongUrl resolves bms-7k charts using sha256", async (t) => {

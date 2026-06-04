@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.15
-// @description  BMS-IR、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
+// @version      2.3.16
+// @description  BMS-IR、Bokutachi、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
 // @match        https://bms-ir.org/new/song*
 // @match        https://www.bms-ir.org/new/song*
+// @match        https://boku.tachi.ac/*
 // @match        https://stellabms.xyz/*
 // @match        https://www.gaftalk.com/minir/*
 // @match        https://mocha-repository.info/song.php*
@@ -24,6 +25,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.16 Bokutachi譜面ページへのメタデータ表示に対応、Bokutachiページの@match調整とShadow DOM内UIの基準フォントサイズ明示
 // 2.3.15 Bokutachi linkをTachi hash resolve APIで解決するように変更し、STELLAVERSE既存リンク流用を廃止
 // 2.3.14 メタデータテーブルをShadow DOM内へ分離し、元サイトCSSの影響を軽減
 // 2.3.13 とりあえずBMS-IRという名称で運営していくようなので文言を修正、メタデータfetch時につけていた暫定的なキャッシュバスターを廃止(2.3.1での暫定対応の廃止)
@@ -6829,6 +6831,10 @@
     all: initial;
     display: block;
     box-sizing: border-box;
+    font-size: 16px;
+    line-height: 1;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
   }
   .bmsdata {
     --bd-dctx: #333;
@@ -6837,22 +6843,24 @@
     --bd-hdbk: #669;
     --bd-link-color: #155dfc;
     --bd-link-hover-color: red;
+    font-size: 16px;
+    line-height: 1;
   }
   .bmsdata * { line-height: 100%; color: var(--bd-dctx); background-color: var(--bd-dcbk); font-family: "Inconsolata", "Noto Sans JP"; vertical-align: middle; box-sizing: content-box; }
-  .bd-info { display: flex; border: 0px; height: 9.6rem; }
-  .bd-info a { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border: 1px solid; border-radius: 2px; font-size: 0.750rem; color: var(--bd-link-color); text-decoration: none; }
+  .bd-info { display: flex; border: 0px; height: 153.6px; }
+  .bd-info a { margin-right: 6.4px; padding: 1.6px 3.2px; border: 1px solid; border-radius: 2px; font-size: 12px; color: var(--bd-link-color); text-decoration: none; }
   .bd-info a:hover { color: var(--bd-link-hover-color); }
-  .bd-icon { margin-right: 0.4rem; padding: 0.1rem 0.2rem; border-radius: 2px; background: var(--bd-dctx); color: var(--bd-dcbk); font-size: 0.750rem; }
-  .bd-icon:nth-child(n+2) { margin-left: 0.4rem; }
+  .bd-icon { margin-right: 6.4px; padding: 1.6px 3.2px; border-radius: 2px; background: var(--bd-dctx); color: var(--bd-dcbk); font-size: 12px; }
+  .bd-icon:nth-child(n+2) { margin-left: 6.4px; }
   .bd-info .bd-info-table { flex: 1; border-collapse: collapse; height: 100%; margin: 0; }
-  .bd-info td { border: unset; padding: 0.1rem 0.2rem; height: 1rem; white-space: nowrap; font-size: 0.875rem; }
+  .bd-info td { border: unset; padding: 1.6px 3.2px; height: 16px; white-space: nowrap; font-size: 14px; }
   .bd-info .bd-header-cell { background-color: var(--bd-hdbk); color: var(--bd-hdtx); }
-  .bd-info .bd-lanenote { margin-right: 0.2rem; padding: 0.1rem 0.2rem; border-radius: 2px; font-size: 0.750rem; }
+  .bd-info .bd-lanenote { margin-right: 3.2px; padding: 1.6px 3.2px; border-radius: 2px; font-size: 12px; }
   .bd-table-list { flex: 1; display: flex; min-width: 100px; flex-direction: column; box-sizing: border-box; }
-  .bd-table-list .bd-header-cell { padding: 0.1rem 0.2rem; min-height: 1rem; white-space: nowrap; font-size: 0.875rem; color: var(--bd-hdtx); display: flex; align-items: center; }
+  .bd-table-list .bd-header-cell { padding: 1.6px 3.2px; min-height: 16px; white-space: nowrap; font-size: 14px; color: var(--bd-hdtx); display: flex; align-items: center; }
   .bd-table-scroll { overflow: auto; flex: 1 1 auto; scrollbar-color: var(--bd-hdbk) white; scrollbar-width: thin; }
-  .bd-table-list ul { padding: 0.1rem 0.2rem; margin: 0; }
-  .bd-table-list li { margin-bottom: 0.2rem; line-height: 1rem; font-size: 0.875rem; white-space: nowrap; list-style-type: none; }
+  .bd-table-list ul { padding: 1.6px 3.2px; margin: 0; }
+  .bd-table-list li { margin-bottom: 3.2px; line-height: 16px; font-size: 14px; white-space: nowrap; list-style-type: none; }
   .bd-metadata-tooltip {
     position: fixed;
     z-index: 2147483003;
@@ -6862,7 +6870,7 @@
     background: var(--bd-dcbk);
     color: var(--bd-dctx);
     border-radius: 0;
-    font-size: 0.875rem;
+    font-size: 14px;
     line-height: 1;
     white-space: nowrap;
     pointer-events: none;
@@ -6959,6 +6967,7 @@
   .bd-lanenote[lane="k51"] { background: #ff0000; color: #fff; }
 `;
   var ISOLATED_UI_FONT_FAMILY = '"Inconsolata", "Noto Sans JP"';
+  var ISOLATED_UI_ROOT_FONT_SIZE = "16px";
   var ISOLATED_UI_HOST_CLASS = "bmsie-surface-host";
   var GRAPH_SURFACE_HOST_CLASS = "bmsie-graph-surface-host";
   var OVERLAY_SURFACE_HOST_CLASS = "bmsie-overlay-surface-host";
@@ -6982,7 +6991,7 @@
     min-inline-size: 0;
     color: #fff;
     font-family: ${ISOLATED_UI_FONT_FAMILY};
-    font-size: 16px;
+    font-size: ${ISOLATED_UI_ROOT_FONT_SIZE};
     line-height: 1.25;
     box-sizing: border-box;
   }
@@ -7077,7 +7086,7 @@
     contain: layout paint style;
     color: #fff;
     font-family: ${ISOLATED_UI_FONT_FAMILY};
-    font-size: 16px;
+    font-size: ${ISOLATED_UI_ROOT_FONT_SIZE};
     line-height: 1.25;
     box-sizing: border-box;
     text-size-adjust: 100%;
@@ -7118,7 +7127,7 @@
     min-block-size: 18px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.16);
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1;
     box-shadow: none;
   }
@@ -7140,7 +7149,7 @@
     border-radius: 6px;
     background: rgba(32, 32, 64, 0.5);
     color: #fff;
-    font-size: 0.75rem;
+    font-size: 12px;
     line-height: 1.25;
     white-space: nowrap;
   }
@@ -7159,7 +7168,7 @@
     pointer-events: none;
     color: #fff;
     font-family: ${ISOLATED_UI_FONT_FAMILY};
-    font-size: 16px;
+    font-size: ${ISOLATED_UI_ROOT_FONT_SIZE};
     line-height: 1.25;
     box-sizing: border-box;
     text-size-adjust: 100%;
@@ -7190,7 +7199,7 @@
     border-radius: 10px;
     background: rgba(32, 32, 64, 0.88);
     color: #fff;
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1.25;
     white-space: nowrap;
     pointer-events: auto;
@@ -7209,7 +7218,7 @@
     border-radius: 6px;
     background: rgba(32, 32, 64, 0.88);
     color: #fff;
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1.25;
     white-space: nowrap;
     pointer-events: none;
@@ -7229,7 +7238,7 @@
   .score-viewer-spacing-title,
   .score-viewer-mode-title,
   .bd-graph-settings-label {
-    font-size: 0.75rem;
+    font-size: 12px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: rgba(255, 255, 255, 0.82);
@@ -7258,7 +7267,7 @@
   .bd-graph-settings-close,
   .score-viewer-detail-settings-close {
     border: 1px solid rgba(255, 255, 255, 0.24);
-    font-size: 0.7rem;
+    font-size: 11.2px;
   }
 
   .bd-graph-settings-close:hover,
@@ -7296,7 +7305,7 @@
     border-radius: 10px;
     background: rgba(32, 32, 64, 0.88);
     color: #fff;
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1.25;
     white-space: nowrap;
     pointer-events: auto;
@@ -7410,7 +7419,7 @@
   .score-viewer-marker-label {
     position: absolute;
     top: 0;
-    font-size: 0.75rem;
+    font-size: 12px;
     line-height: 1;
     white-space: nowrap;
     text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.72);
@@ -7445,7 +7454,7 @@
     border-radius: 10px;
     background: rgba(32, 32, 64, 0.8);
     color: #fff;
-    font-size: 0.8125rem;
+    font-size: 13px;
     line-height: 1.25;
     white-space: nowrap;
     pointer-events: auto;
@@ -7564,7 +7573,7 @@
     border: 1px solid rgba(255, 255, 255, 0.24);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.16);
-    font-size: 0.464rem;
+    font-size: 7.424px;
     line-height: 1;
     pointer-events: auto;
     box-shadow: none;
@@ -7844,6 +7853,40 @@
       showLink(bmsSearchLink, `${BMSSEARCH_PATTERN_PAGE_BASE_URL}/${sha256}`);
     } catch (error) {
       console.warn("BMS SEARCHリンクの表示に失敗しました:", error);
+    }
+  }
+  async function fetchBokutachiChartIdentifiers({ game, chartId } = {}) {
+    if (typeof game !== "string" || game.length === 0 || typeof chartId !== "string" || chartId.length === 0) {
+      return null;
+    }
+    try {
+      const response = await fetchPreviewRuntimeResource(
+        `${BOKUTACHI_BASE_URL}/api/v1/games/${encodeURIComponent(game)}/charts/${encodeURIComponent(chartId)}`,
+        {
+          headers: {
+            accept: "application/json"
+          }
+        }
+      );
+      if (response.status === 404) {
+        return null;
+      }
+      if (!response.ok) {
+        console.warn("Bokutachi譜面情報の取得に失敗しました:", { game, chartId, status: response.status });
+        return null;
+      }
+      const text = await response.text();
+      const json = JSON.parse(text);
+      const data = json?.body?.chart?.data;
+      const sha256 = normalizeHash(data?.hashSHA256, 64);
+      const md5 = normalizeHash(data?.hashMD5, 32);
+      if (!sha256 && !md5) {
+        return null;
+      }
+      return { sha256, md5 };
+    } catch (error) {
+      console.warn("Bokutachi譜面情報の取得に失敗しました:", { game, chartId, error });
+      return null;
     }
   }
   async function resolveBokutachiSongUrl(record) {
@@ -11859,7 +11902,7 @@
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.15";
+    const SCRIPT_VERSION_FALLBACK = "2.3.16";
     const userscriptFetch = createUserscriptFetch();
     setPreviewRuntimeFetch(userscriptFetch);
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
@@ -11872,6 +11915,10 @@
     const VERSION_NOTIFICATION_STYLE = `
     :host {
       all: initial;
+      font-size: 16px;
+      line-height: 1.5;
+      text-size-adjust: 100%;
+      -webkit-text-size-adjust: 100%;
     }
     :host, :host * {
       box-sizing: border-box;
@@ -11904,11 +11951,11 @@
     .bmsie-version-notice-version {
       margin: 0 0 10px;
       color: #b7c2ff;
-      font-size: 0.95rem;
+      font-size: 15.2px;
     }
     .bmsie-version-notice-title {
       margin: 0 0 14px;
-      font-size: 1.25rem;
+      font-size: 20px;
       line-height: 1.35;
     }
     .bmsie-version-notice-content {
@@ -11940,7 +11987,7 @@
       align-items: center;
       gap: 8px;
       color: #d9def8;
-      font-size: 0.95rem;
+      font-size: 15.2px;
     }
     .bmsie-version-notice-select {
       min-width: 140px;
@@ -11949,7 +11996,7 @@
       border-radius: 6px;
       background: #11131d;
       color: #f4f6ff;
-      font-size: 0.95rem;
+      font-size: 15.2px;
     }
     .bmsie-version-notice-footer {
       display: flex;
@@ -11978,7 +12025,7 @@
       border-radius: 8px;
       background: linear-gradient(180deg, #7ea1ff 0%, #4f73d6 100%);
       color: #ffffff;
-      font-size: 0.95rem;
+      font-size: 15.2px;
       cursor: pointer;
     }
   `;
@@ -12175,6 +12222,8 @@
     const BMS_IR_HOSTS = /* @__PURE__ */ new Set(["www.dream-pro.info", "bms-ir.org", "www.bms-ir.org"]);
     const BMS_IR_SONG_PATH = "/new/song";
     const BMS_IR_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
+    const BOKUTACHI_HOST = "boku.tachi.ac";
+    const BOKUTACHI_CHART_PATH_PATTERN = /^\/games\/([^/]+)\/charts\/([^/]+)\/?$/;
     const BMS_IR_SELECTORS = {
       displaySwitcherCandidates: "#box > p",
       displaySwitcherButton: "a.button"
@@ -12186,6 +12235,14 @@
       hdbk: "#252525",
       linkColor: "#9fc7ff",
       linkHoverColor: "#fff"
+    };
+    const BOKUTACHI_THEME = {
+      dctx: "#f7f7f7",
+      dcbk: "#2b292b",
+      hdtx: "#f7f7f7",
+      hdbk: "#1f1d20",
+      linkColor: "#f7f7f7",
+      linkHoverColor: "#6c8ed4"
     };
     const STELLAVERSE_THEMES = {
       dark: {
@@ -12468,6 +12525,9 @@
         case "stellabms.xyz":
           stellaverse();
           break;
+        case BOKUTACHI_HOST:
+          bokutachi();
+          break;
         case "www.gaftalk.com":
           minir();
           break;
@@ -12485,6 +12545,27 @@
       } catch {
         return false;
       }
+    }
+    function getBokutachiChartRoute(url) {
+      try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.hostname !== BOKUTACHI_HOST) {
+          return null;
+        }
+        const match = parsedUrl.pathname.match(BOKUTACHI_CHART_PATH_PATTERN);
+        if (!match) {
+          return null;
+        }
+        return {
+          game: decodeURIComponent(match[1]),
+          chartId: decodeURIComponent(match[2])
+        };
+      } catch {
+        return null;
+      }
+    }
+    function isBokutachiChartUrl(url) {
+      return Boolean(getBokutachiChartRoute(url));
     }
     function installLocationChangeHookOnce() {
       const hookFlag = "__bmsInfoExtenderLocationHookInstalled";
@@ -12692,6 +12773,91 @@
         return url.pathname === BMS_IR_SONG_PATH && url.searchParams.get("view") === view;
       } catch {
         return false;
+      }
+    }
+    async function bokutachi() {
+      console.info("Bokutachiの処理に入りました");
+      window.addEventListener("locationchange", () => {
+        document.getElementById("bmsdata-container")?.remove();
+      });
+      watchSpaPage({
+        siteName: "Bokutachi",
+        matchUrl: isBokutachiChartUrl,
+        updatePage,
+        isSettled: () => Boolean(document.getElementById("bmsdata-container"))
+      });
+      async function updatePage({ markUpdated }) {
+        const chartRoute = getBokutachiChartRoute(location.href);
+        if (!chartRoute) {
+          return;
+        }
+        console.info("Bokutachi譜面ページの書き換え処理に入りました");
+        if (document.getElementById("bmsdata-container")) {
+          console.info("前回の拡張情報がまだ残っているためスキップします");
+          return;
+        }
+        const insertionElement = findBokutachiMetadataInsertionElement();
+        if (!insertionElement) {
+          console.info("❌ Bokutachiのページ書き換えはスキップされました。差し込み先が見つかりませんでした");
+          return;
+        }
+        const identifiers = await resolveBokutachiPageIdentifiers(chartRoute);
+        if (!identifiers) {
+          console.info("❌ Bokutachiのページ書き換えはスキップされました。譜面のMD5/SHA256が取得できませんでした");
+          return;
+        }
+        const pageContext = {
+          identifiers,
+          insertion: { element: insertionElement, position: "beforebegin" },
+          theme: BOKUTACHI_THEME
+        };
+        const container = insertBmsDataTemplate(pageContext);
+        if (await insertBmsData(pageContext, container)) {
+          insertionElement.remove();
+          markUpdated();
+          console.info("✅ 外部データの取得とページの書き換えが成功しました");
+        } else {
+          markUpdated();
+          console.error("❌ 外部データの取得とページの書き換えが失敗しました");
+        }
+      }
+    }
+    async function resolveBokutachiPageIdentifiers(chartRoute) {
+      const apiIdentifiers = await fetchBokutachiChartIdentifiers(chartRoute);
+      if (apiIdentifiers?.sha256 || apiIdentifiers?.md5) {
+        return {
+          md5: apiIdentifiers.md5,
+          sha256: apiIdentifiers.sha256,
+          bmsid: null
+        };
+      }
+      const md5 = extractBokutachiViewerMd5();
+      if (!md5) {
+        return null;
+      }
+      return { md5, sha256: null, bmsid: null };
+    }
+    function findBokutachiMetadataInsertionElement() {
+      const songInfoCard = findBokutachiSongInfoCard();
+      return songInfoCard?.querySelector(".card-body hr, hr") ?? null;
+    }
+    function findBokutachiSongInfoCard() {
+      const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6"));
+      const songInfoHeading = headings.find((heading) => heading.textContent.trim() === "Song Info");
+      return songInfoHeading?.closest(".card") ?? null;
+    }
+    function extractBokutachiViewerMd5() {
+      const songInfoCard = findBokutachiSongInfoCard();
+      const anchors = Array.from((songInfoCard ?? document).querySelectorAll("a"));
+      const viewChartLink = anchors.find((anchor) => anchor.textContent.trim() === "View Chart");
+      if (!viewChartLink) {
+        return null;
+      }
+      try {
+        const md5 = new URL(viewChartLink.href, location.href).searchParams.get("md5");
+        return BMS_IR_MD5_PATTERN.test(md5 ?? "") ? md5.toLowerCase() : null;
+      } catch {
+        return null;
       }
     }
     async function stellaverse() {

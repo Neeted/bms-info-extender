@@ -1539,7 +1539,7 @@ test("resolveBokutachiSongUrl resolves bms-7k charts using sha256", async (t) =>
     return createJsonResponse({
       body: {
         song: { id: "song/id" },
-        chart: { difficulty: "INSANE+" },
+        chart: { chartID: "chart/id", difficulty: "INSANE+" },
       },
     });
   });
@@ -1549,7 +1549,7 @@ test("resolveBokutachiSongUrl resolves bms-7k charts using sha256", async (t) =>
     mode: 7,
   });
 
-  assert.equal(url, "https://boku.tachi.ac/games/bms-7k/songs/song%2Fid/INSANE%2B");
+  assert.equal(url, "https://boku.tachi.ac/games/bms-7k/charts/chart%2Fid");
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, "https://boku.tachi.ac/api/v1/games/bms-7k/charts/resolve");
   assert.equal(requests[0].options.method, "POST");
@@ -1576,8 +1576,27 @@ test("resolveBokutachiSongUrl maps 14k mode to bms-14k", async (t) => {
     mode: 14,
   });
 
-  assert.equal(url, "https://boku.tachi.ac/games/bms-14k/songs/1234/ANOTHER");
+  assert.equal(url, "https://boku.tachi.ac/games/bms-14k/charts/C1234");
   assert.deepEqual(requests, ["https://boku.tachi.ac/api/v1/games/bms-14k/charts/resolve"]);
+});
+
+test("resolveBokutachiSongUrl falls back to song and difficulty when chartID is absent", async (t) => {
+  t.after(() => {
+    resetPreviewRuntimeFetch();
+  });
+
+  const sha256 = "1bcdef1234567890".repeat(4);
+  setPreviewRuntimeFetch(async () => createJsonResponse({
+    body: {
+      song: { id: "song/id" },
+      chart: { difficulty: "INSANE+" },
+    },
+  }));
+
+  assert.equal(await resolveBokutachiSongUrl({
+    ...createNormalizedRecord(sha256),
+    mode: 7,
+  }), "https://boku.tachi.ac/games/bms-7k/songs/song%2Fid/INSANE%2B");
 });
 
 test("resolveBokutachiSongUrl tries pms-keyboard after pms-controller misses", async (t) => {
@@ -1595,7 +1614,7 @@ test("resolveBokutachiSongUrl tries pms-keyboard after pms-controller misses", a
     return createJsonResponse({
       body: {
         song: { id: "pms-song" },
-        chart: { difficulty: "EX" },
+        chart: { chartID: "pms-chart", difficulty: "EX" },
       },
     });
   });
@@ -1605,7 +1624,7 @@ test("resolveBokutachiSongUrl tries pms-keyboard after pms-controller misses", a
     mode: 9,
   });
 
-  assert.equal(url, "https://boku.tachi.ac/games/pms-keyboard/songs/pms-song/EX");
+  assert.equal(url, "https://boku.tachi.ac/games/pms-keyboard/charts/pms-chart");
   assert.deepEqual(requests, [
     "https://boku.tachi.ac/api/v1/games/pms-controller/charts/resolve",
     "https://boku.tachi.ac/api/v1/games/pms-keyboard/charts/resolve",
@@ -1629,7 +1648,7 @@ test("resolveBokutachiSongUrl falls back to md5 and skips unsupported or invalid
     sha256: "",
     md5,
     mode: 7,
-  }), "https://boku.tachi.ac/games/bms-7k/songs/1234/ANOTHER");
+  }), "https://boku.tachi.ac/games/bms-7k/charts/C1234");
   assert.deepEqual(requests, [{
     matchType: "bmsChartHash",
     identifier: md5,
@@ -1679,7 +1698,7 @@ test("resolveBokutachiSongUrl returns null for failures and caches repeated look
     return createJsonResponse({
       body: {
         song: { id: "cached-song" },
-        chart: { difficulty: "HYPER" },
+        chart: { chartID: "cached-chart", difficulty: "HYPER" },
       },
     });
   });
@@ -1699,11 +1718,11 @@ test("resolveBokutachiSongUrl returns null for failures and caches repeated look
   assert.equal(await resolveBokutachiSongUrl({
     ...createNormalizedRecord(cachedSha256),
     mode: 7,
-  }), "https://boku.tachi.ac/games/bms-7k/songs/cached-song/HYPER");
+  }), "https://boku.tachi.ac/games/bms-7k/charts/cached-chart");
   assert.equal(await resolveBokutachiSongUrl({
     ...createNormalizedRecord(cachedSha256),
     mode: 7,
-  }), "https://boku.tachi.ac/games/bms-7k/songs/cached-song/HYPER");
+  }), "https://boku.tachi.ac/games/bms-7k/charts/cached-chart");
   assert.deepEqual(requests, [missSha256, serverErrorSha256, malformedSha256, cachedSha256]);
 });
 
@@ -1719,7 +1738,7 @@ test("appendBokutachiLinkIfAvailable shows the shadow metadata link only after r
   setPreviewRuntimeFetch(async () => createJsonResponse({
     body: {
       song: { id: "display-song" },
-      chart: { difficulty: "NORMAL" },
+      chart: { chartID: "display-chart", difficulty: "NORMAL" },
     },
   }));
 
@@ -1734,7 +1753,7 @@ test("appendBokutachiLinkIfAvailable shows the shadow metadata link only after r
     mode: 7,
   });
 
-  assert.equal(bokutachiLink.href, "https://boku.tachi.ac/games/bms-7k/songs/display-song/NORMAL");
+  assert.equal(bokutachiLink.href, "https://boku.tachi.ac/games/bms-7k/charts/display-chart");
   assert.equal(bokutachiLink.getAttribute("target"), "_blank");
   assert.equal(bokutachiLink.getAttribute("rel"), "noopener noreferrer");
   assert.equal(bokutachiLink.style.display, "inline");
@@ -1758,14 +1777,14 @@ test("appendBokutachiLinkIfAvailable leaves the link hidden on failure or stale 
       return createJsonResponse({
         body: {
           song: { id: "stale-song" },
-          chart: { difficulty: "STALE" },
+          chart: { chartID: "stale-chart", difficulty: "STALE" },
         },
       });
     }
     return createJsonResponse({
       body: {
         song: { id: "fresh-song" },
-        chart: { difficulty: "FRESH" },
+        chart: { chartID: "fresh-chart", difficulty: "FRESH" },
       },
     });
   });
@@ -1779,11 +1798,11 @@ test("appendBokutachiLinkIfAvailable leaves the link hidden on failure or stale 
     ...createNormalizedRecord(secondSha256),
     mode: 7,
   });
-  assert.equal(bokutachiLink.href, "https://boku.tachi.ac/games/bms-7k/songs/fresh-song/FRESH");
+  assert.equal(bokutachiLink.href, "https://boku.tachi.ac/games/bms-7k/charts/fresh-chart");
 
   deferred.resolve();
   await firstPromise;
-  assert.equal(bokutachiLink.href, "https://boku.tachi.ac/games/bms-7k/songs/fresh-song/FRESH");
+  assert.equal(bokutachiLink.href, "https://boku.tachi.ac/games/bms-7k/charts/fresh-chart");
 
   bokutachiLink.remove();
   await appendBokutachiLinkIfAvailable(container, {
@@ -2066,7 +2085,7 @@ function createDeferred() {
 function createJsonResponse(body = {
   body: {
     song: { id: "1234" },
-    chart: { difficulty: "ANOTHER" },
+    chart: { chartID: "C1234", difficulty: "ANOTHER" },
   },
 }, { ok = true, status = 200 } = {}) {
   return {

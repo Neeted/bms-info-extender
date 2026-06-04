@@ -2964,6 +2964,14 @@ async function resolveBokutachiSongUrlForGame(game, identifier) {
 
   const text = await response.text();
   const json = JSON.parse(text);
+  const chartID = json?.body?.chart?.chartID;
+  if (chartID !== null && chartID !== undefined) {
+    const normalizedChartID = String(chartID);
+    if (normalizedChartID) {
+      return `${BOKUTACHI_BASE_URL}/games/${encodeURIComponent(game)}/charts/${encodeURIComponent(normalizedChartID)}`;
+    }
+  }
+
   const songID = json?.body?.song?.id;
   const difficulty = json?.body?.chart?.difficulty;
   if (songID === null || songID === undefined || difficulty === null || difficulty === undefined) {

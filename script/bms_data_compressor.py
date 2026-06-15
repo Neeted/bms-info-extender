@@ -154,6 +154,7 @@ SELECT
   NULLIF(pe.md5, '')    AS md5,
   NULLIF(pe.sha256, '') AS sha256,
   pe.playlist_id,
+  pl.bmt_sort,
   CASE pe.playlist_id
     -- AI難易度表
     WHEN 97 THEN
@@ -209,6 +210,7 @@ CREATE INDEX temp.idx_temp_entrys_sha256
 CREATE TEMP TABLE temp.temp_matched_tables (
   sha256      TEXT    NOT NULL,
   playlist_id INTEGER NOT NULL,
+  bmt_sort    INTEGER NOT NULL,
   folder      TEXT    NOT NULL
 );
 
@@ -219,11 +221,13 @@ CREATE UNIQUE INDEX temp.idx_temp_matched_tables_uq
 INSERT OR IGNORE INTO temp.temp_matched_tables (
   sha256,
   playlist_id,
+  bmt_sort,
   folder
 )
 SELECT
   s.sha256,
   e.playlist_id,
+  e.bmt_sort,
   e.folder
 FROM temp.temp_songs s
 JOIN temp.temp_entrys e
@@ -236,11 +240,13 @@ WHERE s.md5 IS NOT NULL
 INSERT OR IGNORE INTO temp.temp_matched_tables (
   sha256,
   playlist_id,
+  bmt_sort,
   folder
 )
 SELECT
   s.sha256,
   e.playlist_id,
+  e.bmt_sort,
   e.folder
 FROM temp.temp_songs s
 JOIN temp.temp_entrys e
@@ -251,7 +257,7 @@ WHERE e.sha256 IS NOT NULL
 
 ------------------------------------------------------------
 -- 4. sha256 ごとに JSON 風配列へ集約
---    順序は playlist_id 優先、同一 playlist_id 内は folder で安定化
+--    順序は bmt_sort 優先、同一 bmt_sort 内は folder で安定化
 ------------------------------------------------------------
 CREATE TEMP TABLE temp.temp_tables AS
 SELECT
@@ -262,7 +268,7 @@ FROM (
     sha256,
     folder
   FROM temp.temp_matched_tables
-  ORDER BY sha256, playlist_id, folder
+  ORDER BY sha256, bmt_sort, folder
 )
 GROUP BY sha256
 ;

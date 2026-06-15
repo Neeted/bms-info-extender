@@ -172,7 +172,8 @@ class BmsDataCompressorTests(unittest.TestCase):
                       playlist_id INTEGER PRIMARY KEY,
                       org_name TEXT,
                       org_symbol TEXT,
-                      compat_prefix TEXT
+                      compat_prefix TEXT,
+                      bmt_sort INTEGER NOT NULL UNIQUE
                     );
 
                     CREATE TABLE playlist_entry (
@@ -210,8 +211,10 @@ class BmsDataCompressorTests(unittest.TestCase):
                       '1,2,3'
                     );
 
-                    INSERT INTO playlist VALUES (99, 'Table', '★', '');
+                    INSERT INTO playlist VALUES (99, 'Table Later', 'L', '', 20);
+                    INSERT INTO playlist VALUES (100, 'Table Earlier', 'E', '', 10);
                     INSERT INTO playlist_entry VALUES (99, 'md5-a', '', 1, 'Folder', '', 0);
+                    INSERT INTO playlist_entry VALUES (100, 'md5-a', '', 1, 'Folder', '', 0);
                     """
                 )
                 conn.commit()
@@ -225,7 +228,7 @@ class BmsDataCompressorTests(unittest.TestCase):
         self.assertEqual(record["sha256"], "sha-a")
         self.assertEqual(record["maxbpm"], 180.5)
         self.assertIsNone(record["total"])
-        self.assertEqual(record["tables"], '["Table ★Folder"]')
+        self.assertEqual(record["tables"], '["Table Earlier EFolder","Table Later LFolder"]')
 
 
 if __name__ == "__main__":

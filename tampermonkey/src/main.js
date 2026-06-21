@@ -14,7 +14,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.16";
+  const SCRIPT_VERSION_FALLBACK = "2.3.17";
   const userscriptFetch = createUserscriptFetch();
   PreviewRuntime.setPreviewRuntimeFetch(userscriptFetch);
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.0";
@@ -340,8 +340,8 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const BOKUTACHI_HOST = "boku.tachi.ac";
   const BOKUTACHI_CHART_PATH_PATTERN = /^\/games\/([^/]+)\/charts\/([^/]+)\/?$/;
   const BMS_IR_SELECTORS = {
-    displaySwitcherCandidates: "#box > p",
-    displaySwitcherButton: "a.button"
+    tagSectionPanel: "#box > div.panel.song-section-tags",
+    songTitle: "#box > h1"
   };
   const BMS_IR_THEME = {
     dctx: "#cfcfcf",
@@ -1070,12 +1070,12 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
 
       // 現在のウィンドウのGETパラメータを取得
       const targetmd5 = new URL(window.location.href).searchParams.get("songmd5");
-      const displaySwitcherElement = findBmsIrDisplaySwitcherElement();
+      const insertion = findBmsIrMetadataInsertion();
 
-      if (BMS_IR_MD5_PATTERN.test(targetmd5 ?? "") && displaySwitcherElement) {
+      if (BMS_IR_MD5_PATTERN.test(targetmd5 ?? "") && insertion) {
         const pageContext = {
           identifiers: { md5: targetmd5, sha256: null, bmsid: null },
-          insertion: { element: displaySwitcherElement, position: "beforebegin" },
+          insertion,
           theme: BMS_IR_THEME
         };
         // テンプレートを挿入
@@ -1087,30 +1087,23 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
           console.error("❌ 外部データの取得とページの書き換えが失敗しました");
         }
       } else {
-        console.info("❌ BMS-IRのページ書き換えはスキップされました。MD5か表示切替要素が取得できませんでした");
+        console.info("❌ BMS-IRのページ書き換えはスキップされました。MD5か挿入先要素が取得できませんでした");
       }
     }
   }
 
-  function findBmsIrDisplaySwitcherElement() {
-    const candidates = Array.from(document.querySelectorAll(BMS_IR_SELECTORS.displaySwitcherCandidates));
-    return candidates.find((element) => {
-      if (!element.textContent.trim().startsWith("表示:")) {
-        return false;
-      }
-
-      const buttons = Array.from(element.querySelectorAll(BMS_IR_SELECTORS.displaySwitcherButton));
-      return ["new", "old", "both"].every((view) => buttons.some((button) => isBmsIrViewButton(button, view)));
-    }) ?? null;
-  }
-
-  function isBmsIrViewButton(button, view) {
-    try {
-      const url = new URL(button.getAttribute("href") ?? button.href, location.href);
-      return url.pathname === BMS_IR_SONG_PATH && url.searchParams.get("view") === view;
-    } catch {
-      return false;
+  function findBmsIrMetadataInsertion() {
+    const tagSectionPanel = document.querySelector(BMS_IR_SELECTORS.tagSectionPanel);
+    if (tagSectionPanel) {
+      return { element: tagSectionPanel, position: "beforebegin" };
     }
+
+    const songTitle = document.querySelector(BMS_IR_SELECTORS.songTitle);
+    if (songTitle) {
+      return { element: songTitle, position: "beforebegin" };
+    }
+
+    return null;
   }
 
   // ====================================================================================================

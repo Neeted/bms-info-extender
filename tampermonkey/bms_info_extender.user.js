@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.18
+// @version      2.3.19
 // @description  BMS-IR、Bokutachi、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
@@ -26,6 +26,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.19 STELLAVERSE投票ページでの動作を修正、譜面未アップロード投票ページでも動作するようにした、通常は提案者が必ず譜面をアップロードするので失念していたが、AI提案で思い出した
 // 2.3.18 STELLAVERSE IR曲ページへのメタデータ表示とLINK追加、LINK並び順と現在サイトリンク非表示を調整
 // 2.3.17 BMS-IR曲ページで拡張パネルをタグパネル手前へ挿入し、曲名手前へのフォールバックを追加
 // 2.3.16 Bokutachi譜面ページへのメタデータ表示に対応、Bokutachiページの@match調整とShadow DOM内UIの基準フォントサイズ明示
@@ -12037,7 +12038,7 @@
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.18";
+    const SCRIPT_VERSION_FALLBACK = "2.3.19";
     const userscriptFetch = createUserscriptFetch();
     setPreviewRuntimeFetch(userscriptFetch);
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.18";
@@ -12614,6 +12615,13 @@
     const BMS_IR_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
     const BOKUTACHI_HOST = "boku.tachi.ac";
     const BOKUTACHI_CHART_PATH_PATTERN = /^\/games\/([^/]+)\/charts\/([^/]+)\/?$/;
+    const STELLAVERSE_HOST = "stellabms.xyz";
+    const STELLAVERSE_THREAD_PATH_PATTERN = /^\/thread\/(\d+)\/?$/;
+    const STELLAVERSE_SITE_ID = PREVIEW_LINK_SITE.stellaverse;
+    const STELLAVERSE_ELAPSED_TIME_SELECTOR = '[data-bmsie-stellaverse-elapsed-time="true"]';
+    const STELLAVERSE_TABLE_MARKER_SELECTOR = '[data-bmsie-stellaverse-table="true"]';
+    const STELLAVERSE_VIEWER_HOST = "bms-score-viewer.pages.dev";
+    const STELLAVERSE_VIEWER_PATH_PATTERN = /^\/view\/?$/;
     const STELLAVERSE_IR_HOST = "ir.stellabms.xyz";
     const STELLAVERSE_IR_CHART_PATH_PATTERN = /^\/charts\/([0-9a-fA-F]{32})\/?$/;
     const STELLAVERSE_IR_SITE_ID = PREVIEW_LINK_SITE.stellaverseIr;
@@ -12676,28 +12684,26 @@
       linkHoverColor: "#ff88ff"
     };
     const STELLAVERSE_SELECTORS = {
+      pageMain: "#scroll-area > section > main",
+      breadcrumbPage: '[data-slot="breadcrumb-page"]',
       threadRoot: "#thread-1",
+      threadRootFallback: '[id^="thread-"]',
       targetElem: "#scroll-area > section > main > h2",
       tableContainer: '[data-slot="table-container"]',
+      tableBody: '[data-slot="table-body"]',
       tableRow: '[data-slot="table-row"]',
       tableHead: '[data-slot="table-head"]',
       tableCell: '[data-slot="table-cell"]',
       anchor: "a"
     };
-    const STELLAVERSE_INDEXES = {
-      levelCell: 0,
-      keyCell: 1,
-      bpmCell: 2,
-      notesCell: 3,
-      judgeCell: 4,
-      totalCell: 5,
-      songUrlCell: 6,
-      chartUrlCell: 7,
-      commentCell: 8,
-      irLinksCell: 9,
-      viewerLinkCell: 10,
-      // 0:レベル行、1:BPM行、2:判定行、3:曲URL行、4:差分URL行、5:コメント行、6:IRリンク行
-      removeRowsAfterSuccess: [0, 1, 6]
+    const STELLAVERSE_TABLE_LAYOUT = {
+      chartStatsRowCount: 3,
+      pairedFieldCount: 2,
+      bpmNotesRow: 1,
+      notesField: 1,
+      judgeTotalRow: 2,
+      totalField: 1,
+      duplicateChartRows: [0, 1]
     };
     const MINIR_SELECTORS = {
       targetElement: "#root > div > div > div > div.compact.tabulator"
@@ -12953,7 +12959,7 @@
         return;
       }
       switch (location.hostname) {
-        case "stellabms.xyz":
+        case STELLAVERSE_HOST:
           stellaverse();
           break;
         case STELLAVERSE_IR_HOST:
@@ -13000,6 +13006,30 @@
     }
     function isBokutachiChartUrl(url) {
       return Boolean(getBokutachiChartRoute(url));
+    }
+    function getStellaverseThreadPageKey(url) {
+      try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.hostname !== STELLAVERSE_HOST) {
+          return null;
+        }
+        const match = parsedUrl.pathname.match(STELLAVERSE_THREAD_PATH_PATTERN);
+        return match ? match[1] : null;
+      } catch {
+        return null;
+      }
+    }
+    function isStellaverseThreadUrl(url) {
+      return Boolean(getStellaverseThreadPageKey(url));
+    }
+    function getRenderedStellaverseThreadPageKeys() {
+      const breadcrumbText = document.querySelector(STELLAVERSE_SELECTORS.breadcrumbPage)?.textContent ?? "";
+      const renderedTexts = [breadcrumbText, document.title];
+      return Array.from(new Set(renderedTexts.map((text) => text.match(/#(\d+)/)?.[1] ?? null).filter(Boolean)));
+    }
+    function isRenderedStellaverseThreadCurrent(pageKey) {
+      const renderedPageKeys = getRenderedStellaverseThreadPageKeys();
+      return renderedPageKeys.length === 0 || renderedPageKeys.length === 1 && renderedPageKeys[0] === pageKey;
     }
     function getStellaverseIrChartMd5(url) {
       try {
@@ -13143,7 +13173,7 @@
         return hasOwnedMutationNode;
       }
       function isBmsInfoOwnedMutationNode(node) {
-        return node instanceof Element && (node.id === "bmsdata-container" || node.id === PREVIEW_OVERLAY_HOST_ID);
+        return node instanceof Element && (node.id === "bmsdata-container" || node.id === PREVIEW_OVERLAY_HOST_ID || node.matches?.(STELLAVERSE_ELAPSED_TIME_SELECTOR));
       }
       function stopObserving() {
         if (observer) {
@@ -13246,15 +13276,189 @@
       }
       return matchedAnchor;
     }
+    function findStellaverseHeadingBeforeTable(tableContainer) {
+      for (let sibling = tableContainer?.previousElementSibling ?? null; sibling; sibling = sibling.previousElementSibling) {
+        if (sibling.matches("h1, h2, h3, h4, h5, h6")) {
+          return sibling;
+        }
+      }
+      return null;
+    }
     function getStellaverseDomRefs() {
-      const threadRoot = document.querySelector(STELLAVERSE_SELECTORS.threadRoot);
-      const targetElem = document.querySelector(STELLAVERSE_SELECTORS.targetElem);
-      const tableContainer = document.querySelector(STELLAVERSE_SELECTORS.tableContainer);
-      const tableRows = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableRow)) : [];
-      const tableHeads = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableHead)) : [];
-      const tableCells = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableCell)) : [];
+      const preferredThreadRoot = document.querySelector(STELLAVERSE_SELECTORS.threadRoot);
+      const pageMain = preferredThreadRoot?.closest("main") ?? document.querySelector(STELLAVERSE_SELECTORS.pageMain) ?? document.querySelector("main");
+      const fallbackThreadRoot = pageMain?.querySelector(STELLAVERSE_SELECTORS.threadRootFallback) ?? document.querySelector(STELLAVERSE_SELECTORS.threadRootFallback);
+      const threadRoot = preferredThreadRoot ?? fallbackThreadRoot;
+      const allTableCandidates = Array.from(document.querySelectorAll(STELLAVERSE_SELECTORS.tableContainer));
+      const scopedTableCandidates = pageMain ? allTableCandidates.filter((candidate) => pageMain.contains(candidate)) : [];
+      const tableCandidates = scopedTableCandidates.length > 0 ? scopedTableCandidates : allTableCandidates;
+      const currentPageKey = getStellaverseThreadPageKey(location.href);
+      const hasKnownMd5Link = (candidate) => {
+        const candidateAnchors = Array.from(candidate.querySelectorAll(STELLAVERSE_SELECTORS.anchor));
+        return Boolean(findStellaverseMd5Match(candidateAnchors));
+      };
+      const markedCurrentTable = currentPageKey ? tableCandidates.find((candidate) => {
+        return candidate.matches(STELLAVERSE_TABLE_MARKER_SELECTOR) && candidate.dataset?.bmsieStellaversePageKey === currentPageKey;
+      }) : null;
+      let tableImmediatelyBeforeThread = null;
+      let tableBeforeThread = null;
+      if (threadRoot) {
+        for (const candidate of tableCandidates) {
+          if (candidate.compareDocumentPosition(threadRoot) & Node.DOCUMENT_POSITION_FOLLOWING) {
+            tableBeforeThread = candidate;
+            if (candidate.parentElement === threadRoot.parentElement) {
+              tableImmediatelyBeforeThread = candidate;
+            }
+          }
+        }
+      }
+      const tableContainer = tableCandidates.find(hasKnownMd5Link) ?? markedCurrentTable ?? tableImmediatelyBeforeThread ?? tableBeforeThread ?? tableCandidates[0] ?? null;
+      const targetElem = findStellaverseHeadingBeforeTable(tableContainer) ?? pageMain?.querySelector("h2") ?? document.querySelector(STELLAVERSE_SELECTORS.targetElem);
+      const tableBody = tableContainer?.querySelector(STELLAVERSE_SELECTORS.tableBody) ?? null;
+      const directTableRows = tableBody ? Array.from(tableBody.children).filter((element) => element.matches?.(STELLAVERSE_SELECTORS.tableRow)) : [];
+      const tableRows = directTableRows.length > 0 ? directTableRows : tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableRow)) : [];
+      const rowPairs = tableRows.map(getStellaverseRowPairs);
+      const tableHeads = rowPairs.flatMap((pairs) => pairs?.map(({ head }) => head) ?? []);
+      const tableCells = rowPairs.flatMap((pairs) => pairs?.map(({ cell }) => cell) ?? []);
       const anchors = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.anchor)) : [];
       return { threadRoot, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors };
+    }
+    function markStellaverseTableContainer(tableContainer, pageKey, md5) {
+      document.querySelectorAll(STELLAVERSE_TABLE_MARKER_SELECTOR).forEach((candidate) => {
+        if (candidate !== tableContainer) {
+          candidate.removeAttribute("data-bmsie-stellaverse-table");
+          candidate.removeAttribute("data-bmsie-stellaverse-page-key");
+          candidate.removeAttribute("data-bmsie-stellaverse-md5");
+        }
+      });
+      tableContainer.dataset.bmsieStellaverseTable = "true";
+      tableContainer.dataset.bmsieStellaversePageKey = pageKey;
+      tableContainer.dataset.bmsieStellaverseMd5 = md5;
+    }
+    function clearStellaverseTableMarkers(exceptPageKey = null) {
+      document.querySelectorAll(STELLAVERSE_TABLE_MARKER_SELECTOR).forEach((candidate) => {
+        if (exceptPageKey && candidate.dataset?.bmsieStellaversePageKey === exceptPageKey) {
+          return;
+        }
+        candidate.removeAttribute("data-bmsie-stellaverse-table");
+        candidate.removeAttribute("data-bmsie-stellaverse-page-key");
+        candidate.removeAttribute("data-bmsie-stellaverse-md5");
+      });
+    }
+    function getStellaverseRowPairs(row) {
+      const directChildren = Array.from(row.children);
+      if (directChildren.length === 0 || directChildren.length % 2 !== 0) {
+        return null;
+      }
+      const pairs = [];
+      for (let index = 0; index < directChildren.length; index += 2) {
+        const head = directChildren[index];
+        const cell = directChildren[index + 1];
+        if (!head.matches(STELLAVERSE_SELECTORS.tableHead) || !cell.matches(STELLAVERSE_SELECTORS.tableCell)) {
+          return null;
+        }
+        pairs.push({ head, cell });
+      }
+      return pairs;
+    }
+    function getStellaverseChartStatsCells(tableRows) {
+      const chartStatsRows = tableRows.slice(0, STELLAVERSE_TABLE_LAYOUT.chartStatsRowCount);
+      if (chartStatsRows.length !== STELLAVERSE_TABLE_LAYOUT.chartStatsRowCount) {
+        return null;
+      }
+      const rowPairs = chartStatsRows.map(getStellaverseRowPairs);
+      if (!rowPairs.every((pairs) => pairs?.length === STELLAVERSE_TABLE_LAYOUT.pairedFieldCount)) {
+        return null;
+      }
+      const notesCell = rowPairs[STELLAVERSE_TABLE_LAYOUT.bpmNotesRow]?.[STELLAVERSE_TABLE_LAYOUT.notesField]?.cell;
+      const totalCell = rowPairs[STELLAVERSE_TABLE_LAYOUT.judgeTotalRow]?.[STELLAVERSE_TABLE_LAYOUT.totalField]?.cell;
+      if (!notesCell || !totalCell) {
+        return null;
+      }
+      const notes = parseStellaverseCellNumber(notesCell);
+      const total = parseStellaverseCellNumber(totalCell);
+      if (!Number.isFinite(notes) || notes <= 0 || !Number.isFinite(total) || total < 0) {
+        return null;
+      }
+      return {
+        notesCell,
+        totalCell,
+        duplicateRows: STELLAVERSE_TABLE_LAYOUT.duplicateChartRows.map((index) => chartStatsRows[index]).filter(Boolean)
+      };
+    }
+    function getStellaverseViewerMd5(href) {
+      try {
+        const parsedUrl = new URL(href, location.href);
+        if (parsedUrl.hostname !== STELLAVERSE_VIEWER_HOST || !STELLAVERSE_VIEWER_PATH_PATTERN.test(parsedUrl.pathname)) {
+          return null;
+        }
+        const md5 = parsedUrl.searchParams.get("md5");
+        return BMS_IR_MD5_PATTERN.test(md5 ?? "") ? md5.toLowerCase() : null;
+      } catch {
+        return null;
+      }
+    }
+    function findStellaverseMd5Match(anchors) {
+      const findMatch = (extractMd5) => {
+        for (const anchor of anchors) {
+          const md5 = extractMd5(anchor.href);
+          if (md5) {
+            return {
+              md5,
+              anchor,
+              row: anchor.closest(STELLAVERSE_SELECTORS.tableRow)
+            };
+          }
+        }
+        return null;
+      };
+      const viewerMatch = findMatch(getStellaverseViewerMd5);
+      const irMatch = findMatch(getStellaverseIrChartMd5);
+      if (viewerMatch && irMatch && viewerMatch.md5 !== irMatch.md5) {
+        return null;
+      }
+      return viewerMatch ?? irMatch;
+    }
+    function getStellaverseRowsToRemoveAfterSuccess(tableRows, chartStats, md5Match) {
+      const rows = chartStats ? [...chartStats.duplicateRows] : [];
+      const linkRow = md5Match.row;
+      if (linkRow && tableRows.includes(linkRow)) {
+        const linkRowPairs = getStellaverseRowPairs(linkRow);
+        if (linkRowPairs?.length === STELLAVERSE_TABLE_LAYOUT.pairedFieldCount) {
+          rows.push(linkRow);
+        }
+      }
+      return Array.from(new Set(rows));
+    }
+    function compactStellaverseTable(domRefs) {
+      domRefs.tableRows.forEach((element) => {
+        element.style.borderBottomWidth = "0";
+      });
+      domRefs.tableHeads.forEach((element) => {
+        element.style.height = "1.2rem";
+        element.style.lineHeight = "100%";
+        element.style.padding = "0.1rem 0.2rem";
+        element.style.fontFamily = '"Inconsolata"';
+      });
+      domRefs.tableCells.forEach((element) => {
+        element.style.lineHeight = "100%";
+        element.style.padding = "0.1rem 0.2rem";
+        element.style.fontFamily = '"Inconsolata"';
+      });
+    }
+    function parseStellaverseCellNumber(cell) {
+      const normalizedText = cell.textContent.trim().replace(/(\d),(?=\d{3}(?:\D|$))/g, "$1");
+      return Number.parseFloat(normalizedText);
+    }
+    function enhanceStellaverseUndefinedTotal(chartStats) {
+      const total = parseStellaverseCellNumber(chartStats.totalCell);
+      const notes = parseStellaverseCellNumber(chartStats.notesCell);
+      if (total !== 0 || !Number.isFinite(notes) || notes <= 0) {
+        return;
+      }
+      const beatorajaTotal = Math.max(260, 7.605 * notes / (0.01 * notes + 6.5));
+      const lr2Total = 160 + (notes + Math.min(Math.max(notes - 400, 0), 200)) * 0.16;
+      chartStats.totalCell.textContent = `0, so #TOTAL is undefined. beatoraja is ${beatorajaTotal.toFixed(2)}(${(beatorajaTotal / notes).toFixed(3)}T/N), LR2 is ${lr2Total.toFixed(2)}(${(lr2Total / notes).toFixed(3)}T/N).`;
     }
     function extractStellaversePostedDatetime(threadRoot) {
       const datePattern = /@\s*(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})/;
@@ -13265,6 +13469,85 @@
         }
       }
       return null;
+    }
+    function parseStellaversePostedDate(postedDatetime) {
+      const match = postedDatetime.match(/^(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+      if (!match) {
+        return null;
+      }
+      const postedDate = new Date(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3]),
+        Number(match[4]),
+        Number(match[5]),
+        Number(match[6])
+      );
+      return Number.isNaN(postedDate.getTime()) ? null : postedDate;
+    }
+    function isCurrentStellaverseElapsedTimeElement(element, domRefs) {
+      if (domRefs.targetElem) {
+        return domRefs.targetElem.nextElementSibling === element;
+      }
+      return domRefs.threadRoot?.previousElementSibling === element;
+    }
+    function insertStellaverseElapsedTime(domRefs, pageKey) {
+      const existingElements = Array.from(document.querySelectorAll(STELLAVERSE_ELAPSED_TIME_SELECTOR));
+      if (!domRefs.threadRoot) {
+        existingElements.forEach((element) => element.remove());
+        return;
+      }
+      const postedDatetime = extractStellaversePostedDatetime(domRefs.threadRoot);
+      if (!postedDatetime) {
+        existingElements.forEach((element) => element.remove());
+        console.info("❌ 投稿日時がパースできませんでした。メタデータ処理は継続します");
+        return;
+      }
+      const currentElement = existingElements.find((element) => {
+        return element.dataset?.bmsiePageKey === pageKey && element.dataset?.bmsiePostedDatetime === postedDatetime && isCurrentStellaverseElapsedTimeElement(element, domRefs);
+      });
+      if (currentElement) {
+        existingElements.filter((element) => element !== currentElement).forEach((element) => element.remove());
+        return;
+      }
+      existingElements.forEach((element) => element.remove());
+      const postedDate = parseStellaversePostedDate(postedDatetime);
+      if (!postedDate) {
+        console.info("❌ 投稿日時を日付へ変換できませんでした。メタデータ処理は継続します");
+        return;
+      }
+      const now = /* @__PURE__ */ new Date();
+      const diffMs = now - postedDate;
+      const diffDays = Math.floor(diffMs / (1e3 * 60 * 60 * 24));
+      const diffHours = Math.floor(diffMs % (1e3 * 60 * 60 * 24) / (1e3 * 60 * 60));
+      const diffMinutes = Math.floor(diffMs % (1e3 * 60 * 60) / (1e3 * 60));
+      const elapsedTimeElement = document.createElement("p");
+      elapsedTimeElement.dataset.bmsieStellaverseElapsedTime = "true";
+      elapsedTimeElement.dataset.bmsiePageKey = pageKey;
+      elapsedTimeElement.dataset.bmsiePostedDatetime = postedDatetime;
+      elapsedTimeElement.textContent = `Elapsed time: ${diffDays} days ${String(diffHours).padStart(2, "0")} hours ${String(diffMinutes).padStart(2, "0")} minutes`;
+      if (domRefs.targetElem) {
+        domRefs.targetElem.insertAdjacentElement("afterend", elapsedTimeElement);
+      } else {
+        domRefs.threadRoot.insertAdjacentElement("beforebegin", elapsedTimeElement);
+      }
+    }
+    function isStellaverseDarkMode() {
+      const inlineColorScheme = document.documentElement.style.getPropertyValue("color-scheme").trim().toLowerCase();
+      if (inlineColorScheme.includes("dark")) {
+        return true;
+      }
+      if (inlineColorScheme.includes("light")) {
+        return false;
+      }
+      const computedColorScheme = window.getComputedStyle?.(document.documentElement)?.colorScheme?.toLowerCase() ?? "";
+      if (computedColorScheme.includes("dark")) {
+        return true;
+      }
+      if (computedColorScheme.includes("light")) {
+        return false;
+      }
+      return Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches);
     }
     function getMochaSongInfoRefs() {
       const songInfoTable = document.querySelector(MOCHA_SELECTORS.songInfoTable);
@@ -13528,103 +13811,169 @@
         }
       }
     }
+    function isStellaverseBmsDataContainer(container) {
+      const siteId = container.dataset?.bmsieSite;
+      return siteId === STELLAVERSE_SITE_ID || !siteId;
+    }
+    function cleanupStellaversePageArtifacts() {
+      removeBmsDataContainers(isStellaverseBmsDataContainer);
+      document.querySelectorAll(STELLAVERSE_ELAPSED_TIME_SELECTOR).forEach((element) => element.remove());
+      clearStellaverseTableMarkers();
+    }
+    function cleanupStellaversePageArtifactsExcept(pageKey) {
+      removeBmsDataContainers((container) => {
+        if (!isStellaverseBmsDataContainer(container)) {
+          return false;
+        }
+        return container.dataset?.bmsiePageKey !== pageKey;
+      });
+      document.querySelectorAll(STELLAVERSE_ELAPSED_TIME_SELECTOR).forEach((element) => {
+        if (element.dataset?.bmsiePageKey !== pageKey) {
+          element.remove();
+        }
+      });
+      clearStellaverseTableMarkers(pageKey);
+    }
+    function findStellaverseBmsDataContainer(pageKey) {
+      return Array.from(document.querySelectorAll("#bmsdata-container")).find((container) => {
+        return container.dataset?.bmsieSite === STELLAVERSE_SITE_ID && container.dataset?.bmsiePageKey === pageKey;
+      }) ?? null;
+    }
+    function isCurrentStellaverseBmsDataContainer(container, pageKey, domRefs) {
+      return container.isConnected && container.dataset?.bmsieSite === STELLAVERSE_SITE_ID && container.dataset?.bmsiePageKey === pageKey && Boolean(container.__bmsPreviewRuntime) && domRefs.tableContainer?.nextElementSibling === container;
+    }
+    function collapseStellaversePanelGap(tableContainer, container) {
+      container.style.removeProperty("margin-block-start");
+      if (!tableContainer || tableContainer.nextElementSibling !== container || container.parentElement !== tableContainer.parentElement) {
+        return;
+      }
+      const tableRect = tableContainer.getBoundingClientRect();
+      const panelRect = container.getBoundingClientRect();
+      const renderedGap = panelRect.top - tableRect.bottom;
+      if (!Number.isFinite(renderedGap) || renderedGap <= 0) {
+        return;
+      }
+      container.style.marginBlockStart = `-${renderedGap}px`;
+    }
+    async function waitForStellaversePanelToSettle(container, pageKey) {
+      await waitForAnimationFrame();
+      await waitForAnimationFrame();
+      if (getStellaverseThreadPageKey(location.href) !== pageKey || !isRenderedStellaverseThreadCurrent(pageKey)) {
+        return false;
+      }
+      const domRefs = getStellaverseDomRefs();
+      return isCurrentStellaverseBmsDataContainer(container, pageKey, domRefs);
+    }
     async function stellaverse() {
       console.info("STELLAVERSEの処理に入りました");
       watchSpaPage({
         siteName: "STELLAVERSE",
-        matchUrl: (url) => url.startsWith("https://stellabms.xyz/thread/"),
-        updatePage
+        matchUrl: isStellaverseThreadUrl,
+        updatePage,
+        cleanupPage: cleanupStellaversePageArtifacts
       });
       async function updatePage({ markUpdated }) {
-        if (!location.href.startsWith("https://stellabms.xyz/thread/")) {
+        const pageKey = getStellaverseThreadPageKey(location.href);
+        if (!pageKey) {
           return;
         }
         console.info("スレッドページの書き換え処理に入りました");
-        if (document.getElementById("bmsdata-container")) {
-          console.info("前回の拡張情報がまだ残っているためスキップします");
+        cleanupStellaversePageArtifactsExcept(pageKey);
+        if (!isRenderedStellaverseThreadCurrent(pageKey)) {
+          console.info("STELLAVERSEのURLに対して描画中のスレッドがまだ切り替わっていません");
           return;
         }
-        const { threadRoot, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors } = getStellaverseDomRefs();
-        if (!threadRoot || !targetElem || !tableContainer) {
-          console.info("処理対象エレメントのいずれかが見つかりません");
+        const domRefs = getStellaverseDomRefs();
+        if (!domRefs.tableContainer) {
+          console.info("処理対象の譜面情報テーブルがまだ見つかりません");
           return;
         }
-        const postedDatetime = extractStellaversePostedDatetime(threadRoot);
-        if (!postedDatetime) {
-          console.info("❌ 投稿日時がパースできませんでした");
-          return;
-        }
-        const postedDate = new Date(postedDatetime.replace(/\//g, "-"));
-        const now = /* @__PURE__ */ new Date();
-        const diffMs = now - postedDate;
-        const diffDays = Math.floor(diffMs / (1e3 * 60 * 60 * 24));
-        const diffHours = Math.floor(diffMs % (1e3 * 60 * 60 * 24) / (1e3 * 60 * 60));
-        const diffMinutes = Math.floor(diffMs % (1e3 * 60 * 60) / (1e3 * 60));
-        const elapsedText = `Elapsed time: ${diffDays} days ${String(diffHours).padStart(2, "0")} hours ${String(diffMinutes).padStart(2, "0")} minutes`;
-        const elapsedTimeElement = document.createElement("p");
-        elapsedTimeElement.textContent = elapsedText;
-        targetElem.insertAdjacentElement("afterend", elapsedTimeElement);
-        markUpdated();
-        tableRows.forEach((el) => {
-          el.style.borderBottomWidth = "0";
-        });
-        tableHeads.forEach((el) => {
-          el.style.height = "1.2rem";
-          el.style.lineHeight = "100%";
-          el.style.padding = "0.1rem 0.2rem";
-          el.style.fontFamily = '"Inconsolata"';
-        });
-        tableCells.forEach((el) => {
-          el.style.lineHeight = "100%";
-          el.style.padding = "0.1rem 0.2rem";
-          el.style.fontFamily = '"Inconsolata"';
-        });
-        const totalCellElement = tableCells[STELLAVERSE_INDEXES.totalCell];
-        const notesCellElement = tableCells[STELLAVERSE_INDEXES.notesCell];
-        if (!totalCellElement || !notesCellElement) {
-          console.info("TOTALかNOTESのセルが見つかりません");
-          return;
-        }
-        const total = Number(totalCellElement.textContent.trim());
-        const notes = Number(notesCellElement.textContent.trim());
-        let beatorajaTotal;
-        let lr2Total;
-        if (total === 0) {
-          beatorajaTotal = Math.max(260, 7.605 * notes / (0.01 * notes + 6.5));
-          lr2Total = 160 + (notes + Math.min(Math.max(notes - 400, 0), 200)) * 0.16;
-          totalCellElement.textContent = `0, so #TOTAL is undefined. beatoraja is ${beatorajaTotal.toFixed(2)}(${(beatorajaTotal / notes).toFixed(3)}T/N), LR2 is ${lr2Total.toFixed(2)}(${(lr2Total / notes).toFixed(3)}T/N).`;
-        }
-        let targetmd5 = null;
-        for (const a of anchors) {
-          const href = a.href;
-          const match = href.match(/[a-f0-9]{32}$/i);
-          if (match) {
-            targetmd5 = match[0].toLowerCase();
-            break;
-          }
-        }
-        if (targetmd5) {
-          const isDarkMode = document.documentElement.style.getPropertyValue("color-scheme").includes("dark");
-          const pageContext = {
-            identifiers: { md5: targetmd5, sha256: null, bmsid: null },
-            insertion: { element: tableContainer, position: "beforeend" },
-            theme: isDarkMode ? STELLAVERSE_THEMES.dark : STELLAVERSE_THEMES.light,
-            currentSite: PREVIEW_LINK_SITE.stellaverse
-          };
-          const container = insertBmsDataTemplate(pageContext);
-          const insertResult = await insertBmsData(pageContext, container);
-          if (insertResult.ok) {
-            console.info("✅ 外部データの取得とページの書き換えが成功しました");
-            const rowsToRemoveAfterSuccess = STELLAVERSE_INDEXES.removeRowsAfterSuccess.map((index) => tableRows[index]).filter(Boolean);
-            rowsToRemoveAfterSuccess.forEach((row) => {
-              row.remove();
-            });
-          } else {
-            console.error("❌ 外部データの取得とページの書き換えが失敗しました");
-          }
+        insertStellaverseElapsedTime(domRefs, pageKey);
+        compactStellaverseTable(domRefs);
+        const chartStats = getStellaverseChartStatsCells(domRefs.tableRows);
+        if (chartStats) {
+          enhanceStellaverseUndefinedTotal(chartStats);
         } else {
-          console.info("❌ STELLAVERSEのページ書き換えはスキップされました。MD5が取得できませんでした");
+          console.info("STELLAVERSE側に譜面統計3行がないため、TOTAL/NOTESの取得と補正をスキップします");
         }
+        const md5Match = findStellaverseMd5Match(domRefs.anchors);
+        if (!md5Match) {
+          console.info("❌ STELLAVERSEのページ書き換えは保留されました。MD5リンクがまだ見つかりませんでした");
+          return;
+        }
+        const targetmd5 = md5Match.md5;
+        const existingContainer = findStellaverseBmsDataContainer(pageKey);
+        if (existingContainer) {
+          if (isCurrentStellaverseBmsDataContainer(existingContainer, pageKey, domRefs)) {
+            collapseStellaversePanelGap(domRefs.tableContainer, existingContainer);
+            console.info("既に現在ページ用のbmsdataが挿入済みのためスキップします");
+            markUpdated();
+            return;
+          }
+          destroyBmsDataContainer(existingContainer);
+        }
+        const pageContext = {
+          identifiers: { md5: targetmd5, sha256: null, bmsid: null },
+          // table-body の行数に依存せず、テーブルコンポーネントの外側へ差し込む。
+          // 親レイアウト由来の隙間は、パネル描画後に実測して相殺する。
+          insertion: { element: domRefs.tableContainer, position: "afterend" },
+          theme: isStellaverseDarkMode() ? STELLAVERSE_THEMES.dark : STELLAVERSE_THEMES.light,
+          currentSite: STELLAVERSE_SITE_ID,
+          siteId: STELLAVERSE_SITE_ID,
+          pageKey
+        };
+        const container = insertBmsDataTemplate(pageContext);
+        const insertResult = await insertBmsData(pageContext, container);
+        if (!insertResult.ok) {
+          if (insertResult.reason === "detached") {
+            console.info("STELLAVERSEのデータ取得中にbmsdataがDOMから外されたため、再試行を待ちます");
+            return { retry: true };
+          }
+          markUpdated();
+          console.error("❌ 外部データの取得とページの書き換えが失敗しました");
+          return;
+        }
+        collapseStellaversePanelGap(domRefs.tableContainer, container);
+        if (getStellaverseThreadPageKey(location.href) !== pageKey) {
+          destroyBmsDataContainer(container);
+          return;
+        }
+        if (!await waitForStellaversePanelToSettle(container, pageKey)) {
+          console.info("STELLAVERSEのDOM差し替え後にbmsdataが残らなかったため、再試行を待ちます");
+          destroyBmsDataContainer(container);
+          return { retry: true };
+        }
+        const settledDomRefs = getStellaverseDomRefs();
+        const settledMd5Match = findStellaverseMd5Match(settledDomRefs.anchors);
+        if (!isRenderedStellaverseThreadCurrent(pageKey) || !settledDomRefs.tableContainer || settledMd5Match?.md5 !== targetmd5) {
+          console.info("STELLAVERSEの現在DOMと取得対象MD5が一致しないため、再試行を待ちます");
+          destroyBmsDataContainer(container);
+          return { retry: true };
+        }
+        collapseStellaversePanelGap(settledDomRefs.tableContainer, container);
+        markStellaverseTableContainer(settledDomRefs.tableContainer, pageKey, targetmd5);
+        compactStellaverseTable(settledDomRefs);
+        const settledChartStats = getStellaverseChartStatsCells(settledDomRefs.tableRows);
+        if (settledChartStats) {
+          enhanceStellaverseUndefinedTotal(settledChartStats);
+        }
+        const rowsToRemoveAfterSuccess = getStellaverseRowsToRemoveAfterSuccess(
+          settledDomRefs.tableRows,
+          settledChartStats,
+          settledMd5Match
+        );
+        rowsToRemoveAfterSuccess.forEach((row) => row.remove());
+        await waitForAnimationFrame();
+        await waitForAnimationFrame();
+        const finalDomRefs = getStellaverseDomRefs();
+        if (!isRenderedStellaverseThreadCurrent(pageKey) || !isCurrentStellaverseBmsDataContainer(container, pageKey, finalDomRefs)) {
+          console.info("STELLAVERSEの行整理後にbmsdataがDOMから外されたため、再試行を待ちます");
+          destroyBmsDataContainer(container);
+          return { retry: true };
+        }
+        collapseStellaversePanelGap(finalDomRefs.tableContainer, container);
+        console.info("✅ 外部データの取得とページの書き換えが成功しました");
+        markUpdated();
       }
     }
     async function minir() {

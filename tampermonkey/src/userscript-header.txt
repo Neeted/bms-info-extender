@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.18
+// @version      2.3.19
 // @description  BMS-IR、Bokutachi、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
@@ -26,6 +26,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.19 STELLAVERSE投票ページでの動作を修正、譜面未アップロード投票ページでも動作するようにした、通常は提案者が必ず譜面をアップロードするので失念していたが、AI提案で思い出した
 // 2.3.18 STELLAVERSE IR曲ページへのメタデータ表示とLINK追加、LINK並び順と現在サイトリンク非表示を調整
 // 2.3.17 BMS-IR曲ページで拡張パネルをタグパネル手前へ挿入し、曲名手前へのフォールバックを追加
 // 2.3.16 Bokutachi譜面ページへのメタデータ表示に対応、Bokutachiページの@match調整とShadow DOM内UIの基準フォントサイズ明示

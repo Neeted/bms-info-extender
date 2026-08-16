@@ -14,7 +14,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
   const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.18";
+  const SCRIPT_VERSION_FALLBACK = "2.3.19";
   const userscriptFetch = createUserscriptFetch();
   PreviewRuntime.setPreviewRuntimeFetch(userscriptFetch);
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.18";
@@ -594,6 +594,13 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const BMS_IR_MD5_PATTERN = /^[0-9a-fA-F]{32}$/;
   const BOKUTACHI_HOST = "boku.tachi.ac";
   const BOKUTACHI_CHART_PATH_PATTERN = /^\/games\/([^/]+)\/charts\/([^/]+)\/?$/;
+  const STELLAVERSE_HOST = "stellabms.xyz";
+  const STELLAVERSE_THREAD_PATH_PATTERN = /^\/thread\/(\d+)\/?$/;
+  const STELLAVERSE_SITE_ID = PreviewRuntime.PREVIEW_LINK_SITE.stellaverse;
+  const STELLAVERSE_ELAPSED_TIME_SELECTOR = '[data-bmsie-stellaverse-elapsed-time="true"]';
+  const STELLAVERSE_TABLE_MARKER_SELECTOR = '[data-bmsie-stellaverse-table="true"]';
+  const STELLAVERSE_VIEWER_HOST = "bms-score-viewer.pages.dev";
+  const STELLAVERSE_VIEWER_PATH_PATTERN = /^\/view\/?$/;
   const STELLAVERSE_IR_HOST = "ir.stellabms.xyz";
   const STELLAVERSE_IR_CHART_PATH_PATTERN = /^\/charts\/([0-9a-fA-F]{32})\/?$/;
   const STELLAVERSE_IR_SITE_ID = PreviewRuntime.PREVIEW_LINK_SITE.stellaverseIr;
@@ -656,28 +663,26 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     linkHoverColor: "#ff88ff"
   };
   const STELLAVERSE_SELECTORS = {
+    pageMain: "#scroll-area > section > main",
+    breadcrumbPage: '[data-slot="breadcrumb-page"]',
     threadRoot: "#thread-1",
+    threadRootFallback: '[id^="thread-"]',
     targetElem: "#scroll-area > section > main > h2",
     tableContainer: '[data-slot="table-container"]',
+    tableBody: '[data-slot="table-body"]',
     tableRow: '[data-slot="table-row"]',
     tableHead: '[data-slot="table-head"]',
     tableCell: '[data-slot="table-cell"]',
     anchor: "a"
   };
-  const STELLAVERSE_INDEXES = {
-    levelCell: 0,
-    keyCell: 1,
-    bpmCell: 2,
-    notesCell: 3,
-    judgeCell: 4,
-    totalCell: 5,
-    songUrlCell: 6,
-    chartUrlCell: 7,
-    commentCell: 8,
-    irLinksCell: 9,
-    viewerLinkCell: 10,
-    // 0:レベル行、1:BPM行、2:判定行、3:曲URL行、4:差分URL行、5:コメント行、6:IRリンク行
-    removeRowsAfterSuccess: [0, 1, 6]
+  const STELLAVERSE_TABLE_LAYOUT = {
+    chartStatsRowCount: 3,
+    pairedFieldCount: 2,
+    bpmNotesRow: 1,
+    notesField: 1,
+    judgeTotalRow: 2,
+    totalField: 1,
+    duplicateChartRows: [0, 1]
   };
   const MINIR_SELECTORS = {
     targetElement: "#root > div > div > div > div.compact.tabulator"
@@ -777,6 +782,22 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
    * @property {Element[]} tableHeads
    * @property {Element[]} tableCells
    * @property {HTMLAnchorElement[]} anchors
+   */
+
+  /**
+   * STELLAVERSE 側に譜面統計3行が存在する場合の参照群。
+   * @typedef {Object} StellaverseChartStatsCells
+   * @property {Element} notesCell
+   * @property {Element} totalCell
+   * @property {Element[]} duplicateRows
+   */
+
+  /**
+   * STELLAVERSE のテーブルリンクから抽出した MD5 と所属行。
+   * @typedef {Object} StellaverseMd5Match
+   * @property {string} md5
+   * @property {HTMLAnchorElement} anchor
+   * @property {Element|null} row
    */
 
   /**
@@ -1094,7 +1115,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     }
 
     switch (location.hostname) {
-      case 'stellabms.xyz':
+      case STELLAVERSE_HOST:
         stellaverse();
         break;
       case STELLAVERSE_IR_HOST:
@@ -1144,6 +1165,48 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
 
   function isBokutachiChartUrl(url) {
     return Boolean(getBokutachiChartRoute(url));
+  }
+
+  function getStellaverseThreadPageKey(url) {
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.hostname !== STELLAVERSE_HOST) {
+        return null;
+      }
+      const match = parsedUrl.pathname.match(STELLAVERSE_THREAD_PATH_PATTERN);
+      return match ? match[1] : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function isStellaverseThreadUrl(url) {
+    return Boolean(getStellaverseThreadPageKey(url));
+  }
+
+  /**
+   * 描画済みDOMから確認できる STELLAVERSE のスレッド番号を重複なしで取得する。
+   * 言語部分には依存せず、breadcrumb とタイトル内の先頭の「#数字」だけを参照する。
+   * @returns {string[]}
+   */
+  function getRenderedStellaverseThreadPageKeys() {
+    const breadcrumbText = document.querySelector(STELLAVERSE_SELECTORS.breadcrumbPage)?.textContent ?? "";
+    const renderedTexts = [breadcrumbText, document.title];
+    return Array.from(new Set(renderedTexts
+      .map((text) => text.match(/#(\d+)/)?.[1] ?? null)
+      .filter(Boolean)));
+  }
+
+  /**
+   * SPA遷移後のURLと描画済みDOMが同じスレッドを指しているか判定する。
+   * breadcrumb とタイトルが一時的に食い違う hydration 中は処理を保留する。
+   * @param {string} pageKey
+   * @returns {boolean}
+   */
+  function isRenderedStellaverseThreadCurrent(pageKey) {
+    const renderedPageKeys = getRenderedStellaverseThreadPageKeys();
+    return renderedPageKeys.length === 0
+      || (renderedPageKeys.length === 1 && renderedPageKeys[0] === pageKey);
   }
 
   function getStellaverseIrChartMd5(url) {
@@ -1321,6 +1384,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
         && (
           node.id === "bmsdata-container"
           || node.id === PreviewRuntime.PREVIEW_OVERLAY_HOST_ID
+          || node.matches?.(STELLAVERSE_ELAPSED_TIME_SELECTOR)
         );
     }
 
@@ -1456,19 +1520,299 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   }
 
   /**
+   * STELLAVERSE のテーブル直前にある見出しを取得する。
+   * @param {Element|null} tableContainer
+   * @returns {Element|null}
+   */
+  function findStellaverseHeadingBeforeTable(tableContainer) {
+    for (let sibling = tableContainer?.previousElementSibling ?? null; sibling; sibling = sibling.previousElementSibling) {
+      if (sibling.matches("h1, h2, h3, h4, h5, h6")) {
+        return sibling;
+      }
+    }
+    return null;
+  }
+
+  /**
    * STELLAVERSE で繰り返し使う DOM 参照をまとめて取得する。
+   * 既知のMD5リンクを含むテーブルを優先し、処理後は拡張側マーカーやthread直前の構造へフォールバックする。
    * @returns {StellaverseDomRefs}
    */
   function getStellaverseDomRefs() {
-    const threadRoot = document.querySelector(STELLAVERSE_SELECTORS.threadRoot);
-    const targetElem = document.querySelector(STELLAVERSE_SELECTORS.targetElem);
-    const tableContainer = document.querySelector(STELLAVERSE_SELECTORS.tableContainer);
-    const tableRows = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableRow)) : [];
-    const tableHeads = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableHead)) : [];
-    const tableCells = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableCell)) : [];
+    const preferredThreadRoot = document.querySelector(STELLAVERSE_SELECTORS.threadRoot);
+    const pageMain = preferredThreadRoot?.closest("main")
+      ?? document.querySelector(STELLAVERSE_SELECTORS.pageMain)
+      ?? document.querySelector("main");
+    const fallbackThreadRoot = pageMain?.querySelector(STELLAVERSE_SELECTORS.threadRootFallback)
+      ?? document.querySelector(STELLAVERSE_SELECTORS.threadRootFallback);
+    const threadRoot = preferredThreadRoot ?? fallbackThreadRoot;
+    const allTableCandidates = Array.from(document.querySelectorAll(STELLAVERSE_SELECTORS.tableContainer));
+    const scopedTableCandidates = pageMain
+      ? allTableCandidates.filter((candidate) => pageMain.contains(candidate))
+      : [];
+    const tableCandidates = scopedTableCandidates.length > 0 ? scopedTableCandidates : allTableCandidates;
+    const currentPageKey = getStellaverseThreadPageKey(location.href);
+    const hasKnownMd5Link = (candidate) => {
+      const candidateAnchors = Array.from(candidate.querySelectorAll(STELLAVERSE_SELECTORS.anchor));
+      return Boolean(findStellaverseMd5Match(candidateAnchors));
+    };
+    const markedCurrentTable = currentPageKey
+      ? tableCandidates.find((candidate) => {
+        return candidate.matches(STELLAVERSE_TABLE_MARKER_SELECTOR)
+          && candidate.dataset?.bmsieStellaversePageKey === currentPageKey;
+      })
+      : null;
+    let tableImmediatelyBeforeThread = null;
+    let tableBeforeThread = null;
+    if (threadRoot) {
+      for (const candidate of tableCandidates) {
+        if (candidate.compareDocumentPosition(threadRoot) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          tableBeforeThread = candidate;
+          if (candidate.parentElement === threadRoot.parentElement) {
+            tableImmediatelyBeforeThread = candidate;
+          }
+        }
+      }
+    }
+    const tableContainer = tableCandidates.find(hasKnownMd5Link)
+      ?? markedCurrentTable
+      ?? tableImmediatelyBeforeThread
+      ?? tableBeforeThread
+      ?? tableCandidates[0]
+      ?? null;
+    const targetElem = findStellaverseHeadingBeforeTable(tableContainer)
+      ?? pageMain?.querySelector("h2")
+      ?? document.querySelector(STELLAVERSE_SELECTORS.targetElem);
+    const tableBody = tableContainer?.querySelector(STELLAVERSE_SELECTORS.tableBody) ?? null;
+    const directTableRows = tableBody
+      ? Array.from(tableBody.children).filter((element) => element.matches?.(STELLAVERSE_SELECTORS.tableRow))
+      : [];
+    const tableRows = directTableRows.length > 0
+      ? directTableRows
+      : tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.tableRow)) : [];
+    const rowPairs = tableRows.map(getStellaverseRowPairs);
+    const tableHeads = rowPairs.flatMap((pairs) => pairs?.map(({ head }) => head) ?? []);
+    const tableCells = rowPairs.flatMap((pairs) => pairs?.map(({ cell }) => cell) ?? []);
     const anchors = tableContainer ? Array.from(tableContainer.querySelectorAll(STELLAVERSE_SELECTORS.anchor)) : [];
 
     return { threadRoot, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors };
+  }
+
+  /**
+   * 成功後も同じ譜面情報テーブルを追跡できるよう、拡張側のマーカーを付ける。
+   * @param {Element} tableContainer
+   * @param {string} pageKey
+   * @param {string} md5
+   * @returns {void}
+   */
+  function markStellaverseTableContainer(tableContainer, pageKey, md5) {
+    document.querySelectorAll(STELLAVERSE_TABLE_MARKER_SELECTOR).forEach((candidate) => {
+      if (candidate !== tableContainer) {
+        candidate.removeAttribute("data-bmsie-stellaverse-table");
+        candidate.removeAttribute("data-bmsie-stellaverse-page-key");
+        candidate.removeAttribute("data-bmsie-stellaverse-md5");
+      }
+    });
+    tableContainer.dataset.bmsieStellaverseTable = "true";
+    tableContainer.dataset.bmsieStellaversePageKey = pageKey;
+    tableContainer.dataset.bmsieStellaverseMd5 = md5;
+  }
+
+  /**
+   * STELLAVERSE のテーブル追跡マーカーを削除する。
+   * @param {string|null} exceptPageKey
+   * @returns {void}
+   */
+  function clearStellaverseTableMarkers(exceptPageKey = null) {
+    document.querySelectorAll(STELLAVERSE_TABLE_MARKER_SELECTOR).forEach((candidate) => {
+      if (exceptPageKey && candidate.dataset?.bmsieStellaversePageKey === exceptPageKey) {
+        return;
+      }
+      candidate.removeAttribute("data-bmsie-stellaverse-table");
+      candidate.removeAttribute("data-bmsie-stellaverse-page-key");
+      candidate.removeAttribute("data-bmsie-stellaverse-md5");
+    });
+  }
+
+  /**
+   * 「見出し、値」の順で並ぶ行をペア配列へ変換する。
+   * 構造が異なる行は誤ったセルを更新しないよう null を返す。
+   * @param {Element} row
+   * @returns {Array<{ head: Element, cell: Element }>|null}
+   */
+  function getStellaverseRowPairs(row) {
+    const directChildren = Array.from(row.children);
+    if (directChildren.length === 0 || directChildren.length % 2 !== 0) {
+      return null;
+    }
+
+    const pairs = [];
+    for (let index = 0; index < directChildren.length; index += 2) {
+      const head = directChildren[index];
+      const cell = directChildren[index + 1];
+      if (!head.matches(STELLAVERSE_SELECTORS.tableHead)
+        || !cell.matches(STELLAVERSE_SELECTORS.tableCell)) {
+        return null;
+      }
+      pairs.push({ head, cell });
+    }
+    return pairs;
+  }
+
+  /**
+   * 先頭3行が「見出し + 値」の2組で構成される譜面統計レイアウトの場合だけ TOTAL/NOTES を返す。
+   * 投票ページではこの3行自体が存在しないため null となり、後続のメタデータ挿入は継続できる。
+   * @param {Element[]} tableRows
+   * @returns {StellaverseChartStatsCells|null}
+   */
+  function getStellaverseChartStatsCells(tableRows) {
+    const chartStatsRows = tableRows.slice(0, STELLAVERSE_TABLE_LAYOUT.chartStatsRowCount);
+    if (chartStatsRows.length !== STELLAVERSE_TABLE_LAYOUT.chartStatsRowCount) {
+      return null;
+    }
+
+    const rowPairs = chartStatsRows.map(getStellaverseRowPairs);
+    if (!rowPairs.every((pairs) => pairs?.length === STELLAVERSE_TABLE_LAYOUT.pairedFieldCount)) {
+      return null;
+    }
+
+    const notesCell = rowPairs[STELLAVERSE_TABLE_LAYOUT.bpmNotesRow]?.[STELLAVERSE_TABLE_LAYOUT.notesField]?.cell;
+    const totalCell = rowPairs[STELLAVERSE_TABLE_LAYOUT.judgeTotalRow]?.[STELLAVERSE_TABLE_LAYOUT.totalField]?.cell;
+    if (!notesCell || !totalCell) {
+      return null;
+    }
+    const notes = parseStellaverseCellNumber(notesCell);
+    const total = parseStellaverseCellNumber(totalCell);
+    if (!Number.isFinite(notes) || notes <= 0 || !Number.isFinite(total) || total < 0) {
+      return null;
+    }
+
+    return {
+      notesCell,
+      totalCell,
+      duplicateRows: STELLAVERSE_TABLE_LAYOUT.duplicateChartRows
+        .map((index) => chartStatsRows[index])
+        .filter(Boolean)
+    };
+  }
+
+  /**
+   * STELLAVERSE が表示する譜面ビューアリンクから MD5 を取得する。
+   * @param {string} href
+   * @returns {string|null}
+   */
+  function getStellaverseViewerMd5(href) {
+    try {
+      const parsedUrl = new URL(href, location.href);
+      if (parsedUrl.hostname !== STELLAVERSE_VIEWER_HOST
+        || !STELLAVERSE_VIEWER_PATH_PATTERN.test(parsedUrl.pathname)) {
+        return null;
+      }
+      const md5 = parsedUrl.searchParams.get("md5");
+      return BMS_IR_MD5_PATTERN.test(md5 ?? "") ? md5.toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * テーブル内の既知リンクから MD5 と所属行を返す。
+   * 譜面ビューアと STELLAVERSE IR の両方がある場合は、MD5が一致した安定DOMだけを採用する。
+   * 文言や列番号には依存しない。
+   * @param {HTMLAnchorElement[]} anchors
+   * @returns {StellaverseMd5Match|null}
+   */
+  function findStellaverseMd5Match(anchors) {
+    const findMatch = (extractMd5) => {
+      for (const anchor of anchors) {
+        const md5 = extractMd5(anchor.href);
+        if (md5) {
+          return {
+            md5,
+            anchor,
+            row: anchor.closest(STELLAVERSE_SELECTORS.tableRow)
+          };
+        }
+      }
+      return null;
+    };
+
+    const viewerMatch = findMatch(getStellaverseViewerMd5);
+    const irMatch = findMatch(getStellaverseIrChartMd5);
+    if (viewerMatch && irMatch && viewerMatch.md5 !== irMatch.md5) {
+      return null;
+    }
+    return viewerMatch ?? irMatch;
+  }
+
+  /**
+   * 外部メタデータ表示後に重複する行だけを構造から選ぶ。
+   * 統計3行がない投票ページでは、MD5リンクを含む複数セル行だけが対象になる。
+   * @param {Element[]} tableRows
+   * @param {StellaverseChartStatsCells|null} chartStats
+   * @param {StellaverseMd5Match} md5Match
+   * @returns {Element[]}
+   */
+  function getStellaverseRowsToRemoveAfterSuccess(tableRows, chartStats, md5Match) {
+    const rows = chartStats ? [...chartStats.duplicateRows] : [];
+    const linkRow = md5Match.row;
+    if (linkRow && tableRows.includes(linkRow)) {
+      const linkRowPairs = getStellaverseRowPairs(linkRow);
+      if (linkRowPairs?.length === STELLAVERSE_TABLE_LAYOUT.pairedFieldCount) {
+        rows.push(linkRow);
+      }
+    }
+    return Array.from(new Set(rows));
+  }
+
+  /**
+   * STELLAVERSE の譜面情報テーブルを省スペース表示にする。
+   * @param {StellaverseDomRefs} domRefs
+   * @returns {void}
+   */
+  function compactStellaverseTable(domRefs) {
+    domRefs.tableRows.forEach((element) => {
+      element.style.borderBottomWidth = "0";
+    });
+    domRefs.tableHeads.forEach((element) => {
+      element.style.height = "1.2rem";
+      element.style.lineHeight = "100%";
+      element.style.padding = "0.1rem 0.2rem";
+      element.style.fontFamily = '"Inconsolata"';
+    });
+    domRefs.tableCells.forEach((element) => {
+      element.style.lineHeight = "100%";
+      element.style.padding = "0.1rem 0.2rem";
+      element.style.fontFamily = '"Inconsolata"';
+    });
+  }
+
+  /**
+   * STELLAVERSE の数値セル先頭から数値を取得する。
+   * TOTAL の比率表記やノーツ数の桁区切りが付いていても数値部分だけを扱う。
+   * @param {Element} cell
+   * @returns {number}
+   */
+  function parseStellaverseCellNumber(cell) {
+    const normalizedText = cell.textContent.trim().replace(/(\d),(?=\d{3}(?:\D|$))/g, "$1");
+    return Number.parseFloat(normalizedText);
+  }
+
+  /**
+   * #TOTAL 未定義時だけ、比較用として beatoraja/LR2 相当値をセルへ併記する。
+   * @param {StellaverseChartStatsCells} chartStats
+   * @returns {void}
+   */
+  function enhanceStellaverseUndefinedTotal(chartStats) {
+    const total = parseStellaverseCellNumber(chartStats.totalCell);
+    const notes = parseStellaverseCellNumber(chartStats.notesCell);
+    if (total !== 0 || !Number.isFinite(notes) || notes <= 0) {
+      return;
+    }
+
+    const beatorajaTotal = Math.max(260.0, 7.605 * notes / (0.01 * notes + 6.5));
+    const lr2Total = 160.0 + (notes + Math.min(Math.max(notes - 400, 0), 200)) * 0.16;
+    chartStats.totalCell.textContent = `0, so #TOTAL is undefined. beatoraja is ${beatorajaTotal.toFixed(2)}(${(beatorajaTotal / notes).toFixed(3)}T/N), LR2 is ${lr2Total.toFixed(2)}(${(lr2Total / notes).toFixed(3)}T/N).`;
   }
 
   /**
@@ -1485,6 +1829,119 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       }
     }
     return null;
+  }
+
+  /**
+   * STELLAVERSE の投稿日時文字列をローカル日時へ変換する。
+   * @param {string} postedDatetime
+   * @returns {Date|null}
+   */
+  function parseStellaversePostedDate(postedDatetime) {
+    const match = postedDatetime.match(/^(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+    if (!match) {
+      return null;
+    }
+    const postedDate = new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
+      Number(match[6])
+    );
+    return Number.isNaN(postedDate.getTime()) ? null : postedDate;
+  }
+
+  /**
+   * 経過時間表示が現在DOMの想定位置にあるか判定する。
+   * @param {Element} element
+   * @param {StellaverseDomRefs} domRefs
+   * @returns {boolean}
+   */
+  function isCurrentStellaverseElapsedTimeElement(element, domRefs) {
+    if (domRefs.targetElem) {
+      return domRefs.targetElem.nextElementSibling === element;
+    }
+    return domRefs.threadRoot?.previousElementSibling === element;
+  }
+
+  /**
+   * STELLAVERSE の経過時間表示を現在ページにつき1つだけ差し込む。
+   * 見出しが取れない場合も thread の直前へフォールバックし、メタデータ処理は止めない。
+   * @param {StellaverseDomRefs} domRefs
+   * @param {string} pageKey
+   * @returns {void}
+   */
+  function insertStellaverseElapsedTime(domRefs, pageKey) {
+    const existingElements = Array.from(document.querySelectorAll(STELLAVERSE_ELAPSED_TIME_SELECTOR));
+    if (!domRefs.threadRoot) {
+      existingElements.forEach((element) => element.remove());
+      return;
+    }
+
+    const postedDatetime = extractStellaversePostedDatetime(domRefs.threadRoot);
+    if (!postedDatetime) {
+      existingElements.forEach((element) => element.remove());
+      console.info("❌ 投稿日時がパースできませんでした。メタデータ処理は継続します");
+      return;
+    }
+
+    const currentElement = existingElements.find((element) => {
+      return element.dataset?.bmsiePageKey === pageKey
+        && element.dataset?.bmsiePostedDatetime === postedDatetime
+        && isCurrentStellaverseElapsedTimeElement(element, domRefs);
+    });
+    if (currentElement) {
+      existingElements.filter((element) => element !== currentElement).forEach((element) => element.remove());
+      return;
+    }
+    existingElements.forEach((element) => element.remove());
+
+    const postedDate = parseStellaversePostedDate(postedDatetime);
+    if (!postedDate) {
+      console.info("❌ 投稿日時を日付へ変換できませんでした。メタデータ処理は継続します");
+      return;
+    }
+    const now = new Date();
+    const diffMs = now - postedDate;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    const elapsedTimeElement = document.createElement("p");
+    elapsedTimeElement.dataset.bmsieStellaverseElapsedTime = "true";
+    elapsedTimeElement.dataset.bmsiePageKey = pageKey;
+    elapsedTimeElement.dataset.bmsiePostedDatetime = postedDatetime;
+    elapsedTimeElement.textContent = `Elapsed time: ${diffDays} days ${String(diffHours).padStart(2, "0")} hours ${String(diffMinutes).padStart(2, "0")} minutes`;
+
+    if (domRefs.targetElem) {
+      domRefs.targetElem.insertAdjacentElement("afterend", elapsedTimeElement);
+    } else {
+      domRefs.threadRoot.insertAdjacentElement("beforebegin", elapsedTimeElement);
+    }
+  }
+
+  /**
+   * STELLAVERSE の配色モードを color-scheme とOS設定から判定する。
+   * @returns {boolean}
+   */
+  function isStellaverseDarkMode() {
+    const inlineColorScheme = document.documentElement.style.getPropertyValue("color-scheme").trim().toLowerCase();
+    if (inlineColorScheme.includes("dark")) {
+      return true;
+    }
+    if (inlineColorScheme.includes("light")) {
+      return false;
+    }
+
+    const computedColorScheme = window.getComputedStyle?.(document.documentElement)?.colorScheme?.toLowerCase() ?? "";
+    if (computedColorScheme.includes("dark")) {
+      return true;
+    }
+    if (computedColorScheme.includes("light")) {
+      return false;
+    }
+    return Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches);
   }
 
   /**
@@ -1873,6 +2330,115 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     }
   }
 
+  /**
+   * STELLAVERSE で挿入した拡張パネルかどうかを判定する。
+   * siteId がないものは、旧版が同一ホストへ挿入したパネルとして扱う。
+   * @param {Element} container
+   * @returns {boolean}
+   */
+  function isStellaverseBmsDataContainer(container) {
+    const siteId = container.dataset?.bmsieSite;
+    return siteId === STELLAVERSE_SITE_ID || !siteId;
+  }
+
+  /**
+   * STELLAVERSE のSPA遷移時に拡張側のDOMを片付ける。
+   * @returns {void}
+   */
+  function cleanupStellaversePageArtifacts() {
+    removeBmsDataContainers(isStellaverseBmsDataContainer);
+    document.querySelectorAll(STELLAVERSE_ELAPSED_TIME_SELECTOR).forEach((element) => element.remove());
+    clearStellaverseTableMarkers();
+  }
+
+  /**
+   * 現在ページ以外の STELLAVERSE 拡張DOMを削除する。
+   * @param {string} pageKey
+   * @returns {void}
+   */
+  function cleanupStellaversePageArtifactsExcept(pageKey) {
+    removeBmsDataContainers((container) => {
+      if (!isStellaverseBmsDataContainer(container)) {
+        return false;
+      }
+      return container.dataset?.bmsiePageKey !== pageKey;
+    });
+    document.querySelectorAll(STELLAVERSE_ELAPSED_TIME_SELECTOR).forEach((element) => {
+      if (element.dataset?.bmsiePageKey !== pageKey) {
+        element.remove();
+      }
+    });
+    clearStellaverseTableMarkers(pageKey);
+  }
+
+  /**
+   * STELLAVERSE の現在ページ用パネルを取得する。
+   * @param {string} pageKey
+   * @returns {Element|null}
+   */
+  function findStellaverseBmsDataContainer(pageKey) {
+    return Array.from(document.querySelectorAll("#bmsdata-container")).find((container) => {
+      return container.dataset?.bmsieSite === STELLAVERSE_SITE_ID
+        && container.dataset?.bmsiePageKey === pageKey;
+    }) ?? null;
+  }
+
+  /**
+   * STELLAVERSE の拡張パネルが現在テーブルの直後に残っているか判定する。
+   * @param {Element} container
+   * @param {string} pageKey
+   * @param {StellaverseDomRefs} domRefs
+   * @returns {boolean}
+   */
+  function isCurrentStellaverseBmsDataContainer(container, pageKey, domRefs) {
+    return container.isConnected
+      && container.dataset?.bmsieSite === STELLAVERSE_SITE_ID
+      && container.dataset?.bmsiePageKey === pageKey
+      && Boolean(container.__bmsPreviewRuntime)
+      && domRefs.tableContainer?.nextElementSibling === container;
+  }
+
+  /**
+   * テーブルとパネルを別コンポーネントのまま維持しつつ、親レイアウト由来の縦方向の隙間だけを相殺する。
+   * 実際の描画位置から求めるため、サイト側の gap 値やクラス名には依存しない。
+   * @param {Element|null} tableContainer
+   * @param {HTMLElement} container
+   * @returns {void}
+   */
+  function collapseStellaversePanelGap(tableContainer, container) {
+    container.style.removeProperty("margin-block-start");
+    if (!tableContainer
+      || tableContainer.nextElementSibling !== container
+      || container.parentElement !== tableContainer.parentElement) {
+      return;
+    }
+
+    const tableRect = tableContainer.getBoundingClientRect();
+    const panelRect = container.getBoundingClientRect();
+    const renderedGap = panelRect.top - tableRect.bottom;
+    if (!Number.isFinite(renderedGap) || renderedGap <= 0) {
+      return;
+    }
+    container.style.marginBlockStart = `-${renderedGap}px`;
+  }
+
+  /**
+   * 挿入後の hydration が落ち着いても、現在スレッドのテーブル直後にパネルが残るか確認する。
+   * @param {Element} container
+   * @param {string} pageKey
+   * @returns {Promise<boolean>}
+   */
+  async function waitForStellaversePanelToSettle(container, pageKey) {
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+    if (getStellaverseThreadPageKey(location.href) !== pageKey
+      || !isRenderedStellaverseThreadCurrent(pageKey)) {
+      return false;
+    }
+    const domRefs = getStellaverseDomRefs();
+    return isCurrentStellaverseBmsDataContainer(container, pageKey, domRefs);
+  }
+
   // ====================================================================================================
   // STELLAVERSE
   //   ReactのSPAみたいな感じなのでDOMの監視に対策が必要
@@ -1885,117 +2451,132 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     console.info("STELLAVERSEの処理に入りました");
     watchSpaPage({
       siteName: "STELLAVERSE",
-      matchUrl: (url) => url.startsWith("https://stellabms.xyz/thread/"),
-      updatePage
+      matchUrl: isStellaverseThreadUrl,
+      updatePage,
+      cleanupPage: cleanupStellaversePageArtifacts
     });
 
     // ==================================================================================================
     // スレッドページの書き換え処理
     async function updatePage({ markUpdated }) {
-      // スレッドページ以外では何もせず終える。
-      if (!location.href.startsWith("https://stellabms.xyz/thread/")) {
+      const pageKey = getStellaverseThreadPageKey(location.href);
+      if (!pageKey) {
         return;
       }
       console.info("スレッドページの書き換え処理に入りました");
-      // SPA遷移直後、前回URLで挿入した拡張情報DOMがまだ残っている場合は、
-      // ReactのDOM差し替え完了を待つため処理をスキップする。
-      if (document.getElementById('bmsdata-container')) {
-        console.info('前回の拡張情報がまだ残っているためスキップします');
+
+      cleanupStellaversePageArtifactsExcept(pageKey);
+      if (!isRenderedStellaverseThreadCurrent(pageKey)) {
+        console.info("STELLAVERSEのURLに対して描画中のスレッドがまだ切り替わっていません");
         return;
       }
-      // 投稿日時、経過時間の差し込み先、譜面情報テーブルをまとめて取得する。
-      const { threadRoot, targetElem, tableContainer, tableRows, tableHeads, tableCells, anchors } = getStellaverseDomRefs();
 
-      if (!threadRoot || !targetElem || !tableContainer) { console.info("処理対象エレメントのいずれかが見つかりません"); return; }
-
-      const postedDatetime = extractStellaversePostedDatetime(threadRoot);
-      if (!postedDatetime) { console.info("❌ 投稿日時がパースできませんでした"); return; }
-
-      const postedDate = new Date(postedDatetime.replace(/\//g, '-'));
-      const now = new Date();
-      const diffMs = now - postedDate;
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-      const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-      const elapsedText = `Elapsed time: ${diffDays} days ${String(diffHours).padStart(2, '0')} hours ${String(diffMinutes).padStart(2, '0')} minutes`;
-      const elapsedTimeElement = document.createElement('p');
-      elapsedTimeElement.textContent = elapsedText;
-
-      targetElem.insertAdjacentElement('afterend', elapsedTimeElement);
-      markUpdated(); // 経過時間表示が済めば、その URL での再実行は不要になる。
-
-      // テーブルをツメツメにして高さを削減
-      tableRows.forEach(el => {
-        el.style.borderBottomWidth = '0';
-      });
-      tableHeads.forEach(el => {
-        el.style.height = '1.2rem';
-        el.style.lineHeight = '100%';
-        el.style.padding = '0.1rem 0.2rem';
-        el.style.fontFamily = '"Inconsolata"';
-      });
-      tableCells.forEach(el => {
-        el.style.lineHeight = '100%';
-        el.style.padding = '0.1rem 0.2rem';
-        el.style.fontFamily = '"Inconsolata"';
-      });
-
-      // TOTAL と NOTES は後段の計算で使うので変数に取っておく。
-      const totalCellElement = tableCells[STELLAVERSE_INDEXES.totalCell];
-      const notesCellElement = tableCells[STELLAVERSE_INDEXES.notesCell];
-      if (!totalCellElement || !notesCellElement) { console.info("TOTALかNOTESのセルが見つかりません"); return; }
-      const total = Number(totalCellElement.textContent.trim());
-      const notes = Number(notesCellElement.textContent.trim());
-
-      // #TOTAL 未定義時だけ、比較用として beatoraja/LR2 相当値をセルへ併記する。
-      let beatorajaTotal;
-      let lr2Total;
-      if (total === 0) {
-        beatorajaTotal = (Math.max(260.0, 7.605 * notes / (0.01 * notes + 6.5)));
-        lr2Total = 160.0 + (notes + Math.min(Math.max(notes - 400, 0), 200)) * 0.16;
-        totalCellElement.textContent = `0, so #TOTAL is undefined. beatoraja is ${beatorajaTotal.toFixed(2)}(${(beatorajaTotal / notes).toFixed(3)}T/N), LR2 is ${lr2Total.toFixed(2)}(${(lr2Total / notes).toFixed(3)}T/N).`;
+      const domRefs = getStellaverseDomRefs();
+      if (!domRefs.tableContainer) {
+        console.info("処理対象の譜面情報テーブルがまだ見つかりません");
+        return;
       }
 
-      // テーブル内リンクから MD5 を拾う。
-      let targetmd5 = null;
-      for (const a of anchors) {
-        const href = a.href;
-        const match = href.match(/[a-f0-9]{32}$/i); // 末尾の32桁16進数、譜面ビューアリンクから抽出
-        if (match) {
-          targetmd5 = match[0].toLowerCase();
-          break;
-        }
-      }
-      // MD5 が分かった場合だけ外部 API を引いて拡張情報を挿入する。
-      if (targetmd5) {
-        // ダークモード判定
-        const isDarkMode = document.documentElement.style.getPropertyValue("color-scheme").includes("dark");
-        const pageContext = {
-          identifiers: { md5: targetmd5, sha256: null, bmsid: null },
-          insertion: { element: tableContainer, position: "beforeend" },
-          theme: isDarkMode ? STELLAVERSE_THEMES.dark : STELLAVERSE_THEMES.light,
-          currentSite: PreviewRuntime.PREVIEW_LINK_SITE.stellaverse
-        };
-        // テンプレートを挿入
-        const container = insertBmsDataTemplate(pageContext);
-        // 外部から取得したデータでテンプレートを置換
-        const insertResult = await insertBmsData(pageContext, container);
-        if (insertResult.ok) {
-          console.info("✅ 外部データの取得とページの書き換えが成功しました");
-          // STELLAVERSE 側と完全に重複する行だけを消し、補助情報のある行は残す。
-          const rowsToRemoveAfterSuccess = STELLAVERSE_INDEXES.removeRowsAfterSuccess
-            .map(index => tableRows[index])
-            .filter(Boolean);
-          rowsToRemoveAfterSuccess.forEach(row => {
-            row.remove();
-          });
-        } else {
-          console.error("❌ 外部データの取得とページの書き換えが失敗しました");
-        }
+      // 経過時間表示やテーブル装飾の失敗で、メタデータ挿入まで止めない。
+      insertStellaverseElapsedTime(domRefs, pageKey);
+      compactStellaverseTable(domRefs);
+
+      const chartStats = getStellaverseChartStatsCells(domRefs.tableRows);
+      if (chartStats) {
+        enhanceStellaverseUndefinedTotal(chartStats);
       } else {
-        console.info("❌ STELLAVERSEのページ書き換えはスキップされました。MD5が取得できませんでした");
+        console.info("STELLAVERSE側に譜面統計3行がないため、TOTAL/NOTESの取得と補正をスキップします");
       }
+
+      const md5Match = findStellaverseMd5Match(domRefs.anchors);
+      if (!md5Match) {
+        console.info("❌ STELLAVERSEのページ書き換えは保留されました。MD5リンクがまだ見つかりませんでした");
+        return;
+      }
+      const targetmd5 = md5Match.md5;
+
+      const existingContainer = findStellaverseBmsDataContainer(pageKey);
+      if (existingContainer) {
+        if (isCurrentStellaverseBmsDataContainer(existingContainer, pageKey, domRefs)) {
+          collapseStellaversePanelGap(domRefs.tableContainer, existingContainer);
+          console.info("既に現在ページ用のbmsdataが挿入済みのためスキップします");
+          markUpdated();
+          return;
+        }
+        destroyBmsDataContainer(existingContainer);
+      }
+
+      const pageContext = {
+        identifiers: { md5: targetmd5, sha256: null, bmsid: null },
+        // table-body の行数に依存せず、テーブルコンポーネントの外側へ差し込む。
+        // 親レイアウト由来の隙間は、パネル描画後に実測して相殺する。
+        insertion: { element: domRefs.tableContainer, position: "afterend" },
+        theme: isStellaverseDarkMode() ? STELLAVERSE_THEMES.dark : STELLAVERSE_THEMES.light,
+        currentSite: STELLAVERSE_SITE_ID,
+        siteId: STELLAVERSE_SITE_ID,
+        pageKey
+      };
+      const container = insertBmsDataTemplate(pageContext);
+      const insertResult = await insertBmsData(pageContext, container);
+      if (!insertResult.ok) {
+        if (insertResult.reason === "detached") {
+          console.info("STELLAVERSEのデータ取得中にbmsdataがDOMから外されたため、再試行を待ちます");
+          return { retry: true };
+        }
+        markUpdated();
+        console.error("❌ 外部データの取得とページの書き換えが失敗しました");
+        return;
+      }
+
+      collapseStellaversePanelGap(domRefs.tableContainer, container);
+      if (getStellaverseThreadPageKey(location.href) !== pageKey) {
+        destroyBmsDataContainer(container);
+        return;
+      }
+      if (!await waitForStellaversePanelToSettle(container, pageKey)) {
+        console.info("STELLAVERSEのDOM差し替え後にbmsdataが残らなかったため、再試行を待ちます");
+        destroyBmsDataContainer(container);
+        return { retry: true };
+      }
+
+      // hydration でテーブル本体が差し替わった場合に備え、成功後は現在DOMを取り直す。
+      const settledDomRefs = getStellaverseDomRefs();
+      const settledMd5Match = findStellaverseMd5Match(settledDomRefs.anchors);
+      if (!isRenderedStellaverseThreadCurrent(pageKey)
+        || !settledDomRefs.tableContainer
+        || settledMd5Match?.md5 !== targetmd5) {
+        console.info("STELLAVERSEの現在DOMと取得対象MD5が一致しないため、再試行を待ちます");
+        destroyBmsDataContainer(container);
+        return { retry: true };
+      }
+
+      collapseStellaversePanelGap(settledDomRefs.tableContainer, container);
+      markStellaverseTableContainer(settledDomRefs.tableContainer, pageKey, targetmd5);
+      compactStellaverseTable(settledDomRefs);
+      const settledChartStats = getStellaverseChartStatsCells(settledDomRefs.tableRows);
+      if (settledChartStats) {
+        enhanceStellaverseUndefinedTotal(settledChartStats);
+      }
+      const rowsToRemoveAfterSuccess = getStellaverseRowsToRemoveAfterSuccess(
+        settledDomRefs.tableRows,
+        settledChartStats,
+        settledMd5Match
+      );
+      rowsToRemoveAfterSuccess.forEach((row) => row.remove());
+
+      await waitForAnimationFrame();
+      await waitForAnimationFrame();
+      const finalDomRefs = getStellaverseDomRefs();
+      if (!isRenderedStellaverseThreadCurrent(pageKey)
+        || !isCurrentStellaverseBmsDataContainer(container, pageKey, finalDomRefs)) {
+        console.info("STELLAVERSEの行整理後にbmsdataがDOMから外されたため、再試行を待ちます");
+        destroyBmsDataContainer(container);
+        return { retry: true };
+      }
+      collapseStellaversePanelGap(finalDomRefs.tableContainer, container);
+
+      console.info("✅ 外部データの取得とページの書き換えが成功しました");
+      markUpdated();
     }
   }
 

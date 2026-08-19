@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.19
+// @version      2.3.20
 // @description  BMS-IR、Bokutachi、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
@@ -26,6 +26,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.20 BMS-IR曲ページでURLのsongmd5から譜面を特定し、ジャンル行直後への拡張パネル挿入と曲名手前へのフォールバックを修正
 // 2.3.19 STELLAVERSE投票ページでの動作を修正、譜面未アップロード投票ページでも動作するようにした、通常は提案者が必ず譜面をアップロードするので失念していたが、AI提案で思い出した
 // 2.3.18 STELLAVERSE IR曲ページへのメタデータ表示とLINK追加、LINK並び順と現在サイトリンク非表示を調整
 // 2.3.17 BMS-IR曲ページで拡張パネルをタグパネル手前へ挿入し、曲名手前へのフォールバックを追加
@@ -12038,7 +12039,7 @@
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
     const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.19";
+    const SCRIPT_VERSION_FALLBACK = "2.3.20";
     const userscriptFetch = createUserscriptFetch();
     setPreviewRuntimeFetch(userscriptFetch);
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.18";
@@ -12174,7 +12175,16 @@
       cursor: pointer;
     }
   `;
-    const RELEASE_NOTES_JA = `# v2.3.18
+    const RELEASE_NOTES_JA = `# v2.3.20 (通知スキップ)
+
+## BMS-IR曲ページの解析を修正
+- 譜面のMD5をURLの songmd5 パラメータから取得する処理を明確化しました
+- 拡張パネルをジャンル行の直後へ挿入し、ジャンル行が見つからない場合は曲名の手前へ挿入するようにしました
+- BMS-IR側の外枠DOM構造が変わっても挿入先を特定できるようにしました
+
+---
+
+# v2.3.18
 
 ## STELLAVERSE IR曲ページへの対応
 - STELLAVERSE IRの曲ページにメタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアを表示するようにしました
@@ -12380,7 +12390,16 @@
 
 ## 従来からの挙動について補足
 - 譜面ビューアはドラッグやホイールでも動かすことができます`;
-    const RELEASE_NOTES_EN = `# v2.3.18
+    const RELEASE_NOTES_EN = `# v2.3.20 (notification skipped)
+
+## Fixed BMS-IR song-page parsing
+- Clarified that the chart MD5 is read from the songmd5 URL parameter
+- The extension panel is now inserted after the genre line, with a fallback before the song title when that line is unavailable
+- Removed the dependency on BMS-IR's outer DOM wrapper structure when locating the insertion point
+
+---
+
+# v2.3.18
 
 ## Added support for STELLAVERSE IR chart pages
 - STELLAVERSE IR chart pages now show metadata, the notes density/BPM graph, and the score viewer
@@ -12625,10 +12644,6 @@
     const STELLAVERSE_IR_HOST = "ir.stellabms.xyz";
     const STELLAVERSE_IR_CHART_PATH_PATTERN = /^\/charts\/([0-9a-fA-F]{32})\/?$/;
     const STELLAVERSE_IR_SITE_ID = PREVIEW_LINK_SITE.stellaverseIr;
-    const BMS_IR_SELECTORS = {
-      tagSectionPanel: "#box > div.panel.song-section-tags",
-      songTitle: "#box > h1"
-    };
     const BMS_IR_THEME = {
       dctx: "#cfcfcf",
       dcbk: "#090909",
@@ -12984,6 +12999,14 @@
         return BMS_IR_HOSTS.has(parsedUrl.hostname) && parsedUrl.pathname === BMS_IR_SONG_PATH;
       } catch {
         return false;
+      }
+    }
+    function getBmsIrSongMd5(url) {
+      try {
+        const md5 = new URL(url).searchParams.get("songmd5");
+        return BMS_IR_MD5_PATTERN.test(md5 ?? "") ? md5.toLowerCase() : null;
+      } catch {
+        return null;
       }
     }
     function getBokutachiChartRoute(url) {
@@ -13571,37 +13594,45 @@
           return;
         }
         console.info("BMS-IR曲ページの書き換え処理に入りました");
-        const targetmd5 = new URL(window.location.href).searchParams.get("songmd5");
+        const targetMd5 = getBmsIrSongMd5(window.location.href);
+        if (!targetMd5) {
+          console.info("❌ BMS-IRのページ書き換えはスキップされました。URLから有効なsongmd5を取得できませんでした");
+          return;
+        }
         const insertion = findBmsIrMetadataInsertion();
-        if (BMS_IR_MD5_PATTERN.test(targetmd5 ?? "") && insertion) {
-          const pageContext = {
-            identifiers: { md5: targetmd5, sha256: null, bmsid: null },
-            insertion,
-            theme: BMS_IR_THEME,
-            currentSite: PREVIEW_LINK_SITE.bmsIr
-          };
-          const container = insertBmsDataTemplate(pageContext);
-          const insertResult = await insertBmsData(pageContext, container);
-          if (insertResult.ok) {
-            console.info("✅ 外部データの取得とページの書き換えが成功しました");
-          } else {
-            console.error("❌ 外部データの取得とページの書き換えが失敗しました");
-          }
+        if (!insertion) {
+          console.info("❌ BMS-IRのページ書き換えはスキップされました。曲名のh1要素を取得できませんでした");
+          return;
+        }
+        const pageContext = {
+          identifiers: { md5: targetMd5, sha256: null, bmsid: null },
+          insertion,
+          theme: BMS_IR_THEME,
+          currentSite: PREVIEW_LINK_SITE.bmsIr
+        };
+        const container = insertBmsDataTemplate(pageContext);
+        const insertResult = await insertBmsData(pageContext, container);
+        if (insertResult.ok) {
+          console.info("✅ 外部データの取得とページの書き換えが成功しました");
         } else {
-          console.info("❌ BMS-IRのページ書き換えはスキップされました。MD5か挿入先要素が取得できませんでした");
+          console.error("❌ 外部データの取得とページの書き換えが失敗しました");
         }
       }
     }
     function findBmsIrMetadataInsertion() {
-      const tagSectionPanel = document.querySelector(BMS_IR_SELECTORS.tagSectionPanel);
-      if (tagSectionPanel) {
-        return { element: tagSectionPanel, position: "beforebegin" };
+      const titleCandidates = Array.from(document.querySelectorAll("h1"));
+      for (const titleCandidate of titleCandidates) {
+        const songArtist = titleCandidate.nextElementSibling;
+        const genre = songArtist?.matches("h2") ? songArtist.nextElementSibling : null;
+        if (genre?.matches("p") && /^genre\s*:/i.test(genre.textContent.trim())) {
+          return { element: genre, position: "afterend" };
+        }
       }
-      const songTitle = document.querySelector(BMS_IR_SELECTORS.songTitle);
-      if (songTitle) {
-        return { element: songTitle, position: "beforebegin" };
+      const songTitle = document.querySelector("#main-content h1") ?? document.querySelector("#box h1") ?? titleCandidates[0];
+      if (!songTitle) {
+        return null;
       }
-      return null;
+      return { element: songTitle, position: "beforebegin" };
     }
     async function bokutachi() {
       console.info("Bokutachiの処理に入りました");

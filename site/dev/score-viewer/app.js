@@ -6783,6 +6783,7 @@ function expandPreviewRenderMask(renderMask = 0) {
   }
   return expandedMask;
 }
+var BMS_INFO_FONT_FAMILY = '"Inconsolata", "Noto Sans JP"';
 var BMSDATA_CSS = `
   :host {
     all: initial;
@@ -6803,7 +6804,7 @@ var BMSDATA_CSS = `
     font-size: 16px;
     line-height: 1;
   }
-  .bmsdata * { line-height: 100%; color: var(--bd-dctx); background-color: var(--bd-dcbk); font-family: "Inconsolata", "Noto Sans JP"; vertical-align: middle; box-sizing: content-box; }
+  .bmsdata * { line-height: 100%; color: var(--bd-dctx); background-color: var(--bd-dcbk); font-family: ${BMS_INFO_FONT_FAMILY}; vertical-align: middle; box-sizing: content-box; }
   .bd-info { display: flex; border: 0px; height: 153.6px; }
   .bd-info a { margin-right: 6.4px; padding: 1.6px 3.2px; border: 1px solid; border-radius: 2px; font-size: 12px; color: var(--bd-link-color); text-decoration: none; }
   .bd-info a:hover { color: var(--bd-link-hover-color); }
@@ -6924,7 +6925,6 @@ var BMSDATA_CSS = `
   .bd-lanenote[lane="k50"] { background: #0000ff; color: #fff; }
   .bd-lanenote[lane="k51"] { background: #ff0000; color: #fff; }
 `;
-var ISOLATED_UI_FONT_FAMILY = '"Inconsolata", "Noto Sans JP"';
 var ISOLATED_UI_ROOT_FONT_SIZE = "16px";
 var ISOLATED_UI_HOST_CLASS = "bmsie-surface-host";
 var GRAPH_SURFACE_HOST_CLASS = "bmsie-graph-surface-host";
@@ -6948,7 +6948,7 @@ var ISOLATED_UI_BASE_CSS = `
     display: block;
     min-inline-size: 0;
     color: #fff;
-    font-family: ${ISOLATED_UI_FONT_FAMILY};
+    font-family: ${BMS_INFO_FONT_FAMILY};
     font-size: ${ISOLATED_UI_ROOT_FONT_SIZE};
     line-height: 1.25;
     box-sizing: border-box;
@@ -7043,7 +7043,7 @@ var GRAPH_SURFACE_CSS = `
     scrollbar-width: thin;
     contain: layout paint style;
     color: #fff;
-    font-family: ${ISOLATED_UI_FONT_FAMILY};
+    font-family: ${BMS_INFO_FONT_FAMILY};
     font-size: ${ISOLATED_UI_ROOT_FONT_SIZE};
     line-height: 0;
     box-sizing: border-box;
@@ -7126,7 +7126,7 @@ var OVERLAY_SURFACE_CSS = `
     z-index: 2147482998;
     pointer-events: none;
     color: #fff;
-    font-family: ${ISOLATED_UI_FONT_FAMILY};
+    font-family: ${BMS_INFO_FONT_FAMILY};
     font-size: ${ISOLATED_UI_ROOT_FONT_SIZE};
     line-height: 1.25;
     box-sizing: border-box;

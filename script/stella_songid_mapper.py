@@ -35,6 +35,7 @@ LOG_FILE = SAVE_DIR / "scraper.log"
 # Stella BMSのページ構造に応じたXPath
 XPATH_TARGET1 = "//*[@id=\"scroll-area\"]/section/main/div[1]/div[2]/div/table/tbody/tr[8]/td[2]/a" # LR2IRの終了に対応
 XPATH_TARGET2 = "//*[@id=\"scroll-area\"]/section/main/div[1]/div[2]/div[2]/table/tbody/tr[5]/td[2]/a" # AI提案で譜面未アップロードの場合
+XPATH_TARGET3 = "//*[@id=\"scroll-area\"]/main/div/div[2]/div/table/tbody/tr[8]/td[2]/a"
 XPATH_NOT_FOUND = "//*[@id=\"scroll-area\"]/section/div/div/h1"
 
 URL_TEMPLATE = "https://stellabms.xyz/song/{}"
@@ -102,7 +103,7 @@ def process_page(driver: webdriver.Chrome, songid: int) -> dict | str | None:
     
     try:
         element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, f"{XPATH_TARGET1} | {XPATH_TARGET2}"))
+            EC.presence_of_element_located((By.XPATH, f"{XPATH_TARGET1} | {XPATH_TARGET2} | {XPATH_TARGET3}"))
         )
         logging.info(f"{songid}: md5要素を取得")
     except TimeoutException:

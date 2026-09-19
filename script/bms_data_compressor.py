@@ -195,6 +195,7 @@ WHERE pe.is_removed = 0
     OR
     (pe.sha256 IS NOT NULL AND pe.sha256 <> '')
   )
+  AND pe.playlist_id NOT IN (5143, 5144, 5145, 5146)
 ;
 
 CREATE INDEX temp.idx_temp_entrys_md5

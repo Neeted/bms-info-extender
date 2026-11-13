@@ -567,6 +567,18 @@ test("renderBmsData links MD5 records to BMS-IR", () => {
   assert.equal(bmsIrLink.style.display, "inline");
 });
 
+test("Mocha リンクは新しい曲 URL を使い、Mocha 自身では非表示にする", () => {
+  const documentRef = new MockDocument();
+  const { container } = createPreviewContainerElements(documentRef);
+  const record = createNormalizedRecord("a".repeat(64));
+  renderBmsData(container, record);
+  const link = findElementById(container, "bd-mocha");
+  assert.equal(link.href, `https://mocha-repository.info/songs/${record.sha256}`);
+  assert.equal(link.style.display, "inline");
+  renderBmsData(container, record, { currentSite: PREVIEW_LINK_SITE.mocha });
+  assert.equal(link.style.display, "none");
+});
+
 test("renderBmsData links MD5 records to STELLAVERSE IR", () => {
   const documentRef = new MockDocument();
   const { container } = createPreviewContainerElements(documentRef);

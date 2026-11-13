@@ -1,5 +1,9 @@
 import * as PreviewRuntime from "../../shared/preview-runtime/index.js";
 import {
+  isMochaSongPath, findMochaSection, getMochaIdentifiers,
+  preserveMochaLevel, appendMochaFallbackLinks,
+} from "./mocha-dom.js";
+import {
   STELLAVERSE_TOTAL_NOTE_SELECTOR,
   getStellaverseChartStatsCells,
   getStellaverseRowsToHideAfterSuccess,
@@ -21,8 +25,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
 
   const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
   const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
-  const BMSSEARCH_PATTERN_PAGE_BASE_URL = "https://bmssearch.net/patterns";
-  const SCRIPT_VERSION_FALLBACK = "2.3.21";
+  const SCRIPT_VERSION_FALLBACK = "2.3.22";
   const userscriptFetch = createUserscriptFetch();
   PreviewRuntime.setPreviewRuntimeFetch(userscriptFetch);
   const SKIP_VERSION_NOTIFICATION_FROM = "2.3.18";
@@ -677,12 +680,12 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     }
   };
   const MOCHA_THEME = {
-    dctx: "#ffffff",
-    dcbk: "#333333",
-    hdtx: "#ffffff",
-    hdbk: "#666666",
-    linkColor: "#8888ff",
-    linkHoverColor: "#ff88ff"
+    dctx: "#2e211b",
+    dcbk: "#fffdf9",
+    hdtx: "#2e211b",
+    hdbk: "#f7f1e8",
+    linkColor: "#1f766e",
+    linkHoverColor: "#553021"
   };
   const STELLAVERSE_SELECTORS = {
     pageMain: "#scroll-area main",
@@ -710,25 +713,6 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
   const MINIR_SELECTORS = {
     targetElement: "#root > div > div > div > div.compact.tabulator"
   };
-  const MOCHA_SELECTORS = {
-    songInfoTable: "#main > table.songinfo",
-    songInfoBody: "#main > table.songinfo > tbody",
-    form: "#main > form",
-    songInfoContentCell: "td.songinfo_content",
-    anchor: "a"
-  };
-  const MOCHA_ROW_INDEXES = {
-    mode: 1,
-    totalNotes: 3,
-    total: 4,
-    judgerank: 5,
-    bpm: 6,
-    otherIr: 10
-  };
-  const MOCHA_LINK_INDEXES = {
-    lr2irInOtherIrRow: 2
-  };
-
   /**
    * 外部サイト側で取得できた識別子群。
    * @typedef {Object} PageIdentifiers
@@ -818,14 +802,6 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
    * @property {string} md5
    * @property {HTMLAnchorElement} anchor
    * @property {Element|null} row
-   */
-
-  /**
-   * Mocha の曲情報テーブル周りで使う DOM 参照群。
-   * @typedef {Object} MochaSongInfoRefs
-   * @property {Element|null} songInfoTable
-   * @property {Element|null} songInfoBody
-   * @property {Element[]} songInfoRows
    */
 
   /**
@@ -1742,18 +1718,6 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     return Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches);
   }
 
-  /**
-   * Mocha の曲情報テーブル周辺で使う DOM 参照をまとめて取得する。
-   * @returns {MochaSongInfoRefs}
-   */
-  function getMochaSongInfoRefs() {
-    const songInfoTable = document.querySelector(MOCHA_SELECTORS.songInfoTable);
-    const songInfoBody = document.querySelector(MOCHA_SELECTORS.songInfoBody);
-    const songInfoRows = songInfoBody ? Array.from(songInfoBody.children) : [];
-
-    return { songInfoTable, songInfoBody, songInfoRows };
-  }
-
   // ====================================================================================================
   // BMS-IR
   //   近年のSPAサイトみたいにページが書き変わらないので処理が単純で良い
@@ -2380,141 +2344,50 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
 
   // ====================================================================================================
   // Mocha-Repository
-  //   LR2IRと同様のアプローチで問題なし
+  //   初期 HTML の Chart Information を、描画成功後に共通パネルへ差し替える。
   // ====================================================================================================
-  /**
-   * Mocha 向けの拡張処理を初期化する。
-   * @returns {Promise<void>}
-   */
   async function mocha() {
-    console.info("Mochaの処理に入りました");
-
+    if (!isMochaSongPath(location.pathname)) return;
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", async (event) => {
-        console.info("🔥 DOMContentLoadedイベントが発火しました");
-        await updatePage();
-      });
+      document.addEventListener("DOMContentLoaded", () => { void updateMochaPage(); }, { once: true });
     } else {
-      console.info("🔥 DOMContentLoadedイベントは発火済です");
-      await updatePage();
+      await updateMochaPage();
     }
+  }
 
-    // ==================================================================================================
-    // 曲ページの書き換え処理
-    async function updatePage() {
-      console.info("Mochaの曲ページ書き換え処理に入りました");
-
-      // sha256抽出
-      const url = window.location.href;
-      let targetsha256 = null;
-      const match = url.match(/sha256=([a-f0-9]{64})/);
-      if (match) {
-        targetsha256 = match[1];
-      }
-
-      // ターゲット要素特定
-      // 曲情報テーブルの下に挿入する
-      const { songInfoTable, songInfoBody, songInfoRows } = getMochaSongInfoRefs();
-      let htmlTargetElement = songInfoTable;
-      let htmlTargetDest = "afterend";
-      // 曲情報テーブルがない場合はフォーム(Score [Update]のところ)の上に挿入する
-      if (!htmlTargetElement) {
-        htmlTargetElement = document.querySelector(MOCHA_SELECTORS.form);
-        htmlTargetDest = "beforebegin";
-      }
-
-      // sha256 と差し込み先が取れた場合だけ拡張パネルを描画する。
-      if (targetsha256 && htmlTargetElement && htmlTargetDest) {
-        const pageContext = {
-          identifiers: { md5: null, sha256: targetsha256, bmsid: null },
-          insertion: { element: htmlTargetElement, position: htmlTargetDest },
-          theme: MOCHA_THEME,
-          currentSite: PreviewRuntime.PREVIEW_LINK_SITE.mocha
-        };
-        // テンプレートを挿入
-        const container = insertBmsDataTemplate(pageContext);
-        // 外部から取得したデータでテンプレートを置換
-        const insertResult = await insertBmsData(pageContext, container);
-        if (insertResult.ok) {
-          // 最後まで置換がうまく行った場合
-          if (songInfoTable) {
-            // Mocha 側と完全に重複する行だけを落とし、残す行の並びは変えない。
-            const rowsToRemove = [
-              songInfoRows[MOCHA_ROW_INDEXES.otherIr],
-              songInfoRows[MOCHA_ROW_INDEXES.bpm],
-              songInfoRows[MOCHA_ROW_INDEXES.judgerank],
-              songInfoRows[MOCHA_ROW_INDEXES.total],
-              songInfoRows[MOCHA_ROW_INDEXES.totalNotes],
-              songInfoRows[MOCHA_ROW_INDEXES.mode]
-            ].filter(Boolean);
-            rowsToRemove.forEach(row => {
-              row.remove();
-            });
-          }
-          console.info("✅ 外部データの取得とページの書き換えが成功しました");
-        } else {
-          // 外部 API が落ちていても、Mocha 内の LR2IR リンクから拾える情報だけは補う。
-          console.error("❌ 外部データの取得とページの書き換えが失敗しました");
-          // LR2IRリンク要素取得
-          const otherIrRow = songInfoRows[MOCHA_ROW_INDEXES.otherIr];
-          const otherIrLinks = otherIrRow ? Array.from(otherIrRow.querySelectorAll(MOCHA_SELECTORS.anchor)) : [];
-          const lr2irLink = otherIrLinks[MOCHA_LINK_INDEXES.lr2irInOtherIrRow];
-          if (lr2irLink) {
-            // hrefからmd5抽出
-            const href = lr2irLink.getAttribute("href");
-            const md5Match = href ? href.match(/bmsmd5=([0-9a-fA-F]{32})/) : null;
-            if (!md5Match) {
-              console.error("❌ LR2IRリンクからMD5が取得できませんでした");
-              return;
-            }
-            const md5 = md5Match[1];
-
-            // フォールバック表示は既存テーブルの末尾へ追加する。
-            const sha256Row = document.createElement("tr");
-            sha256Row.setAttribute("height", "20");
-            sha256Row.className = "ranking_header";
-            sha256Row.innerHTML = `<td class="songinfo_header">Sha256</td><td class="songinfo_content">${targetsha256}</td>`;
-
-            const md5Row = document.createElement("tr");
-            md5Row.setAttribute("height", "20");
-            md5Row.className = "ranking_header";
-            md5Row.innerHTML = `<td class="songinfo_header">Md5</td><td class="songinfo_content">${md5}</td>`;
-
-            if (songInfoBody) {
-              songInfoBody.appendChild(sha256Row);
-              songInfoBody.appendChild(md5Row);
-            } else {
-              console.error("❌ Mochaの曲情報テーブル本文が見つかりませんでした");
-              return;
-            }
-
-            // Viewer は即時、BMS SEARCH は存在確認後に既存の Other IR 行へ後追いで追記する。
-            const targetTd = otherIrRow.querySelector(MOCHA_SELECTORS.songInfoContentCell);
-            if (targetTd) {
-              const viewerLink = document.createElement("a");
-              viewerLink.href = `https://bms-score-viewer.pages.dev/view?md5=${md5}`;
-              viewerLink.target = "_blank";
-              viewerLink.textContent = "Viewer";
-              const EZ2PATTERNLink = document.createElement("a");
-              EZ2PATTERNLink.href = `https://ez2pattern.kr/bms/chart?md5=${md5}`;
-              EZ2PATTERNLink.target = "_blank";
-              EZ2PATTERNLink.textContent = "EZ2PATTERN";
-              targetTd.appendChild(document.createTextNode("　"));
-              targetTd.appendChild(viewerLink);
-              targetTd.appendChild(document.createTextNode("　"));
-              targetTd.appendChild(EZ2PATTERNLink);
-              void appendBmsSearchLinkIfAvailable(targetTd, targetsha256);
-            } else {
-              console.error("❌ Mochaのリンク追加先セルが見つかりませんでした");
-            }
-          } else {
-            console.error("❌ LR2IRリンクが見つかりませんでした");
-          }
-        }
-      } else {
-        console.info("❌ Mochaのページ書き換えはスキップされました。sha256かターゲット要素が取得できませんでした");
-      }
+  async function updateMochaPage() {
+    if (!isMochaSongPath(location.pathname) || document.getElementById("bmsdata-container")) return;
+    const section = findMochaSection(document, "Chart Information");
+    if (!section) {
+      console.warn("Mocha: Chart Information section が一意に見つかりませんでした");
+      return;
     }
+    const identifiers = getMochaIdentifiers(section);
+    if (!identifiers.md5 && !identifiers.sha256) {
+      console.warn("Mocha: 問い合わせに使用できるハッシュがありませんでした");
+      return;
+    }
+    const pageContext = {
+      identifiers,
+      insertion: { element: section, position: "beforebegin" },
+      theme: MOCHA_THEME,
+      currentSite: PreviewRuntime.PREVIEW_LINK_SITE.mocha
+    };
+    let container;
+    try {
+      container = insertBmsDataTemplate(pageContext);
+      const result = await insertBmsData(pageContext, container);
+      if (result.ok && container.isConnected && section.isConnected) {
+        preserveMochaLevel(section, container);
+        section.remove();
+        return;
+      }
+      console.error("Mocha: メタデータを表示できなかったため、元の曲情報を保持します", result.reason);
+    } catch (error) {
+      console.error("Mocha: 拡張パネルの描画に失敗しました", error);
+    }
+    destroyBmsDataContainer(container);
+    await appendMochaFallbackLinks(document, identifiers, PreviewRuntime.checkBmsSearchPatternExists);
   }
 
   // ====================================================================================================
@@ -2604,50 +2477,6 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     }
 
     return { ok: true, reason: "success" };
-  }
-
-  /**
-   * BMS SEARCH API で SHA256 に対応する譜面が存在するか確認する。
-   * @param {string} sha256
-   * @returns {Promise<boolean>}
-   */
-  async function checkBmsSearchPatternExists(sha256) {
-    return PreviewRuntime.checkBmsSearchPatternExists(sha256);
-  }
-
-  /**
-   * Mocha フォールバックの既存セルへ BMS SEARCH リンクを後追いで追加する。
-   * @param {HTMLElement} targetTd
-   * @param {string|null} sha256
-   * @returns {Promise<void>}
-   */
-  async function appendBmsSearchLinkIfAvailable(targetTd, sha256) {
-    try {
-      if (!sha256) {
-        return;
-      }
-      if (!await checkBmsSearchPatternExists(sha256)) {
-        return;
-      }
-      if (!targetTd.isConnected) {
-        return;
-      }
-
-      const href = `${BMSSEARCH_PATTERN_PAGE_BASE_URL}/${sha256}`;
-      const existingLink = Array.from(targetTd.querySelectorAll("a")).find(anchor => anchor.href === href);
-      if (existingLink) {
-        return;
-      }
-
-      const bmsSearchLink = document.createElement("a");
-      bmsSearchLink.href = href;
-      bmsSearchLink.target = "_blank";
-      bmsSearchLink.textContent = "BMS SEARCH";
-      targetTd.appendChild(document.createTextNode("　"));
-      targetTd.appendChild(bmsSearchLink);
-    } catch (error) {
-      console.warn("MochaフォールバックへのBMS SEARCHリンク追加に失敗しました:", error);
-    }
   }
 
   function createUserscriptFetch() {

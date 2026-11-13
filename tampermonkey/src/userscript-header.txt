@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.21
+// @version      2.3.22
 // @description  BMS-IR、Bokutachi、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
@@ -11,7 +11,7 @@
 // @match        https://stellabms.xyz/*
 // @match        https://ir.stellabms.xyz/*
 // @match        https://www.gaftalk.com/minir/*
-// @match        https://mocha-repository.info/song.php*
+// @match        https://mocha-repository.info/songs/*
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_getResourceText
@@ -26,6 +26,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.22 Mocha-Repositoryのリニューアルに対応。数値ID・ハッシュURL、LEVEL保持、取得失敗時の外部リンク追記に対応
 // 2.3.21 STELLAVERSEの新しいテーブル構造に対応し、行の省スペース化・フォント統一・重複情報の非表示を修正
 //        秒なしの投稿日時からの経過時間表示に対応し、SvelteKit初期化後の挿入と同一ページ内でのパネル消失時の復旧を追加
 // 2.3.20 BMS-IR曲ページでURLのsongmd5から譜面を特定し、ジャンル行直後への拡張パネル挿入と曲名手前へのフォールバックを修正

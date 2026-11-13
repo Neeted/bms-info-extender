@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BMS Info Extender
 // @namespace    https://github.com/Neeted
-// @version      2.3.21
+// @version      2.3.22
 // @description  BMS-IR、Bokutachi、MinIR、Mocha、STELLAVERSEで詳細メタデータ、ノーツ分布/BPM推移グラフ、譜面ビューアなどを表示する
 // @author       ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ
 // @match        http://www.dream-pro.info/new/song*
@@ -11,7 +11,7 @@
 // @match        https://stellabms.xyz/*
 // @match        https://ir.stellabms.xyz/*
 // @match        https://www.gaftalk.com/minir/*
-// @match        https://mocha-repository.info/song.php*
+// @match        https://mocha-repository.info/songs/*
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_getResourceText
@@ -26,6 +26,7 @@
 // @downloadURL  https://neeted.github.io/bms-info-extender/tampermonkey/bms_info_extender.user.js
 // @run-at       document-start
 // ==/UserScript==
+// 2.3.22 Mocha-Repositoryのリニューアルに対応。数値ID・ハッシュURL、LEVEL保持、取得失敗時の外部リンク追記に対応
 // 2.3.21 STELLAVERSEの新しいテーブル構造に対応し、行の省スペース化・フォント統一・重複情報の非表示を修正
 //        秒なしの投稿日時からの経過時間表示に対応し、SvelteKit初期化後の挿入と同一ページ内でのパネル消失時の復旧を追加
 // 2.3.20 BMS-IR曲ページでURLのsongmd5から譜面を特定し、ジャンル行直後への拡張パネル挿入と曲名手前へのフォールバックを修正
@@ -9226,7 +9227,7 @@
         showLink(getById("bd-minir"), `https://www.gaftalk.com/minir/#/viewer/song/${normalizedRecord.sha256}/0`);
       }
       if (shouldShowSite(PREVIEW_LINK_SITE.mocha)) {
-        showLink(getById("bd-mocha"), `https://mocha-repository.info/song.php?sha256=${normalizedRecord.sha256}`);
+        showLink(getById("bd-mocha"), `https://mocha-repository.info/songs/${normalizedRecord.sha256}`);
       }
       if (shouldShowSite(PREVIEW_LINK_SITE.ez2pattern)) {
         showLink(getById("bd-ez2pattern"), `https://ez2pattern.kr/bms/chart?sha256=${normalizedRecord.sha256}`);
@@ -9873,6 +9874,110 @@
       return DEFAULT_SPACING_SCALE;
     }
     return value;
+  }
+
+  // tampermonkey/src/mocha-dom.js
+  function isMochaSongPath(pathname) {
+    return /^\/songs\/(?:\d+|[a-f0-9]{64})\/?$/i.test(pathname);
+  }
+  function findMochaSection(documentRef, title) {
+    const sections = Array.from(documentRef.querySelectorAll("main section")).filter((section) => section.querySelector(":scope > h2")?.textContent.trim() === title);
+    return sections.length === 1 ? sections[0] : null;
+  }
+  function findField(section, labels) {
+    const heads = Array.from(section.querySelectorAll("dt")).filter((head) => labels.includes(head.textContent.trim()));
+    if (heads.length !== 1 || heads[0].nextElementSibling?.tagName !== "DD") return null;
+    return { head: heads[0], cell: heads[0].nextElementSibling };
+  }
+  function getMochaIdentifiers(section) {
+    const identifiers = { md5: null, sha256: null, bmsid: null };
+    for (const [key, label, pattern] of [
+      ["md5", "MD5", /^[a-f0-9]{32}$/i],
+      ["sha256", "SHA-256", /^[a-f0-9]{64}$/i]
+    ]) {
+      const field = findField(section, [label]);
+      const input = field?.cell.querySelector('input[id^="song-hash-"]');
+      const labelElement = field?.head.querySelector("label");
+      const value = input?.value.trim() ?? "";
+      if (input && labelElement?.htmlFor === input.id && pattern.test(value)) {
+        identifiers[key] = value.toLowerCase();
+      }
+    }
+    return identifiers;
+  }
+  function preserveMochaLevel(section, container) {
+    const field = findField(section, ["LEVEL"]);
+    if (!field) return;
+    const list = section.ownerDocument.createElement("dl");
+    const style = section.ownerDocument.createElement("style");
+    style.textContent = `
+    .bmsie-mocha-level {
+      margin: 16px 0 0;
+      padding: 24px;
+      border-radius: 4px;
+      background: #fffdf9;
+      color: #2e211b;
+      font-size: 14px;
+      line-height: 20px;
+      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    }
+    .bmsie-mocha-level, .bmsie-mocha-level * {
+      font-family: Figtree, ui-sans-serif, system-ui, sans-serif;
+    }
+    .bmsie-mocha-level dt { margin: 0; color: #6b7280; font-weight: 500; }
+    .bmsie-mocha-level dd { margin: 4px 0 0; font-weight: 400; }
+    .bmsie-mocha-level .whitespace-nowrap { white-space: nowrap; }
+  `;
+    list.className = "bmsie-mocha-level";
+    list.append(field.head.cloneNode(true), field.cell.cloneNode(true));
+    container.shadowRoot.append(style, list);
+  }
+  async function appendMochaFallbackLinks(documentRef, { md5, sha256 }, checkBmsSearchPatternExists2) {
+    const section = findMochaSection(documentRef, "URL");
+    if (!section) {
+      console.warn("Mocha: 外部リンクの追加先 URL section が見つかりませんでした");
+      return;
+    }
+    function appendLink(text, href) {
+      if (!section.isConnected) return;
+      let field = findField(section, ["Other IR", "Other URL"]);
+      if (!field) {
+        const list = section.querySelector("dl");
+        if (!list) return;
+        const row = documentRef.createElement("div");
+        const head = documentRef.createElement("dt");
+        const cell = documentRef.createElement("dd");
+        head.className = "font-medium text-gray-500";
+        head.textContent = "Other URL";
+        cell.className = "mt-1";
+        row.append(head, cell);
+        list.append(row);
+        field = { head, cell };
+      }
+      if (Array.from(field.cell.querySelectorAll("a")).some((anchor2) => anchor2.href === href)) return;
+      const anchor = documentRef.createElement("a");
+      anchor.href = href;
+      anchor.textContent = text;
+      anchor.className = "text-indigo-600 hover:underline";
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      field.cell.append(documentRef.createTextNode("　"), anchor);
+      field.head.textContent = "Other URL";
+    }
+    if (md5) appendLink("Viewer", `https://bms-score-viewer.pages.dev/view?md5=${md5}`);
+    if (sha256 || md5) {
+      const query = sha256 ? `sha256=${sha256}` : `md5=${md5}`;
+      appendLink("EZ2PATTERN", `https://ez2pattern.kr/bms/chart?${query}`);
+    }
+    if (sha256) {
+      try {
+        if (await checkBmsSearchPatternExists2(sha256)) {
+          appendLink("BMS SEARCH", `https://bmssearch.net/patterns/${sha256}`);
+        }
+      } catch (error) {
+        console.warn("Mocha: BMS SEARCH の存在確認に失敗しました", error);
+      }
+    }
   }
 
   // tampermonkey/src/stellaverse-dom.js
@@ -12109,8 +12214,7 @@
     GM_addStyle(fontCSS);
     const SCORE_BASE_URL = "https://bms-info-extender.netlify.app/score";
     const SCORE_R2_BASE_URL = "https://bms.howan.jp/score";
-    const BMSSEARCH_PATTERN_PAGE_BASE_URL2 = "https://bmssearch.net/patterns";
-    const SCRIPT_VERSION_FALLBACK = "2.3.21";
+    const SCRIPT_VERSION_FALLBACK = "2.3.22";
     const userscriptFetch = createUserscriptFetch();
     setPreviewRuntimeFetch(userscriptFetch);
     const SKIP_VERSION_NOTIFICATION_FROM = "2.3.18";
@@ -12762,12 +12866,12 @@
       }
     };
     const MOCHA_THEME = {
-      dctx: "#ffffff",
-      dcbk: "#333333",
-      hdtx: "#ffffff",
-      hdbk: "#666666",
-      linkColor: "#8888ff",
-      linkHoverColor: "#ff88ff"
+      dctx: "#2e211b",
+      dcbk: "#fffdf9",
+      hdtx: "#2e211b",
+      hdbk: "#f7f1e8",
+      linkColor: "#1f766e",
+      linkHoverColor: "#553021"
     };
     const STELLAVERSE_SELECTORS = {
       pageMain: "#scroll-area main",
@@ -12793,24 +12897,6 @@
   `;
     const MINIR_SELECTORS = {
       targetElement: "#root > div > div > div > div.compact.tabulator"
-    };
-    const MOCHA_SELECTORS = {
-      songInfoTable: "#main > table.songinfo",
-      songInfoBody: "#main > table.songinfo > tbody",
-      form: "#main > form",
-      songInfoContentCell: "td.songinfo_content",
-      anchor: "a"
-    };
-    const MOCHA_ROW_INDEXES = {
-      mode: 1,
-      totalNotes: 3,
-      total: 4,
-      judgerank: 5,
-      bpm: 6,
-      otherIr: 10
-    };
-    const MOCHA_LINK_INDEXES = {
-      lr2irInOtherIrRow: 2
     };
     void initializeVersionNotification();
     bootstrap();
@@ -13497,12 +13583,6 @@
       }
       return Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches);
     }
-    function getMochaSongInfoRefs() {
-      const songInfoTable = document.querySelector(MOCHA_SELECTORS.songInfoTable);
-      const songInfoBody = document.querySelector(MOCHA_SELECTORS.songInfoBody);
-      const songInfoRows = songInfoBody ? Array.from(songInfoBody.children) : [];
-      return { songInfoTable, songInfoBody, songInfoRows };
-    }
     async function bmsIr() {
       console.info("BMS-IRの処理に入りました");
       if (document.readyState === "loading") {
@@ -13926,109 +14006,48 @@
       }
     }
     async function mocha() {
-      console.info("Mochaの処理に入りました");
+      if (!isMochaSongPath(location.pathname)) return;
       if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", async (event) => {
-          console.info("🔥 DOMContentLoadedイベントが発火しました");
-          await updatePage();
-        });
+        document.addEventListener("DOMContentLoaded", () => {
+          void updateMochaPage();
+        }, { once: true });
       } else {
-        console.info("🔥 DOMContentLoadedイベントは発火済です");
-        await updatePage();
+        await updateMochaPage();
       }
-      async function updatePage() {
-        console.info("Mochaの曲ページ書き換え処理に入りました");
-        const url = window.location.href;
-        let targetsha256 = null;
-        const match = url.match(/sha256=([a-f0-9]{64})/);
-        if (match) {
-          targetsha256 = match[1];
-        }
-        const { songInfoTable, songInfoBody, songInfoRows } = getMochaSongInfoRefs();
-        let htmlTargetElement = songInfoTable;
-        let htmlTargetDest = "afterend";
-        if (!htmlTargetElement) {
-          htmlTargetElement = document.querySelector(MOCHA_SELECTORS.form);
-          htmlTargetDest = "beforebegin";
-        }
-        if (targetsha256 && htmlTargetElement && htmlTargetDest) {
-          const pageContext = {
-            identifiers: { md5: null, sha256: targetsha256, bmsid: null },
-            insertion: { element: htmlTargetElement, position: htmlTargetDest },
-            theme: MOCHA_THEME,
-            currentSite: PREVIEW_LINK_SITE.mocha
-          };
-          const container = insertBmsDataTemplate(pageContext);
-          const insertResult = await insertBmsData(pageContext, container);
-          if (insertResult.ok) {
-            if (songInfoTable) {
-              const rowsToRemove = [
-                songInfoRows[MOCHA_ROW_INDEXES.otherIr],
-                songInfoRows[MOCHA_ROW_INDEXES.bpm],
-                songInfoRows[MOCHA_ROW_INDEXES.judgerank],
-                songInfoRows[MOCHA_ROW_INDEXES.total],
-                songInfoRows[MOCHA_ROW_INDEXES.totalNotes],
-                songInfoRows[MOCHA_ROW_INDEXES.mode]
-              ].filter(Boolean);
-              rowsToRemove.forEach((row) => {
-                row.remove();
-              });
-            }
-            console.info("✅ 外部データの取得とページの書き換えが成功しました");
-          } else {
-            console.error("❌ 外部データの取得とページの書き換えが失敗しました");
-            const otherIrRow = songInfoRows[MOCHA_ROW_INDEXES.otherIr];
-            const otherIrLinks = otherIrRow ? Array.from(otherIrRow.querySelectorAll(MOCHA_SELECTORS.anchor)) : [];
-            const lr2irLink = otherIrLinks[MOCHA_LINK_INDEXES.lr2irInOtherIrRow];
-            if (lr2irLink) {
-              const href = lr2irLink.getAttribute("href");
-              const md5Match = href ? href.match(/bmsmd5=([0-9a-fA-F]{32})/) : null;
-              if (!md5Match) {
-                console.error("❌ LR2IRリンクからMD5が取得できませんでした");
-                return;
-              }
-              const md5 = md5Match[1];
-              const sha256Row = document.createElement("tr");
-              sha256Row.setAttribute("height", "20");
-              sha256Row.className = "ranking_header";
-              sha256Row.innerHTML = `<td class="songinfo_header">Sha256</td><td class="songinfo_content">${targetsha256}</td>`;
-              const md5Row = document.createElement("tr");
-              md5Row.setAttribute("height", "20");
-              md5Row.className = "ranking_header";
-              md5Row.innerHTML = `<td class="songinfo_header">Md5</td><td class="songinfo_content">${md5}</td>`;
-              if (songInfoBody) {
-                songInfoBody.appendChild(sha256Row);
-                songInfoBody.appendChild(md5Row);
-              } else {
-                console.error("❌ Mochaの曲情報テーブル本文が見つかりませんでした");
-                return;
-              }
-              const targetTd = otherIrRow.querySelector(MOCHA_SELECTORS.songInfoContentCell);
-              if (targetTd) {
-                const viewerLink = document.createElement("a");
-                viewerLink.href = `https://bms-score-viewer.pages.dev/view?md5=${md5}`;
-                viewerLink.target = "_blank";
-                viewerLink.textContent = "Viewer";
-                const EZ2PATTERNLink = document.createElement("a");
-                EZ2PATTERNLink.href = `https://ez2pattern.kr/bms/chart?md5=${md5}`;
-                EZ2PATTERNLink.target = "_blank";
-                EZ2PATTERNLink.textContent = "EZ2PATTERN";
-                targetTd.appendChild(document.createTextNode("　"));
-                targetTd.appendChild(viewerLink);
-                targetTd.appendChild(document.createTextNode("　"));
-                targetTd.appendChild(EZ2PATTERNLink);
-                void appendBmsSearchLinkIfAvailable(targetTd, targetsha256);
-              } else {
-                console.error("❌ Mochaのリンク追加先セルが見つかりませんでした");
-              }
-            } else {
-              console.error("❌ LR2IRリンクが見つかりませんでした");
-            }
-          }
-        } else {
-          console.info("❌ Mochaのページ書き換えはスキップされました。sha256かターゲット要素が取得できませんでした");
-        }
+    }
+    async function updateMochaPage() {
+      if (!isMochaSongPath(location.pathname) || document.getElementById("bmsdata-container")) return;
+      const section = findMochaSection(document, "Chart Information");
+      if (!section) {
+        console.warn("Mocha: Chart Information section が一意に見つかりませんでした");
+        return;
       }
+      const identifiers = getMochaIdentifiers(section);
+      if (!identifiers.md5 && !identifiers.sha256) {
+        console.warn("Mocha: 問い合わせに使用できるハッシュがありませんでした");
+        return;
+      }
+      const pageContext = {
+        identifiers,
+        insertion: { element: section, position: "beforebegin" },
+        theme: MOCHA_THEME,
+        currentSite: PREVIEW_LINK_SITE.mocha
+      };
+      let container;
+      try {
+        container = insertBmsDataTemplate(pageContext);
+        const result = await insertBmsData(pageContext, container);
+        if (result.ok && container.isConnected && section.isConnected) {
+          preserveMochaLevel(section, container);
+          section.remove();
+          return;
+        }
+        console.error("Mocha: メタデータを表示できなかったため、元の曲情報を保持します", result.reason);
+      } catch (error) {
+        console.error("Mocha: 拡張パネルの描画に失敗しました", error);
+      }
+      destroyBmsDataContainer(container);
+      await appendMochaFallbackLinks(document, identifiers, checkBmsSearchPatternExists);
     }
     function insertBmsDataTemplate(pageContext) {
       const container = insertBmsDataContainer({
@@ -14095,35 +14114,6 @@
         void container.__bmsPreviewRuntime.prefetch();
       }
       return { ok: true, reason: "success" };
-    }
-    async function checkBmsSearchPatternExists2(sha256) {
-      return checkBmsSearchPatternExists(sha256);
-    }
-    async function appendBmsSearchLinkIfAvailable(targetTd, sha256) {
-      try {
-        if (!sha256) {
-          return;
-        }
-        if (!await checkBmsSearchPatternExists2(sha256)) {
-          return;
-        }
-        if (!targetTd.isConnected) {
-          return;
-        }
-        const href = `${BMSSEARCH_PATTERN_PAGE_BASE_URL2}/${sha256}`;
-        const existingLink = Array.from(targetTd.querySelectorAll("a")).find((anchor) => anchor.href === href);
-        if (existingLink) {
-          return;
-        }
-        const bmsSearchLink = document.createElement("a");
-        bmsSearchLink.href = href;
-        bmsSearchLink.target = "_blank";
-        bmsSearchLink.textContent = "BMS SEARCH";
-        targetTd.appendChild(document.createTextNode("　"));
-        targetTd.appendChild(bmsSearchLink);
-      } catch (error) {
-        console.warn("MochaフォールバックへのBMS SEARCHリンク追加に失敗しました:", error);
-      }
     }
     function createUserscriptFetch() {
       if (typeof GM_xmlhttpRequest !== "function") {

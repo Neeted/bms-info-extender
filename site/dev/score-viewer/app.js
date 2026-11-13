@@ -9125,7 +9125,7 @@ function renderLinks(container, normalizedRecord, { currentSite = null } = {}) {
       showLink(getById("bd-minir"), `https://www.gaftalk.com/minir/#/viewer/song/${normalizedRecord.sha256}/0`);
     }
     if (shouldShowSite(PREVIEW_LINK_SITE.mocha)) {
-      showLink(getById("bd-mocha"), `https://mocha-repository.info/song.php?sha256=${normalizedRecord.sha256}`);
+      showLink(getById("bd-mocha"), `https://mocha-repository.info/songs/${normalizedRecord.sha256}`);
     }
     if (shouldShowSite(PREVIEW_LINK_SITE.ez2pattern)) {
       showLink(getById("bd-ez2pattern"), `https://ez2pattern.kr/bms/chart?sha256=${normalizedRecord.sha256}`);

@@ -28,6 +28,7 @@
 // ==/UserScript==
 // 2.3.22 Mocha-Repositoryのリニューアルに対応。数値ID・ハッシュURL、LEVEL保持、取得失敗時の外部リンク追記に対応
 //        STELLAVERSE IRで成功後もDOM監視を継続し、パネル消失時の復旧と取得失敗時の連続リクエスト抑止を追加
+//        STELLAVERSEでthのfont-weight調整
 // 2.3.21 STELLAVERSEの新しいテーブル構造に対応し、行の省スペース化・フォント統一・重複情報の非表示を修正
 //        秒なしの投稿日時からの経過時間表示に対応し、SvelteKit初期化後の挿入と同一ページ内でのパネル消失時の復旧を追加
 // 2.3.20 BMS-IR曲ページでURLのsongmd5から譜面を特定し、ジャンル行直後への拡張パネル挿入と曲名手前へのフォールバックを修正
@@ -12891,6 +12892,7 @@
       padding: 1.6px 3.2px !important;
       height: 16px !important;
       vertical-align: middle;
+      font-weight: normal;
     }
     .bmsie-stellaverse-source tr { border-bottom-width: 0 !important; }
     .bmsie-stellaverse-source:has(+ #bmsdata-container[data-bmsie-stellaverse-ready="true"])

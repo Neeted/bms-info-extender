@@ -705,6 +705,7 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       padding: 1.6px 3.2px !important;
       height: 16px !important;
       vertical-align: middle;
+      font-weight: normal;
     }
     .bmsie-stellaverse-source tr { border-bottom-width: 0 !important; }
     .bmsie-stellaverse-source:has(+ #bmsdata-container[data-bmsie-stellaverse-ready="true"])

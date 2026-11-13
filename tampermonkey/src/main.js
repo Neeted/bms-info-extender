@@ -2003,29 +2003,6 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       && domContext.chartHeader.nextElementSibling === container;
   }
 
-  /**
-   * 次の animation frame を待つ。
-   * @returns {Promise<void>}
-   */
-  function waitForAnimationFrame() {
-    return new Promise((resolve) => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  }
-
-  /**
-   * 挿入直後のSPA差し替えが落ち着いても、パネルが現在ページに残っているか確認する。
-   * @param {Element} container
-   * @param {string} pageKey
-   * @returns {Promise<boolean>}
-   */
-  async function waitForStellaverseIrPanelToSettle(container, pageKey) {
-    await waitForAnimationFrame();
-    await waitForAnimationFrame();
-    const domContext = getStellaverseIrChartDomContext(pageKey);
-    return Boolean(domContext && isCurrentStellaverseIrBmsDataContainer(container, pageKey, domContext));
-  }
-
   // ====================================================================================================
   // STELLAVERSE IR
   //   MD5 を含む曲ページに共通の拡張パネルを追加する
@@ -2046,6 +2023,8 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
     // ==================================================================================================
     // 曲ページの書き換え処理
     async function updatePage({ markUpdated }) {
+      // SSRの曲情報だけでは挿入せず、SvelteKitのマウント完了を待つ。
+      if (!document.getElementById("svelte-announcer")) return;
       const targetmd5 = getStellaverseIrChartMd5(location.href);
       if (!targetmd5) {
         return;
@@ -2064,12 +2043,13 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
       if (existingContainer) {
         if (isCurrentStellaverseIrBmsDataContainer(existingContainer, targetmd5, domContext)) {
           console.info("既に現在ページ用のbmsdataが挿入済みのためスキップします");
-          markUpdated();
           return;
         }
         destroyBmsDataContainer(existingContainer);
       }
 
+      // DOMから外されたパネルのruntimeも、再取得前に破棄する。
+      resetActiveBmsPreviewRuntime();
       const pageContext = {
         identifiers: { md5: targetmd5, sha256: null, bmsid: null },
         insertion: { element: domContext.chartHeader, position: "afterend" },
@@ -2079,26 +2059,32 @@ import { createScoreLoader } from "../../web/score-parser-runtime/src/score_load
         pageKey: targetmd5
       };
       const container = insertBmsDataTemplate(pageContext);
-      const insertResult = await insertBmsData(pageContext, container);
-      if (insertResult.ok) {
-        if (getStellaverseIrChartMd5(location.href) !== targetmd5) {
-          destroyBmsDataContainer(container);
-          return;
-        }
-        if (!await waitForStellaverseIrPanelToSettle(container, targetmd5)) {
-          console.info("STELLAVERSE IRのDOM差し替え後にbmsdataが残らなかったため、再試行を待ちます");
-          destroyBmsDataContainer(container);
-          return { retry: true };
-        }
-        console.info("✅ 外部データの取得とページの書き換えが成功しました");
+      let insertResult;
+      try {
+        insertResult = await insertBmsData(pageContext, container);
+      } catch (error) {
+        destroyBmsDataContainer(container);
         markUpdated();
-      } else {
-        if (insertResult.reason === "detached") {
-          console.info("STELLAVERSE IRのデータ取得中にbmsdataがDOMから外されたため、再試行を待ちます");
-          return { retry: true };
-        }
-        console.error("❌ 外部データの取得とページの書き換えが失敗しました");
+        console.error("STELLAVERSE IR: メタデータ表示に失敗しました", error);
+        return;
       }
+      if (!insertResult.ok) {
+        destroyBmsDataContainer(container);
+        if (insertResult.reason === "detached") return { retry: true };
+        // 取得失敗をDOM更新のたびに再試行せず、元の曲情報を維持する。
+        markUpdated();
+        console.error("STELLAVERSE IR: 外部メタデータを取得できませんでした");
+        return;
+      }
+      const currentContext = getStellaverseIrChartDomContext(targetmd5);
+      if (getStellaverseIrChartMd5(location.href) !== targetmd5
+        || !currentContext
+        || !isCurrentStellaverseIrBmsDataContainer(container, targetmd5, currentContext)) {
+        destroyBmsDataContainer(container);
+        return { retry: true };
+      }
+      // 成功後も監視を維持する。正常なパネルがあれば次回の再取得は省く。
+      console.info("✅ STELLAVERSE IRのメタデータ表示が完了しました");
     }
   }
 

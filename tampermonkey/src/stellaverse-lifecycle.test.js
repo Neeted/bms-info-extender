@@ -198,3 +198,101 @@ test("取得失敗では重複行を非表示にせず、再取得の連鎖も�
   assert.equal(env.panel.dataset.bmsieStellaverseReady, undefined);
   assert.equal(env.completed, true);
 });
+
+function irEnvironment({ failure = null, afterFetch = () => {} } = {}) {
+  let config;
+  let hydrated = false;
+  let panel = null;
+  let active = null;
+  let fetchCount = 0;
+  let disposed = 0;
+  let completed = false;
+  let context = { chartHeader: {} };
+  const md5 = "a".repeat(32);
+  const location = { href: `https://ir.stellabms.xyz/charts/${md5}` };
+  const destroy = (container) => {
+    container.isConnected = false;
+    if (active === container) { active = null; disposed++; }
+  };
+  loadFunction("stellaverseIr", {
+    console: { info() {}, error() {} }, location,
+    document: { getElementById: () => hydrated ? {} : null },
+    STELLAVERSE_IR_THEME: {}, STELLAVERSE_IR_SITE_ID: "ir",
+    watchSpaPage(value) { config = value; },
+    isStellaverseIrChartUrl: () => true,
+    cleanupStellaverseIrBmsDataContainers() {},
+    cleanupStellaverseIrBmsDataContainersExcept() {},
+    getStellaverseIrChartMd5: () => location.href.split("/").at(-1),
+    getStellaverseIrChartDomContext: () => context,
+    findStellaverseIrBmsDataContainer: () => panel?.isConnected ? panel : null,
+    isCurrentStellaverseIrBmsDataContainer: (container, key, refs) => container.isConnected && refs.chartHeader.nextElementSibling === container,
+    destroyBmsDataContainer: destroy,
+    resetActiveBmsPreviewRuntime() { if (active) { disposed++; active = null; } },
+    insertBmsDataTemplate() {
+      panel = { isConnected: true };
+      context.chartHeader.nextElementSibling = panel;
+      return panel;
+    },
+    async insertBmsData() {
+      fetchCount++;
+      active = panel;
+      afterFetch({ panel, location });
+      if (failure === "exception") throw Error("描画例外");
+      return { ok: !failure, reason: failure ?? "success" };
+    },
+  })();
+  return {
+    update: () => config.updatePage({ markUpdated() { completed = true; } }),
+    hydrate() { hydrated = true; },
+    replaceHeader() { context = { chartHeader: {} }; },
+    get panel() { return panel; }, get fetchCount() { return fetchCount; },
+    get disposed() { return disposed; }, get completed() { return completed; },
+  };
+}
+
+test("IR: マウント前は待機し、成功後も完了扱いにせずパネル消失から復旧する", async () => {
+  const env = irEnvironment();
+  await env.update();
+  assert.equal(env.fetchCount, 0);
+  env.hydrate();
+  await env.update();
+  await env.update();
+  assert.equal(env.fetchCount, 1);
+  assert.equal(env.completed, false);
+  env.panel.isConnected = false;
+  await env.update();
+  assert.equal(env.fetchCount, 2);
+  assert.equal(env.disposed, 1);
+  assert.equal(env.panel.isConnected, true);
+  env.replaceHeader();
+  await env.update();
+  assert.equal(env.fetchCount, 3);
+  assert.equal(env.disposed, 2);
+});
+
+test("IR: 未収録・通信失敗・描画例外ではcleanupして再取得の連鎖を止める", async () => {
+  for (const failure of ["not-found", "exception"]) {
+    const env = irEnvironment({ failure });
+    env.hydrate();
+    await env.update();
+    assert.equal(env.panel.isConnected, false);
+    assert.equal(env.disposed, 1);
+    assert.equal(env.completed, true);
+  }
+});
+
+test("IR: 取得中の切り離し・URL変更は完了扱いにせず再評価する", async () => {
+  for (const options of [
+    { failure: "detached" },
+    { afterFetch: ({ panel }) => { panel.isConnected = false; } },
+    { afterFetch: ({ location }) => { location.href = `https://ir.stellabms.xyz/charts/${"b".repeat(32)}`; } },
+  ]) {
+    const env = irEnvironment(options);
+    env.hydrate();
+    const result = await env.update();
+    assert.equal(result.retry, true);
+    assert.equal(env.completed, false);
+    assert.equal(env.panel.isConnected, false);
+    assert.equal(env.disposed, 1);
+  }
+});
